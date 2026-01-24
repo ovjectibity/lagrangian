@@ -1,0 +1,7 @@
+/target
+/src/target
+# /client/.vscode
+/client/node_modules
+/client/dist
+/app/target
+.DS_Store

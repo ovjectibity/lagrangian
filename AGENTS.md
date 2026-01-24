@@ -1,0 +1,10 @@
+## General instructions: 
+1. The app code is structured in two main directories: app & client
+2. The app holds the backend & the client is the frontend. 
+
+## Instructions on writing code
+1. Please be conservative in the changes that you are doing. In most cases, I will be telling you exactly what I want you to do.
+2. Usually, it is not a good idea to create new files, class, model, interface, type definitons. As much as possible, you should use existing ones. If you think one is really needed or recommended, check with me once before you proceed. Do take heed of this, creating these new assets without explicit verbal permission from me is UNACCEPTABLE.
+3. In case of any confusion, ambuiguity or inconsistencies in instructions, it's usually best to ask me rather than make assumptions & do something very adventurous.
+4. I couldn't emphasize this enough. Please ask ask ask before assuming anything. Question every assumption of yours. This will ensure that the code remains free of slop/fluff and it will ensure that every new addition to the code is well thought of (even by me when you ask me questions).
+5. When generating Rust code refer to the Rust styling guide available in instructions/styling.md file.

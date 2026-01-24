@@ -1,0 +1,7 @@
+#.cargo/config.toml
+
+[build]
+rustflags = [
+    "-L", "/Users/avi/Documents/manual/mujoco-build/lib", 
+    "-l", "mujoco",
+    "-C", "link-arg=-Wl,-rpath,/Users/avi/Documents/manual/mujoco-build/lib"]
