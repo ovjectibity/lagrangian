@@ -13,28 +13,16 @@ extern crate rocket;
 use rocket_ws as ws;
 use rocket::fs::FileServer;
 use rocket::futures::{SinkExt, StreamExt};
-use serde::Serialize;
 
 pub mod simulator;
 pub mod mujoco;
 pub mod model_def;
+pub mod messages_def;
 
 // --- API Routes ---
 #[get("/hello")]
 fn api_hello() -> &'static str {
     "Hello from Rocket!"
-}
-
-#[derive(Serialize)]
-pub enum SetModelMessageType {
-    TestModel,
-    SimulUpdate
-}
-
-#[derive(Serialize)]
-pub struct SetModelMessage {
-    set_model: model_def::WorldBody,
-    msg_type: SetModelMessageType
 }
 
 #[get("/viewport")]
@@ -84,9 +72,9 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                             let world_body = 
                                 simulator::get_test_model();
                             let response_message = 
-                            SetModelMessage {
+                            messages_def::SetModelMessage {
                                 set_model: world_body,
-                                msg_type: SetModelMessageType::TestModel
+                                msg_type: messages_def::SetModelMessageType::TestModel
                             };
                             let json_response = 
                                 serde_json::to_string(&response_message)
@@ -100,9 +88,9 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                 match Pin::new(&mut run_dynamics).resume(()) {
                                     CoroutineState::Yielded(b) =>  {
                                     let response_message = 
-                                    SetModelMessage {
+                                    messages_def::SetModelMessage {
                                         set_model: b,
-                                        msg_type: SetModelMessageType::SimulUpdate
+                                        msg_type: messages_def::SetModelMessageType::SimulUpdate
                                     };
                                     let json_response = 
                                         serde_json::to_string(&response_message)

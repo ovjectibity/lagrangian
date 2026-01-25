@@ -36,14 +36,19 @@
   const onMouseMove = (event: MouseEvent) => {
     if (!isDragging || !camera) return;
 
+    console.log("Mouse move on viewport");
     const deltaX = event.clientX - previousMousePosition.x;
     const deltaY = event.clientY - previousMousePosition.y;
 
     // Get the vector perpendicular to the camera's direction and up vectors (the "right" vector)
-    const right = new three.Vector3().crossVectors(camera.up, new three.Vector3().subVectors(new three.Vector3(0,0,0), camera.position).normalize());
+    const right = new three.Vector3().
+      crossVectors(camera.up, new three.Vector3().
+      subVectors(new three.Vector3(0,0,0), camera.position).
+      normalize());
 
     // Rotate the camera's position around the world's Y axis
-    camera.position.applyAxisAngle(new three.Vector3(0, 1, 0), -deltaX * rotationSpeed);
+    camera.position.applyAxisAngle(
+      new three.Vector3(0, 1, 0), -deltaX * rotationSpeed);
     // Rotate the camera's position around its local "right" axis
     camera.position.applyAxisAngle(right, -deltaY * rotationSpeed);
     
