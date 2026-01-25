@@ -186,6 +186,50 @@ unsafe fn build_body_recursive(
     }
 }
 
+unsafe fn extract_mesh_data_as_obj(
+    m: *const mujoco::mjModel, 
+    mesh_id: i32) -> Option<String> {
+    if mesh_id < 0 {
+        return None;
+    }
+
+    let mesh_vertadr = (*m).mesh_vertadr.add(mesh_id as usize).read() as usize;
+    let mesh_vertnum = (*m).mesh_vertnum.add(mesh_id as usize).read() as usize;
+    let mesh_faceadr = (*m).mesh_faceadr.add(mesh_id as usize).read() as usize;
+    let mesh_facenum = (*m).mesh_facenum.add(mesh_id as usize).read() as usize;
+
+    let vertices = std::slice::from_raw_parts(
+        (*m).mesh_vert.add(mesh_vertadr * 3),
+        mesh_vertnum * 3,
+    );
+    let faces = std::slice::from_raw_parts(
+        (*m).mesh_face.add(mesh_faceadr * 3),
+        mesh_facenum * 3,
+    );
+
+    let mut obj_data = String::new();
+
+    // Write vertices
+    for i in 0..mesh_vertnum {
+        let x = vertices[i * 3];
+        let y = vertices[i * 3 + 1];
+        let z = vertices[i * 3 + 2];
+        obj_data.push_str(&format!("v {} {} {}\n", x, y, z));
+    }
+
+    // Write faces
+    for i in 0..mesh_facenum {
+        // OBJ format is 1-indexed
+        let v1 = faces[i * 3] + 1;
+        let v2 = faces[i * 3 + 1] + 1;
+        let v3 = faces[i * 3 + 2] + 1;
+        obj_data.push_str(&format!("f {} {} {}\n", v1, v2, v3));
+    }
+
+    Some(obj_data)
+}
+
+
 /// # Safety
 ///
 /// This function is unsafe because it dereferences raw pointers.
@@ -201,6 +245,14 @@ pub unsafe fn create_model(
             let geom_pos_ptr = (*m).geom_pos.add(i as usize * 3);
             let geom_quat_ptr = (*m).geom_quat.add(i as usize * 4);
             let geom_size_ptr = (*m).geom_size.add(i as usize * 3);
+            let geom_dataid = (*m).geom_dataid.add(i as usize).read();
+
+            let geom_t = mujoco_geom_type_to_geom_type(geom_type_val as u32);
+            let mesh_obj = if let Some(GeomType::Mesh) = geom_t {
+                extract_mesh_data_as_obj(m, geom_dataid)
+            } else {
+                None
+            };
 
             let geom = Geom {
                 name: get_geom_name(m, i),
@@ -217,12 +269,12 @@ pub unsafe fn create_model(
                         .collect(),
                 ),
                 euler: None,
-                geom_t: mujoco_geom_type_to_geom_type(geom_type_val as u32),
+                geom_t,
                 size: std::slice::from_raw_parts(geom_size_ptr, 3)
                     .iter()
                     .map(|&x| x as f32)
                     .collect(),
-                mesh_obj: None, // TODO: Handle mesh data
+                mesh_obj,
             };
             geoms_by_body.entry(geom_bodyid).or_default().push(geom);
         }
@@ -260,13 +312,9 @@ unsafe extern "C" fn controller(m: *const mujoco::mjModel, d: *mut mujoco::mjDat
     }
 }
 
-//TODO:Run this on a separate worker thread &
-//channel the model data back onto the main thread
 pub unsafe fn run_dynamics_step(
     m: *const mujoco::mjModel, d: *mut mujoco::mjData) {
     unsafe {
-        // while (*d).time < 20.0 {
-        // }
         println!("Running the simulation step for time {:?}",(*d).time);
         mujoco::mj_step(m, d);
     }
@@ -284,7 +332,8 @@ pub unsafe fn load_model(
 ) -> Option<(*mut mujoco::mjModel, *mut mujoco::mjData)> {
     let mut error_buffer = [0i8; 1024];
     unsafe {
-        let c_model_file_name = CString::new(model_name).expect("String contained null bytes");
+        let c_model_file_name = CString::new(model_name).
+        expect("String contained null bytes");
         let model: *mut mujoco::mjModel = mujoco::mj_loadXML(
             c_model_file_name.as_ptr(),
             std::ptr::null_mut(),
@@ -303,6 +352,16 @@ pub unsafe fn load_model(
             mujoco::mjcb_control = Some(controller);
             println!("Number of actuator control dimension: {}", (*model).nu);
             return Some((model, data));
+        }
+    }
+    None
+}
+
+pub unsafe fn load_test_model(file_name: String) -> Option<WorldBody> {
+    unsafe {
+        if let Some((m,d)) = load_model(file_name) {
+            let c_m = create_model(m, d);
+            return c_m;
         }
     }
     None

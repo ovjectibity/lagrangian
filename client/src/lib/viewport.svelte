@@ -16,11 +16,14 @@
   let renderer: three.WebGLRenderer;
 
   let isDragging = false;
+  let isPinching = false;
+  let initialPinchDistance = 0;
   let previousMousePosition = {
     x: 0,
     y: 0
   };
   const rotationSpeed = 0.005;
+  const zoomSpeed = 0.01;
 
   const onMouseDown = (event: MouseEvent) => {
     console.log("Mouse down on viewport");
@@ -31,7 +34,69 @@
     };
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('wheel', onWheel);
   };
+
+  const onWheel = (event: WheelEvent) => {
+    camera.position.z += event.deltaY * zoomSpeed;
+  };
+
+  const getDistance = (touches: TouchList) => {
+    return Math.sqrt(
+      Math.pow(touches[0].pageX - touches[1].pageX, 2) +
+      Math.pow(touches[0].pageY - touches[1].pageY, 2)
+    );
+  }
+
+  const onTouchStart = (event: TouchEvent) => {
+    if (event.touches.length === 2) {
+      isPinching = true;
+      initialPinchDistance = getDistance(event.touches);
+    } else if (event.touches.length === 1) {
+      isDragging = true;
+      previousMousePosition = {
+        x: event.touches[0].clientX,
+        y: event.touches[0].clientY
+      };
+    }
+  }
+
+  const onTouchMove = (event: TouchEvent) => {
+    if (isPinching && event.touches.length === 2) {
+      const newPinchDistance = getDistance(event.touches);
+      const delta = initialPinchDistance - newPinchDistance;
+      camera.position.z += delta * zoomSpeed;
+      initialPinchDistance = newPinchDistance;
+    } else if (isDragging && event.touches.length === 1) {
+      const deltaX = event.touches[0].clientX - previousMousePosition.x;
+      const deltaY = event.touches[0].clientY - previousMousePosition.y;
+
+      const right = new three.Vector3().
+        crossVectors(camera.up, new three.Vector3().
+        subVectors(new three.Vector3(0,0,0), camera.position).
+        normalize());
+
+      camera.position.applyAxisAngle(
+        new three.Vector3(0, 1, 0), -deltaX * rotationSpeed);
+      camera.position.applyAxisAngle(right, -deltaY * rotationSpeed);
+      
+      camera.lookAt(0, 0, 0);
+
+      previousMousePosition = {
+        x: event.touches[0].clientX,
+        y: event.touches[0].clientY
+      };
+    }
+  }
+
+  const onTouchEnd = (event: TouchEvent) => {
+    if (event.touches.length < 2) {
+      isPinching = false;
+    }
+    if (event.touches.length < 1) {
+      isDragging = false;
+    }
+  }
 
   const onMouseMove = (event: MouseEvent) => {
     if (!isDragging || !camera) return;
@@ -215,6 +280,13 @@
     sphere.position.set(0, 0, 0);
     scene.add(sphere);
 
+    canvas.addEventListener('touchstart', onTouchStart);
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      onTouchMove(e);
+    }, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd);
+
     function animate() {
       requestAnimationFrame(animate);
       renderer.render(scene, camera);
@@ -232,5 +304,13 @@
 </script>
 
 <div class="viewport" style="width: {width}px; height: {height}px;">
-    <canvas bind:this={canvas} width={width} height={height} onmousedown={onMouseDown}></canvas>
+    <canvas 
+        bind:this={canvas} 
+        width={width} 
+        height={height} 
+        on:mousedown={onMouseDown}
+        on:wheel={onWheel}
+        on:touchend={onTouchEnd}
+        style="touch-action: none;"
+    ></canvas>
 </div>

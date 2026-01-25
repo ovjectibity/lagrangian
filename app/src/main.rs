@@ -35,8 +35,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                 if let Some((m, d)) = 
                 simulator::load_model(
                     "/Users/avi/Documents/manual/lagrangian/app/assets/slider_crank.xml".
-                    to_string(),
-                ) {
+                    to_string()) {
                     while (*d).time < 20.0 {
                         //TODO: Get the model data as messages at each simulation step
                         simulator::run_dynamics_step(m, d);
@@ -81,6 +80,26 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                 .unwrap_or_else(|_| "{}".to_string());
                             let _ = stream.send(
                                 ws::Message::Text(json_response)).await;
+                        } else if text == "get_test_model_2" {
+                            let world_body;
+                            unsafe {
+                                world_body = 
+                                simulator::load_test_model(
+                                    "/Users/avi/Documents/manual/lagrangian/app/assets/universal_robots_ur10e/ur10e.xml".
+                                    to_string());
+                            }
+                            if let Some(wb) = world_body {
+                                let response_message = 
+                                messages_def::SetModelMessage {
+                                    set_model: wb,
+                                    msg_type: messages_def::SetModelMessageType::TestModel
+                                };
+                                let json_response = 
+                                    serde_json::to_string(&response_message)
+                                    .unwrap_or_else(|_| "{}".to_string());
+                                let _ = stream.send(
+                                    ws::Message::Text(json_response)).await;
+                            }
                         } else if text == "run_simul" {
                             //TODO: Can the loop run async?
                             let mut simul_complete = false;
