@@ -171,7 +171,8 @@
   const createGeom = (geom: Geom): three.Mesh | three.Group => {
     let geometry: three.BufferGeometry;
     
-    if (geom.geomT === 'mesh' && geom.mesh_obj) {
+    if (geom.geom_t === 'Mesh' && geom.mesh_obj) {
+      console.log("Got mesh geom, rendering that...");
       const loader = new OBJLoader();
       const object = loader.parse(geom.mesh_obj);
       // The loader returns a Group. We can apply transformations to the group.
@@ -199,24 +200,20 @@
       return object;
     }
 
-    switch (geom.geomT) {
-      case '_box':
+    switch (geom.geom_t) {
+      case "Box":
         geometry = new three.BoxGeometry(geom.size[0] * 2, geom.size[1] * 2, geom.size[2] * 2);
         break;
-      case 'sphere':
+      case 'Sphere':
         geometry = new three.SphereGeometry(geom.size[0]);
         break;
-      case 'cylinder':
-      case 'capsule': // Approximating capsule as a cylinder
+      case 'Cylinder':
+      case 'Capsule': // Approximating capsule as a cylinder
         geometry = new three.CylinderGeometry(geom.size[0], geom.size[0], geom.size[1] * 2);
         break;
-      case 'plane':
+      case 'Plane':
         // Mujoco plane is infinite, three.js plane is not. Representing as a large thin box.
         geometry = new three.BoxGeometry(geom.size[0] || 100, geom.size[1] || 100, 0.01);
-        break;
-      case 'mesh':
-        // Fallback for mesh if mesh_obj is not provided
-        geometry = new three.BoxGeometry(1, 1, 1);
         break;
       default:
         geometry = new three.BoxGeometry(1, 1, 1);
@@ -246,9 +243,9 @@
   };
 
   const renderWorld = () => {
-    if (!scene) return;
+    if(!scene) return;
     // Clear previous objects
-    while(scene.children.length > 0){
+    while(scene.children.length > 0) {
       scene.remove(scene.children[0]);
     }
     
@@ -259,7 +256,7 @@
     directionalLight.position.set(5, 10, 7.5);
     scene.add(directionalLight);
 
-    if (worldBody && worldBody.bodies) {
+    if(worldBody && worldBody.bodies) {
       worldBody.bodies.forEach((b: Body) => renderBody(b, scene));
     }
   }
@@ -267,7 +264,7 @@
   onMount(() => {
     scene = new three.Scene();
     scene.background = new three.Color(0xFCB603);
-    camera = new three.PerspectiveCamera(75, width / height, 0.1, 1000);
+    camera = new three.PerspectiveCamera(75, width / height, 0.5, 1000);
     renderer = new three.WebGLRenderer({ canvas: canvas, antialias: true });
     renderer.setSize(width, height);
 

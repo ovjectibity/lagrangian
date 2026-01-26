@@ -15,8 +15,11 @@
       console.log("Initiating simualtion loop...");
       websocket.send("run_simul");
     } else if (event.key === 'g' && websocket && websocket.readyState === WebSocket.OPEN) {
-      console.log("Initiating simualtion loop...");
+      console.log("Getting test model 2...");
       websocket.send("get_test_model_2");
+    } else if (event.key === 'r' && websocket && websocket.readyState === WebSocket.OPEN) {
+      console.log("Getting test model 3...");
+      websocket.send("get_test_model_3");
     }
   };
 

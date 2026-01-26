@@ -4,6 +4,7 @@
 
 use std::thread;
 use std::sync::mpsc;
+use std::fs;
 
 use std::ops::{Coroutine, CoroutineState};
 use std::pin::Pin;
@@ -97,6 +98,15 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                 let json_response = 
                                     serde_json::to_string(&response_message)
                                     .unwrap_or_else(|_| "{}".to_string());
+                                if let Err(e) = fs::write("target/test_model_2.json", json_response.clone()) {
+                                    println!("Could not write the test model 2 JSON to file {:?}",e);
+                                }
+                                let _ = stream.send(
+                                    ws::Message::Text(json_response)).await;
+                            }
+                        }  else if text == "get_test_model_3" {
+                            if let Ok(json_response) = 
+                                fs::read_to_string("target/test_model_3.json") {
                                 let _ = stream.send(
                                     ws::Message::Text(json_response)).await;
                             }

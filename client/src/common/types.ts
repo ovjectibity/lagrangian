@@ -3,12 +3,12 @@
 */
 
 export enum GeomType {
-	plane = "plane",
-	sphere = "sphere",
-	cylinder = "cylinder",
-	capsule = "capsule",
-	_box = "_box",
-	mesh = "mesh",
+	Plane = "Plane",
+	Sphere = "Sphere",
+	Cylinder = "Cylinder",
+	Capsule = "Capsule",
+	Box = "Box",
+	Mesh = "Mesh",
 }
 
 export interface Geom {
@@ -16,7 +16,7 @@ export interface Geom {
 	pos?: number[];
 	quat?: number[];
 	euler?: number[];
-	geomT?: GeomType;
+	geom_t?: GeomType;
 	size: number[];
 	mesh_obj?: string;
 }

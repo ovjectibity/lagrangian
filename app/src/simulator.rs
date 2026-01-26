@@ -341,7 +341,8 @@ pub unsafe fn load_model(
             1024,
         );
         if model.is_null() {
-            println!("Got null point while loading model {:?}", error_buffer);
+            println!("Got null pointer while loading model {:?}", 
+                c_char_to_string(error_buffer.as_ptr()));
         } else {
             println!("Model seems to have successfully loaded {}", (*model).nq);
             let data = mujoco::mj_makeData(model);
