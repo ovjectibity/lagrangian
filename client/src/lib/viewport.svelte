@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import type { WorldBody, Body, Geom } from '../common/types';
   import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
   const {
     width = 500, 
@@ -13,125 +14,8 @@
   let canvas: HTMLCanvasElement;
   let scene: three.Scene;
   let camera: three.PerspectiveCamera;
+  let cameraController: OrbitControls;
   let renderer: three.WebGLRenderer;
-
-  let isDragging = false;
-  let isPinching = false;
-  let initialPinchDistance = 0;
-  let previousMousePosition = {
-    x: 0,
-    y: 0
-  };
-  const rotationSpeed = 0.005;
-  const zoomSpeed = 0.01;
-
-  const onMouseDown = (event: MouseEvent) => {
-    console.log("Mouse down on viewport");
-    isDragging = true;
-    previousMousePosition = {
-      x: event.clientX,
-      y: event.clientY
-    };
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-    window.addEventListener('wheel', onWheel);
-  };
-
-  const onWheel = (event: WheelEvent) => {
-    camera.position.z += event.deltaY * zoomSpeed;
-  };
-
-  const getDistance = (touches: TouchList) => {
-    return Math.sqrt(
-      Math.pow(touches[0].pageX - touches[1].pageX, 2) +
-      Math.pow(touches[0].pageY - touches[1].pageY, 2)
-    );
-  }
-
-  const onTouchStart = (event: TouchEvent) => {
-    if (event.touches.length === 2) {
-      isPinching = true;
-      initialPinchDistance = getDistance(event.touches);
-    } else if (event.touches.length === 1) {
-      isDragging = true;
-      previousMousePosition = {
-        x: event.touches[0].clientX,
-        y: event.touches[0].clientY
-      };
-    }
-  }
-
-  const onTouchMove = (event: TouchEvent) => {
-    if (isPinching && event.touches.length === 2) {
-      const newPinchDistance = getDistance(event.touches);
-      const delta = initialPinchDistance - newPinchDistance;
-      camera.position.z += delta * zoomSpeed;
-      initialPinchDistance = newPinchDistance;
-    } else if (isDragging && event.touches.length === 1) {
-      const deltaX = event.touches[0].clientX - previousMousePosition.x;
-      const deltaY = event.touches[0].clientY - previousMousePosition.y;
-
-      const right = new three.Vector3().
-        crossVectors(camera.up, new three.Vector3().
-        subVectors(new three.Vector3(0,0,0), camera.position).
-        normalize());
-
-      camera.position.applyAxisAngle(
-        new three.Vector3(0, 1, 0), -deltaX * rotationSpeed);
-      camera.position.applyAxisAngle(right, -deltaY * rotationSpeed);
-      
-      camera.lookAt(0, 0, 0);
-
-      previousMousePosition = {
-        x: event.touches[0].clientX,
-        y: event.touches[0].clientY
-      };
-    }
-  }
-
-  const onTouchEnd = (event: TouchEvent) => {
-    if (event.touches.length < 2) {
-      isPinching = false;
-    }
-    if (event.touches.length < 1) {
-      isDragging = false;
-    }
-  }
-
-  const onMouseMove = (event: MouseEvent) => {
-    if (!isDragging || !camera) return;
-
-    console.log("Mouse move on viewport");
-    const deltaX = event.clientX - previousMousePosition.x;
-    const deltaY = event.clientY - previousMousePosition.y;
-
-    // Get the vector perpendicular to the camera's direction and up vectors (the "right" vector)
-    const right = new three.Vector3().
-      crossVectors(camera.up, new three.Vector3().
-      subVectors(new three.Vector3(0,0,0), camera.position).
-      normalize());
-
-    // Rotate the camera's position around the world's Y axis
-    camera.position.applyAxisAngle(
-      new three.Vector3(0, 1, 0), -deltaX * rotationSpeed);
-    // Rotate the camera's position around its local "right" axis
-    camera.position.applyAxisAngle(right, -deltaY * rotationSpeed);
-    
-    // Point the camera back at the origin
-    camera.lookAt(0, 0, 0);
-
-    previousMousePosition = {
-      x: event.clientX,
-      y: event.clientY
-    };
-  };
-
-  const onMouseUp = () => {
-    console.log("Mouse up on viewport");
-    isDragging = false;
-    window.removeEventListener('mousemove', onMouseMove);
-    window.removeEventListener('mouseup', onMouseUp);
-  };
 
   const renderBody = (body: Body, parent: three.Object3D) => {
     console.log("Rendering body:", body.name, body.pos);
@@ -215,6 +99,9 @@
         // Mujoco plane is infinite, three.js plane is not. Representing as a large thin box.
         geometry = new three.BoxGeometry(geom.size[0] || 100, geom.size[1] || 100, 0.01);
         break;
+      // case "Mesh": 
+      //   //Skip given the handling
+      //   break;
       default:
         geometry = new three.BoxGeometry(1, 1, 1);
         break;
@@ -264,11 +151,13 @@
   onMount(() => {
     scene = new three.Scene();
     scene.background = new three.Color(0xFCB603);
-    camera = new three.PerspectiveCamera(75, width / height, 0.5, 1000);
+    camera = new three.PerspectiveCamera(20, width / height, 0.5, 1000);
     renderer = new three.WebGLRenderer({ canvas: canvas, antialias: true });
+    cameraController = new OrbitControls(camera,canvas);
     renderer.setSize(width, height);
 
     camera.position.z = 5;
+    cameraController.update();
 
     // Add a test sphere directly
     const geometry = new three.SphereGeometry(0.5);
@@ -277,20 +166,13 @@
     sphere.position.set(0, 0, 0);
     scene.add(sphere);
 
-    canvas.addEventListener('touchstart', onTouchStart);
-    canvas.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-      onTouchMove(e);
-    }, { passive: false });
-    canvas.addEventListener('touchend', onTouchEnd);
-
     function animate() {
       requestAnimationFrame(animate);
+      cameraController.update();
       renderer.render(scene, camera);
     }
 
     animate();
-    // renderWorld(); // We don't call this directly anymore, it's handled by $effect
   });
   
   $effect(() => {
@@ -305,9 +187,6 @@
         bind:this={canvas} 
         width={width} 
         height={height} 
-        on:mousedown={onMouseDown}
-        on:wheel={onWheel}
-        on:touchend={onTouchEnd}
         style="touch-action: none;"
     ></canvas>
 </div>
