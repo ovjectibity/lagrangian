@@ -144,6 +144,8 @@ unsafe fn build_body_recursive(
     children_by_body: &HashMap<i32, Vec<i32>>,
 ) -> Body {
     unsafe {
+        // println!("Getting body_id positions {:?}",
+        //     std::slice::from_raw_parts((*d).xpos, (*m).nbody as usize * 3));
         let body_pos_ptr = (*d).xpos.add(body_id as usize * 3);
         let body_quat_ptr = (*d).xquat.add(body_id as usize * 4);
 
@@ -165,6 +167,8 @@ unsafe fn build_body_recursive(
             }
         }
 
+        println!("Getting positions of body {:?}",
+            get_body_name(m, body_id));
         Body {
             name: get_body_name(m, body_id),
             pos: Some(
@@ -193,40 +197,41 @@ unsafe fn extract_mesh_data_as_obj(
         return None;
     }
 
-    let mesh_vertadr = (*m).mesh_vertadr.add(mesh_id as usize).read() as usize;
-    let mesh_vertnum = (*m).mesh_vertnum.add(mesh_id as usize).read() as usize;
-    let mesh_faceadr = (*m).mesh_faceadr.add(mesh_id as usize).read() as usize;
-    let mesh_facenum = (*m).mesh_facenum.add(mesh_id as usize).read() as usize;
+    unsafe {
+        let mesh_vertadr = (*m).mesh_vertadr.add(mesh_id as usize).read() as usize;
+        let mesh_vertnum = (*m).mesh_vertnum.add(mesh_id as usize).read() as usize;
+        let mesh_faceadr = (*m).mesh_faceadr.add(mesh_id as usize).read() as usize;
+        let mesh_facenum = (*m).mesh_facenum.add(mesh_id as usize).read() as usize;
 
-    let vertices = std::slice::from_raw_parts(
-        (*m).mesh_vert.add(mesh_vertadr * 3),
-        mesh_vertnum * 3,
-    );
-    let faces = std::slice::from_raw_parts(
-        (*m).mesh_face.add(mesh_faceadr * 3),
-        mesh_facenum * 3,
-    );
+        let vertices = std::slice::from_raw_parts(
+            (*m).mesh_vert.add(mesh_vertadr * 3),
+            mesh_vertnum * 3,
+        );
+        let faces = std::slice::from_raw_parts(
+            (*m).mesh_face.add(mesh_faceadr * 3),
+            mesh_facenum * 3,
+        );
 
-    let mut obj_data = String::new();
+        let mut obj_data = String::new();
+        // Write vertices
+        for i in 0..mesh_vertnum {
+            let x = vertices[i * 3];
+            let y = vertices[i * 3 + 1];
+            let z = vertices[i * 3 + 2];
+            obj_data.push_str(&format!("v {} {} {}\n", x, y, z));
+        }
 
-    // Write vertices
-    for i in 0..mesh_vertnum {
-        let x = vertices[i * 3];
-        let y = vertices[i * 3 + 1];
-        let z = vertices[i * 3 + 2];
-        obj_data.push_str(&format!("v {} {} {}\n", x, y, z));
+        // Write faces
+        for i in 0..mesh_facenum {
+            // OBJ format is 1-indexed
+            let v1 = faces[i * 3] + 1;
+            let v2 = faces[i * 3 + 1] + 1;
+            let v3 = faces[i * 3 + 2] + 1;
+            obj_data.push_str(&format!("f {} {} {}\n", v1, v2, v3));
+        }
+
+        Some(obj_data)
     }
-
-    // Write faces
-    for i in 0..mesh_facenum {
-        // OBJ format is 1-indexed
-        let v1 = faces[i * 3] + 1;
-        let v2 = faces[i * 3 + 1] + 1;
-        let v3 = faces[i * 3 + 2] + 1;
-        obj_data.push_str(&format!("f {} {} {}\n", v1, v2, v3));
-    }
-
-    Some(obj_data)
 }
 
 
@@ -238,6 +243,8 @@ pub unsafe fn create_model(
     d: *const mujoco::mjData,
 ) -> Option<WorldBody> {
     unsafe {
+        println!("Creating the requested model nv {:?} & nq: {:?}",(*m).nv,(*m).nq);
+
         let mut geoms_by_body: HashMap<i32, Vec<Geom>> = HashMap::new();
         for i in 0..(*m).ngeom {
             let geom_type_val = (*m).geom_type.add(i as usize).read();
@@ -361,6 +368,8 @@ pub unsafe fn load_model(
 pub unsafe fn load_test_model(file_name: String) -> Option<WorldBody> {
     unsafe {
         if let Some((m,d)) = load_model(file_name) {
+            //This is needed to load the mjData struct correctly: 
+            mujoco::mj_forward(m, d);
             let c_m = create_model(m, d);
             return c_m;
         }

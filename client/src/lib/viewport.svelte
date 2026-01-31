@@ -17,48 +17,64 @@
   let cameraController: OrbitControls;
   let renderer: three.WebGLRenderer;
 
-  const renderBody = (body: Body, parent: three.Object3D) => {
+  const renderBodyAbsolute = (body: Body, parent: three.Object3D) => {
     console.log("Rendering body:", body.name, body.pos);
     const group = new three.Group();
     if (body.name) {
       group.name = body.name;
     }
+
+    const pos = new three.Vector3();
     if (body.pos) {
-      group.position.set(body.pos[0], body.pos[1], body.pos[2]);
+      pos.set(body.pos[0], body.pos[1], body.pos[2]);
     }
+    const quat = new three.Quaternion();
     if (body.quat) {
       // MuJoCo is (w, x, y, z), Three is (x, y, z, w)
-      group.quaternion.set(body.quat[1], body.quat[2], body.quat[3], body.quat[0]);
+      quat.set(body.quat[1], body.quat[2], body.quat[3], body.quat[0]);
     } else if (body.euler) {
       const euler = new three.Euler(
         three.MathUtils.degToRad(body.euler[0]),
         three.MathUtils.degToRad(body.euler[1]),
         three.MathUtils.degToRad(body.euler[2])
       );
-      group.setRotationFromEuler(euler);
+      quat.setFromEuler(euler);
     }
+    
+    const bodyWorldMatrix = new three.Matrix4().compose(pos, quat, new three.Vector3(1, 1, 1));
+    
+    const parentWorldMatrixInverse = new three.Matrix4().copy(parent.matrixWorld).invert();
+    
+    const localMatrix = parentWorldMatrixInverse.multiply(bodyWorldMatrix);
+    
+    localMatrix.decompose(group.position, group.quaternion, group.scale);
+
     parent.add(group);
+    parent.updateMatrixWorld(true);
 
     if (body.geoms) {
       body.geoms.forEach(geom => {
-        console.log("  Rendering geom:", geom.name, geom.geomT, geom.pos);
-        const mesh = createGeom(geom);
+        console.log("  Rendering geom:", geom.name, geom.geom_t, geom.pos);
+        // const mesh = createGeomAbsolute(geom, group);
+        // Load geoms relative to the body
+        const mesh = createGeomRelative(geom);
         group.add(mesh);
       });
     }
 
     if (body.bodies) {
-      body.bodies.forEach(b => renderBody(b, group));
+      body.bodies.forEach(b => renderBodyAbsolute(b, group));
     }
   };
 
-  const createGeom = (geom: Geom): three.Mesh | three.Group => {
+  const createGeomRelative = (geom: Geom): three.Mesh | three.Group => {
     let geometry: three.BufferGeometry;
+    let object: three.Mesh | three.Group;
     
     if (geom.geom_t === 'Mesh' && geom.mesh_obj) {
       console.log("Got mesh geom, rendering that...");
       const loader = new OBJLoader();
-      const object = loader.parse(geom.mesh_obj);
+      object = loader.parse(geom.mesh_obj);
       // The loader returns a Group. We can apply transformations to the group.
       if (geom.pos) {
         object.position.set(geom.pos[0], geom.pos[1], geom.pos[2]);
@@ -128,6 +144,8 @@
     
     return mesh;
   };
+
+  const renderBody = renderBodyAbsolute;
 
   const renderWorld = () => {
     if(!scene) return;

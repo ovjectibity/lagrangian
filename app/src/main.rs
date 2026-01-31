@@ -35,7 +35,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
             unsafe {
                 if let Some((m, d)) = 
                 simulator::load_model(
-                    "/Users/avi/Documents/manual/lagrangian/app/assets/slider_crank.xml".
+                    "/Users/avi/Documents/manual/lagrangian/app/assets/universal_robots_ur10e/ur10e.xml".
                     to_string()) {
                     while (*d).time < 20.0 {
                         //TODO: Get the model data as messages at each simulation step

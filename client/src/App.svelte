@@ -80,6 +80,6 @@
 <main>
   <MenuBar />
   <div>
-    <Viewport width={800} height={500} worldBody={worldBody} />
+    <Viewport width={800} height={500} worldBody={worldBody}/>
   </div>
 </main>
