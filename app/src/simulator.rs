@@ -44,6 +44,7 @@ pub fn get_test_model() -> WorldBody {
                                             geom_t: Some(GeomType::Sphere),
                                             size: vec![0.15, 0.0, 0.0],
                                             mesh_obj: None,
+                                            group: None
                                         }]),
                                     },
                                 ]),
@@ -55,6 +56,7 @@ pub fn get_test_model() -> WorldBody {
                                     geom_t: Some(GeomType::Box),
                                     size: vec![0.05, 0.25, 0.05],
                                     mesh_obj: None,
+                                    group: None
                                 }]),
                             },
                         ]),
@@ -66,6 +68,7 @@ pub fn get_test_model() -> WorldBody {
                             geom_t: Some(GeomType::Box),
                             size: vec![0.05, 0.25, 0.05],
                             mesh_obj: None,
+                            group: None
                         }]),
                     },
                 ]),
@@ -77,6 +80,7 @@ pub fn get_test_model() -> WorldBody {
                     geom_t: Some(GeomType::Box),
                     size: vec![0.2, 0.2, 0.25],
                     mesh_obj: None,
+                    group: None
                 }]),
             },
         ],
@@ -252,6 +256,7 @@ pub unsafe fn create_model(
             let geom_pos_ptr = (*m).geom_pos.add(i as usize * 3);
             let geom_quat_ptr = (*m).geom_quat.add(i as usize * 4);
             let geom_size_ptr = (*m).geom_size.add(i as usize * 3);
+            let geom_group_ptr = (*m).geom_group.add(i as usize);
             let geom_dataid = (*m).geom_dataid.add(i as usize).read();
 
             let geom_t = mujoco_geom_type_to_geom_type(geom_type_val as u32);
@@ -282,6 +287,7 @@ pub unsafe fn create_model(
                     .map(|&x| x as f32)
                     .collect(),
                 mesh_obj,
+                group: Some(geom_group_ptr.read())
             };
             geoms_by_body.entry(geom_bodyid).or_default().push(geom);
         }

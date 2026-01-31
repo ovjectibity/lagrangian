@@ -19,6 +19,7 @@ export interface Geom {
 	geom_t?: GeomType;
 	size: number[];
 	mesh_obj?: string;
+	group?: number;
 }
 
 export interface Body {

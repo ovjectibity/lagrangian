@@ -54,11 +54,15 @@
 
     if (body.geoms) {
       body.geoms.forEach(geom => {
-        console.log("  Rendering geom:", geom.name, geom.geom_t, geom.pos);
-        // const mesh = createGeomAbsolute(geom, group);
-        // Load geoms relative to the body
-        const mesh = createGeomRelative(geom);
-        group.add(mesh);
+        if(geom.group !== 3) {
+          console.log("  Rendering geom:", geom.name, geom.geom_t, geom.pos);
+          // const mesh = createGeomAbsolute(geom, group);
+          // Load geoms relative to the body
+          const mesh = createGeomRelative(geom);
+          group.add(mesh);
+        } else {
+          console.log("Skipping attaching geom given it's group 3");
+        }
       });
     }
 
