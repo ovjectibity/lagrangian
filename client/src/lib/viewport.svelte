@@ -134,33 +134,44 @@
     
     return mesh;
   };
+  
+  const updateBodyAndChildren = (bodies: Body[], update: ModelForward) => {
+    for (const body of bodies) {
+        if (body.body_id) {
+            const bodyObject = bodyObjectMap.get(body.body_id);
+            if (bodyObject && bodyObject.parent) {
+                const posIndex = body.body_id * 3;
+                const quatIndex = body.body_id * 4;
+
+                if (posIndex + 2 < update.xpos.length && quatIndex + 3 < update.xquat.length) {
+                    const newPos = new three.Vector3().fromArray(update.xpos, posIndex);
+                    const newQuat = new three.Quaternion(
+                        update.xquat[quatIndex + 1],
+                        update.xquat[quatIndex + 2],
+                        update.xquat[quatIndex + 3],
+                        update.xquat[quatIndex]
+                    );
+
+                    const bodyWorldMatrix = new three.Matrix4().compose(newPos, newQuat, new three.Vector3(1, 1, 1));
+                    const parentWorldMatrixInverse = new three.Matrix4().copy(bodyObject.parent.matrixWorld).invert();
+                    const localMatrix = new three.Matrix4().multiplyMatrices(parentWorldMatrixInverse, bodyWorldMatrix);
+                    
+                    localMatrix.decompose(bodyObject.position, bodyObject.quaternion, bodyObject.scale);
+                    
+                    // Crucially, update this body's world matrix so children can use the correct value
+                    bodyObject.updateMatrixWorld(true);
+                }
+            }
+        }
+        if (body.bodies) {
+            updateBodyAndChildren(body.bodies, update);
+        }
+    }
+  }
 
   const updateSimul = (update: ModelForward) => {
-    if (!update || !update.xpos || !update.xquat) return;
-
-    bodyObjectMap.forEach((bodyObject, bodyId) => {
-      //TODO: What's the need for the parent check here? 
-      if (bodyObject && bodyObject.parent) {
-        const posIndex = bodyId * 3;
-        const quatIndex = bodyId * 4;
-
-        if (posIndex + 2 < update.xpos.length && quatIndex + 3 < update.xquat.length) {
-          const newPos = new three.Vector3().fromArray(update.xpos, posIndex);
-          const newQuat = new three.Quaternion(
-            update.xquat[quatIndex + 1],
-            update.xquat[quatIndex + 2],
-            update.xquat[quatIndex + 3],
-            update.xquat[quatIndex]
-          );
-
-          const bodyWorldMatrix = new three.Matrix4().compose(newPos, newQuat, new three.Vector3(1, 1, 1));
-          const parentWorldMatrixInverse = new three.Matrix4().copy(bodyObject.parent.matrixWorld).invert();
-          const localMatrix = new three.Matrix4().multiplyMatrices(parentWorldMatrixInverse, bodyWorldMatrix);
-          
-          localMatrix.decompose(bodyObject.position, bodyObject.quaternion, bodyObject.scale);
-        }
-      }
-    });
+    if (!update || !worldBody) return;
+    updateBodyAndChildren(worldBody.bodies, update);
   };
 
   const renderWorld = (worldBody: WorldBody) => {
