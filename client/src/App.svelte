@@ -26,27 +26,61 @@
 
   onMount(() => {
     websocket = new WebSocket("ws://localhost:8000/api/viewport");
+    websocket.binaryType = 'arraybuffer'; // Important for receiving binary data
 
     websocket.onopen = () => {
       console.log("WebSocket connection established.");
     };
 
     websocket.onmessage = (event) => {
-      console.log("Received message:", event.data);
-      try {
-        const clientMessage: ClientMessage = JSON.parse(event.data);
-        if ("SetModelMessage" in clientMessage) {
-          worldBody = clientMessage.SetModelMessage.set_model;
-          simulUpdateData = undefined; // Clear simulation data on new model load
-        } else if ("LoadModelMessage" in clientMessage) {
-          worldBody = clientMessage.LoadModelMessage.model;
-          simulUpdateData = undefined; // Clear simulation data on new model load
-        } else if ("SimulUpdateMessage" in clientMessage) {
-          // Assuming only one update per message for now, can be extended if needed
-          simulUpdateData = clientMessage.SimulUpdateMessage.updates[0];
+      if (typeof event.data === 'string') {
+        // Handle JSON messages
+        try {
+          const clientMessage: ClientMessage = JSON.parse(event.data);
+          if ("SetModelMessage" in clientMessage) {
+            worldBody = clientMessage.SetModelMessage.set_model;
+            simulUpdateData = undefined; // Clear simulation data on new model load
+          } else if ("LoadModelMessage" in clientMessage) {
+            worldBody = clientMessage.LoadModelMessage.model;
+            simulUpdateData = undefined; // Clear simulation data on new model load
+          }
+        } catch (e) {
+          console.error("Failed to parse WebSocket JSON message:", e);
         }
-      } catch (e) {
-        console.error("Failed to parse WebSocket message as JSON:", e);
+      } else if (event.data instanceof ArrayBuffer) {
+        // Handle binary messages
+        const buffer = new DataView(event.data);
+        let offset = 0;
+
+        const messageType = buffer.getUint8(offset);
+        offset += 1;
+
+        if (messageType === 7) { // Hardcoded type for SimulUpdateMessage
+          const idLen = buffer.getUint16(offset, true); // true for little-endian
+          offset += 2;
+          const idBytes = new Uint8Array(event.data, offset, idLen);
+          const id = new TextDecoder().decode(idBytes);
+          offset += idLen;
+
+          const nbody = buffer.getUint16(offset, true);
+          offset += 2;
+
+          const xpos: number[] = [];
+          for (let i = 0; i < nbody * 3; i++) {
+            xpos.push(buffer.getFloat64(offset, true));
+            offset += 8;
+          }
+
+          const xquat: number[] = [];
+          for (let i = 0; i < nbody * 4; i++) {
+            xquat.push(buffer.getFloat64(offset, true));
+            offset += 8;
+          }
+
+          simulUpdateData = { xpos, xquat };
+        } else {
+          console.warn("Received unknown binary message type:", messageType);
+        }
       }
     };
 

@@ -11,7 +11,7 @@ pub enum ClientMessage {
 impl ClientMessage {
     pub fn new_set_model_message(wb: model::WorldBody) -> Self {
         ClientMessage::SetModelMessage(
-            SetModelMessage { 
+            SetModelMessage {
                 set_model: wb 
             }
         )
@@ -35,6 +35,30 @@ impl ClientMessage {
                 updates: updates
             }
         )
+    }
+
+    pub fn to_binary_simul_update(id: String, update: ModelForward) -> Vec<u8> {
+        let id_bytes = id.as_bytes();
+        let nbody = update.xpos.len() / 3;
+
+        let mut binary_data = Vec::new();
+        // Message type
+        binary_data.push(7u8);
+        // ID length
+        binary_data.extend_from_slice(&(id_bytes.len() as u16).to_le_bytes());
+        // ID
+        binary_data.extend_from_slice(id_bytes);
+        // Number of bodies
+        binary_data.extend_from_slice(&(nbody as u16).to_le_bytes());
+        // Xpos data
+        for &val in &update.xpos {
+            binary_data.extend_from_slice(&val.to_le_bytes());
+        }
+        // Xquat data
+        for &val in &update.xquat {
+            binary_data.extend_from_slice(&val.to_le_bytes());
+        }
+        binary_data
     }
 }
 

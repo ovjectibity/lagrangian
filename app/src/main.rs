@@ -12,6 +12,7 @@ pub mod simulator;
 pub mod mujoco;
 pub mod model;
 pub mod messages;
+pub mod plugin;
 
 // --- API Routes ---
 #[get("/hello")]
@@ -71,7 +72,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                     //Setup the map ID of the model
                                     //Pass id to the simulator thread as well
                                     simulator::spawn_simulator(
-                                        "/Users/avi/Documents/manual/lagrangian/app/assets/universal_robots_ur10e/ur10e.xml".to_string(),
+                                        "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml".to_string(),
                                         tx.clone());
                                 }
                             }
@@ -91,22 +92,21 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                         }
                     }
                     Some(msg) = rx.recv() => {
-                        println!("Received simul updates");
-                        let response_message = match msg {
+                        match msg {
                             messages::SimulatorThreadMessage::LoadModel(m) => {
-                                messages::ClientMessage::new_load_model_message(
-                                    "1".to_string(),m.model)
+                                let response_message = messages::ClientMessage::new_load_model_message(
+                                    "1".to_string(), m.model);
+                                let json_response = serde_json::to_string(&response_message)
+                                    .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e));
+                                let _ = stream.send(ws::Message::Text(json_response)).await;
                             },
                             messages::SimulatorThreadMessage::SimulUpdate(m) => {
-                                messages::ClientMessage::new_simul_update_message(
-                                    "1".to_string(),vec![m.update])
+                                let binary_data = messages::ClientMessage::to_binary_simul_update(
+                                    "1".to_string(), m.update
+                                );
+                                let _ = stream.send(ws::Message::Binary(binary_data)).await;
                             }
                         };
-                        let json_response = 
-                            serde_json::to_string(&response_message)
-                            .unwrap_or_else(|_| "{}".to_string());
-                        let _ = stream.send(
-                            ws::Message::Text(json_response)).await;
                     }
                     else => break
                 }
