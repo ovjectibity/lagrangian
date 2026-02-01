@@ -28,6 +28,7 @@ pub struct Geom {
 #[typeshare]
 pub struct Body {
     pub name: Option<String>,
+    pub body_id: Option<i32>,
     pub pos: Option<Vec<f32>>,
     pub quat: Option<Vec<f32>>,
     pub euler: Option<Vec<f32>>,

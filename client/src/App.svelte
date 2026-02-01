@@ -2,10 +2,11 @@
   import { onMount, onDestroy } from 'svelte';
   import Viewport from './lib/viewport.svelte';
   import MenuBar from './lib/menubar.svelte';
-  import type { WorldBody } from './common/types';
+  import type { WorldBody, ClientMessage, ModelForward } from './common/types';
 
   let websocket: WebSocket | null = null;
   let worldBody: WorldBody | undefined = $state(undefined);
+  let simulUpdateData: ModelForward | undefined = $state(undefined);
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'l' && websocket && websocket.readyState === WebSocket.OPEN) {
@@ -33,10 +34,16 @@
     websocket.onmessage = (event) => {
       console.log("Received message:", event.data);
       try {
-        const data = JSON.parse(event.data);
-        if (data && data.set_model && data.set_model.bodies) { // Check for set_model field and its bodies
-          console.log("Got this message type: ",data.msg_type);
-          worldBody = data.set_model as WorldBody;
+        const clientMessage: ClientMessage = JSON.parse(event.data);
+        if ("SetModelMessage" in clientMessage) {
+          worldBody = clientMessage.SetModelMessage.set_model;
+          simulUpdateData = undefined; // Clear simulation data on new model load
+        } else if ("LoadModelMessage" in clientMessage) {
+          worldBody = clientMessage.LoadModelMessage.model;
+          simulUpdateData = undefined; // Clear simulation data on new model load
+        } else if ("SimulUpdateMessage" in clientMessage) {
+          // Assuming only one update per message for now, can be extended if needed
+          simulUpdateData = clientMessage.SimulUpdateMessage.updates[0];
         }
       } catch (e) {
         console.error("Failed to parse WebSocket message as JSON:", e);
@@ -54,11 +61,6 @@
 
     window.addEventListener('keydown', handleKeyDown);
 
-    // // Initial request for model if websocket is ready
-    // if (websocket.readyState === WebSocket.OPEN) {
-    //     websocket.send("get_test_model");
-    // }
-
     return () => {
       if (websocket) {
         websocket.close();
@@ -68,8 +70,6 @@
   });
 
   onDestroy(() => {
-    // onMount cleanup function is sufficient for onDestroy tasks in Svelte 5 runes.
-    // However, explicitly closing for clarity if somehow not handled by onMount's return.
     if (websocket) {
         websocket.close();
     }
@@ -80,6 +80,6 @@
 <main>
   <MenuBar />
   <div>
-    <Viewport width={800} height={500} worldBody={worldBody}/>
+    <Viewport width={800} height={500} worldBody={worldBody} simulUpdateData={simulUpdateData}/>
   </div>
 </main>

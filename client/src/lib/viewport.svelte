@@ -1,27 +1,31 @@
 <script lang="ts">
   import * as three from 'three';
   import { onMount } from 'svelte';
-  import type { WorldBody, Body, Geom } from '../common/types';
+  import type { WorldBody, Body, Geom, ModelForward } from '../common/types';
   import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
   const {
     width = 500, 
     height = 300,
-    worldBody = undefined
-  } = $props<{ width: number; height: number, worldBody?: WorldBody}>();
+    worldBody = undefined,
+    simulUpdateData = undefined
+  } = $props<{ width: number; height: number, worldBody?: WorldBody, simulUpdateData?: ModelForward}>();
 
   let canvas: HTMLCanvasElement;
   let scene: three.Scene;
   let camera: three.PerspectiveCamera;
   let cameraController: OrbitControls;
   let renderer: three.WebGLRenderer;
+  let bodyObjectMap: Map<number, three.Object3D> = new Map();
 
   const renderBodyAbsolute = (body: Body, parent: three.Object3D) => {
-    console.log("Rendering body:", body.name, body.pos);
     const group = new three.Group();
     if (body.name) {
       group.name = body.name;
+    }
+    if (body.body_id) {
+        bodyObjectMap.set(body.body_id, group);
     }
 
     const pos = new three.Vector3();
@@ -30,7 +34,6 @@
     }
     const quat = new three.Quaternion();
     if (body.quat) {
-      // MuJoCo is (w, x, y, z), Three is (x, y, z, w)
       quat.set(body.quat[1], body.quat[2], body.quat[3], body.quat[0]);
     } else if (body.euler) {
       const euler = new three.Euler(
@@ -42,11 +45,8 @@
     }
     
     const bodyWorldMatrix = new three.Matrix4().compose(pos, quat, new three.Vector3(1, 1, 1));
-    
     const parentWorldMatrixInverse = new three.Matrix4().copy(parent.matrixWorld).invert();
-    
     const localMatrix = parentWorldMatrixInverse.multiply(bodyWorldMatrix);
-    
     localMatrix.decompose(group.position, group.quaternion, group.scale);
 
     parent.add(group);
@@ -55,13 +55,8 @@
     if (body.geoms) {
       body.geoms.forEach(geom => {
         if(geom.group !== 3) {
-          console.log("  Rendering geom:", geom.name, geom.geom_t, geom.pos);
-          // const mesh = createGeomAbsolute(geom, group);
-          // Load geoms relative to the body
           const mesh = createGeomRelative(geom);
           group.add(mesh);
-        } else {
-          console.log("Skipping attaching geom given it's group 3");
         }
       });
     }
@@ -76,10 +71,8 @@
     let object: three.Mesh | three.Group;
     
     if (geom.geom_t === 'Mesh' && geom.mesh_obj) {
-      console.log("Got mesh geom, rendering that...");
       const loader = new OBJLoader();
       object = loader.parse(geom.mesh_obj);
-      // The loader returns a Group. We can apply transformations to the group.
       if (geom.pos) {
         object.position.set(geom.pos[0], geom.pos[1], geom.pos[2]);
       }
@@ -93,8 +86,6 @@
         );
         object.setRotationFromEuler(euler);
       }
-      // Apply color to all meshes in the group
-      // const color = geom.rgba ? new three.Color(geom.rgba[0], geom.rgba[1], geom.rgba[2]) : new three.Color(0xcccccc);
       const color = new three.Color(0x198470);
       object.traverse((child) => {
         if (child instanceof three.Mesh) {
@@ -112,22 +103,17 @@
         geometry = new three.SphereGeometry(geom.size[0]);
         break;
       case 'Cylinder':
-      case 'Capsule': // Approximating capsule as a cylinder
+      case 'Capsule': 
         geometry = new three.CylinderGeometry(geom.size[0], geom.size[0], geom.size[1] * 2);
         break;
       case 'Plane':
-        // Mujoco plane is infinite, three.js plane is not. Representing as a large thin box.
         geometry = new three.BoxGeometry(geom.size[0] || 100, geom.size[1] || 100, 0.01);
         break;
-      // case "Mesh": 
-      //   //Skip given the handling
-      //   break;
       default:
         geometry = new three.BoxGeometry(1, 1, 1);
         break;
     }
 
-    // const color = geom.rgba ? new three.Color(geom.rgba[0], geom.rgba[1], geom.rgba[2]) : new three.Color(0xcccccc);
     const color = new three.Color(0x198470);
     const material = new three.MeshStandardMaterial({ color: color });
     const mesh = new three.Mesh(geometry, material);
@@ -149,16 +135,42 @@
     return mesh;
   };
 
-  const renderBody = renderBodyAbsolute;
+  const updateSimul = (update: ModelForward) => {
+    if (!update || !update.xpos || !update.xquat) return;
 
-  const renderWorld = () => {
+    bodyObjectMap.forEach((bodyObject, bodyId) => {
+      //TODO: What's the need for the parent check here? 
+      if (bodyObject && bodyObject.parent) {
+        const posIndex = bodyId * 3;
+        const quatIndex = bodyId * 4;
+
+        if (posIndex + 2 < update.xpos.length && quatIndex + 3 < update.xquat.length) {
+          const newPos = new three.Vector3().fromArray(update.xpos, posIndex);
+          const newQuat = new three.Quaternion(
+            update.xquat[quatIndex + 1],
+            update.xquat[quatIndex + 2],
+            update.xquat[quatIndex + 3],
+            update.xquat[quatIndex]
+          );
+
+          const bodyWorldMatrix = new three.Matrix4().compose(newPos, newQuat, new three.Vector3(1, 1, 1));
+          const parentWorldMatrixInverse = new three.Matrix4().copy(bodyObject.parent.matrixWorld).invert();
+          const localMatrix = new three.Matrix4().multiplyMatrices(parentWorldMatrixInverse, bodyWorldMatrix);
+          
+          localMatrix.decompose(bodyObject.position, bodyObject.quaternion, bodyObject.scale);
+        }
+      }
+    });
+  };
+
+  const renderWorld = (worldBody: WorldBody) => {
     if(!scene) return;
-    // Clear previous objects
+
     while(scene.children.length > 0) {
       scene.remove(scene.children[0]);
     }
+    bodyObjectMap.clear();
     
-    // Add lights
     const ambientLight = new three.AmbientLight(0xffffff, 0.5);
     scene.add(ambientLight);
     const directionalLight = new three.DirectionalLight(0xffffff, 1);
@@ -166,7 +178,7 @@
     scene.add(directionalLight);
 
     if(worldBody && worldBody.bodies) {
-      worldBody.bodies.forEach((b: Body) => renderBody(b, scene));
+      worldBody.bodies.forEach((b: Body) => renderBodyAbsolute(b, scene));
     }
   }
 
@@ -181,13 +193,6 @@
     camera.position.z = 5;
     cameraController.update();
 
-    // Add a test sphere directly
-    const geometry = new three.SphereGeometry(0.5);
-    const material = new three.MeshStandardMaterial({ color: 0x00ff00 }); // Green color
-    const sphere = new three.Mesh(geometry, material);
-    sphere.position.set(0, 0, 0);
-    scene.add(sphere);
-
     function animate() {
       requestAnimationFrame(animate);
       cameraController.update();
@@ -196,12 +201,19 @@
 
     animate();
   });
-  
+
   $effect(() => {
     if (worldBody) {
-      renderWorld();
+      renderWorld(worldBody);
     }
   });
+
+  $effect(() => {
+    if (simulUpdateData) {
+      updateSimul(simulUpdateData);
+    }
+  });
+  
 </script>
 
 <div class="viewport" style="width: {width}px; height: {height}px;">

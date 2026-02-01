@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
+use std::thread;
+
+use rocket::tokio::sync::mpsc;
 
 use crate::mujoco;
-use crate::model_def::{Body, Geom, GeomType, WorldBody};
+use crate::messages;
+use crate::model::{Body, Geom, GeomType, WorldBody};
 
 pub fn get_test_model() -> WorldBody {
     // A simple robot arm model
@@ -11,6 +15,7 @@ pub fn get_test_model() -> WorldBody {
             // Base of the arm
             Body {
                 name: Some("base".to_string()),
+                body_id: Some(1),
                 pos: Some(vec![0.0, 0.0, 0.25]),
                 quat: None,
                 euler: None,
@@ -19,6 +24,7 @@ pub fn get_test_model() -> WorldBody {
                     Body {
                         quat: None,
                         name: Some("upper_arm".to_string()),
+                        body_id: Some(2),
                         pos: Some(vec![0.0, 0.0, 0.25]),
                         euler: Some(vec![0.0, -90.0, 0.0]),
                         bodies: Some(vec![
@@ -26,6 +32,7 @@ pub fn get_test_model() -> WorldBody {
                             Body {
                                 quat: None,
                                 name: Some("forearm".to_string()),
+                                body_id: Some(3),
                                 pos: Some(vec![0.0, 0.5, 0.0]),
                                 euler: Some(vec![0.0, 90.0, 0.0]),
                                 bodies: Some(vec![
@@ -33,6 +40,7 @@ pub fn get_test_model() -> WorldBody {
                                     Body {
                                         quat: None,
                                         name: Some("hand".to_string()),
+                                        body_id: Some(4),
                                         pos: Some(vec![0.0, 0.5, 0.0]),
                                         euler: Some(vec![0.0, -90.0, 0.0]),
                                         bodies: None,
@@ -175,6 +183,7 @@ unsafe fn build_body_recursive(
             get_body_name(m, body_id));
         Body {
             name: get_body_name(m, body_id),
+            body_id: Some(body_id),
             pos: Some(
                 std::slice::from_raw_parts(body_pos_ptr, 3)
                     .iter()
@@ -369,6 +378,45 @@ pub unsafe fn load_model(
         }
     }
     None
+}
+
+pub fn spawn_simulator(
+    model_name: String,
+    tx: mpsc::Sender<messages::SimulatorThreadMessage>) {
+    let dyn_th = thread::spawn(move || {
+        unsafe {
+            if let Some((m, d)) = 
+            load_model(model_name.to_string()) {
+                //Run this to initialise the mjData struct 
+                mujoco::mj_forward(m, d);
+                //Sending the base loaded model first
+                if let Some(b) = create_model(m, d) {
+                    if let Err(e) = 
+                        tx.blocking_send(messages::SimulatorThreadMessage::
+                            new_load_model_message(b)) {
+                        println!("Loading model for simul update failed {:?}",e);
+                    }
+                } else {
+                    println!("Could not get the model from create_model");
+                }
+
+                //Sending the simulation updates
+                while (*d).time < 20.0 {
+                    run_dynamics_step(m, d);
+                    let xpos: Vec<f64> = std::slice::from_raw_parts(
+                        (*d).xpos, (*m).nbody as usize * 3).to_vec();
+                    let xquat: Vec<f64> = std::slice::from_raw_parts(
+                        (*d).xquat, (*m).nbody as usize * 4).to_vec();
+                    if let Err(e) = 
+                        tx.blocking_send(messages::SimulatorThreadMessage::
+                            new_simul_update_message(xpos, xquat)) {
+                        println!("Sending simul update failed from the simulator thread {:?}",e);
+                    }
+                }
+                cleanup_model(m, d);
+            }
+        }
+    });
 }
 
 pub unsafe fn load_test_model(file_name: String) -> Option<WorldBody> {

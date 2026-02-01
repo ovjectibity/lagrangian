@@ -1,24 +1,17 @@
-#![feature(coroutines)]
-#![feature(coroutine_trait)]
-#![feature(stmt_expr_attributes)]
-
-use std::thread;
-use std::sync::mpsc;
 use std::fs;
-
-use std::ops::{Coroutine, CoroutineState};
-use std::pin::Pin;
 
 #[macro_use]
 extern crate rocket;
+use rocket::tokio;
+use rocket::tokio::sync::mpsc;
 use rocket_ws as ws;
 use rocket::fs::FileServer;
 use rocket::futures::{SinkExt, StreamExt};
 
 pub mod simulator;
 pub mod mujoco;
-pub mod model_def;
-pub mod messages_def;
+pub mod model;
+pub mod messages;
 
 // --- API Routes ---
 #[get("/hello")]
@@ -28,126 +21,94 @@ fn api_hello() -> &'static str {
 
 #[get("/viewport")]
 fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
-    let mut run_dynamics = #[coroutine] || {
-        let (tx,rx) = 
-            mpsc::channel::<Result<model_def::WorldBody,rocket::Error>>();
-        let dyn_th = thread::spawn(move || {
-            unsafe {
-                if let Some((m, d)) = 
-                simulator::load_model(
-                    "/Users/avi/Documents/manual/lagrangian/app/assets/universal_robots_ur10e/ur10e.xml".
-                    to_string()) {
-                    while (*d).time < 20.0 {
-                        //TODO: Get the model data as messages at each simulation step
-                        simulator::run_dynamics_step(m, d);
-                        if let Some(b) = 
-                        simulator::create_model(m, d) {
-                            tx.send(Ok(b));
-                        } else {
-                            println!("Could not get the model from create_model");
-                        }
-                    }
-                    simulator::cleanup_model(m, d);
-                }
-            }
-        });
-        for msg in rx {
-            // yield msg
-            if let Ok(body) = msg {
-                yield body;
-            } else {
-                println!("Got an error extracting the body in the main thread");
-            }
-        }
-        return;
-    };
-
+    let (tx,mut rx) = 
+        mpsc::channel::<messages::SimulatorThreadMessage>(32);
     ws.channel(move |mut stream| {
         Box::pin(async move {
-            while let Some(message) = 
-                stream.next().await {
-                match message {
-                    Ok(ws::Message::Text(text)) => {
-                        if text == "get_test_model" {
-                            let world_body = 
-                                simulator::get_test_model();
-                            let response_message = 
-                            messages_def::SetModelMessage {
-                                set_model: world_body,
-                                msg_type: messages_def::SetModelMessageType::TestModel
-                            };
-                            let json_response = 
-                                serde_json::to_string(&response_message)
-                                .unwrap_or_else(|_| "{}".to_string());
-                            let _ = stream.send(
-                                ws::Message::Text(json_response)).await;
-                        } else if text == "get_test_model_2" {
-                            let world_body;
-                            unsafe {
-                                world_body = 
-                                simulator::load_test_model(
-                                    "/Users/avi/Documents/manual/lagrangian/app/assets/universal_robots_ur10e/ur10e.xml".
-                                    to_string());
-                            }
-                            if let Some(wb) = world_body {
-                                let response_message = 
-                                messages_def::SetModelMessage {
-                                    set_model: wb,
-                                    msg_type: messages_def::SetModelMessageType::TestModel
-                                };
-                                let json_response = 
-                                    serde_json::to_string(&response_message)
-                                    .unwrap_or_else(|_| "{}".to_string());
-                                if let Err(e) = fs::write("target/test_model_2.json", json_response.clone()) {
-                                    println!("Could not write the test model 2 JSON to file {:?}",e);
-                                }
-                                let _ = stream.send(
-                                    ws::Message::Text(json_response)).await;
-                            }
-                        }  else if text == "get_test_model_3" {
-                            if let Ok(json_response) = 
-                                fs::read_to_string("target/test_model_3.json") {
-                                let _ = stream.send(
-                                    ws::Message::Text(json_response)).await;
-                            }
-                        } else if text == "run_simul" {
-                            //TODO: Can the loop run async?
-                            let mut simul_complete = false;
-                            while !simul_complete {
-                                match Pin::new(&mut run_dynamics).resume(()) {
-                                    CoroutineState::Yielded(b) =>  {
+            loop {
+                tokio::select! {
+                    Some(message) = stream.next() => {
+                        match message {
+                            Ok(ws::Message::Text(text)) => {
+                                if text == "get_test_model" {
+                                    let world_body = 
+                                        simulator::get_test_model();
                                     let response_message = 
-                                    messages_def::SetModelMessage {
-                                        set_model: b,
-                                        msg_type: messages_def::SetModelMessageType::SimulUpdate
-                                    };
+                                        messages::ClientMessage::new_set_model_message(world_body);
                                     let json_response = 
                                         serde_json::to_string(&response_message)
                                         .unwrap_or_else(|_| "{}".to_string());
                                     let _ = stream.send(
                                         ws::Message::Text(json_response)).await;
-                                    },
-                                    CoroutineState::Complete(()) => {
-                                        simul_complete = true;
+                                } else if text == "get_test_model_2" {
+                                    let world_body;
+                                    unsafe {
+                                        world_body = 
+                                        simulator::load_test_model(
+                                            "/Users/avi/Documents/manual/lagrangian/app/assets/universal_robots_ur10e/ur10e.xml".
+                                            to_string());
                                     }
+                                    if let Some(wb) = world_body {
+                                        let response_message = 
+                                            messages::ClientMessage::new_set_model_message(wb);
+                                        let json_response = 
+                                            serde_json::to_string(&response_message)
+                                            .unwrap_or_else(|_| "{}".to_string());
+                                        if let Err(e) = fs::write("target/test_model_2.json", json_response.clone()) {
+                                            println!("Could not write the test model 2 JSON to file {:?}",e);
+                                        }
+                                        let _ = stream.send(
+                                            ws::Message::Text(json_response)).await;
+                                    }
+                                } else if text == "get_test_model_3" {
+                                    if let Ok(json_response) = 
+                                        fs::read_to_string("target/test_model_3.json") {
+                                        let _ = stream.send(
+                                            ws::Message::Text(json_response)).await;
+                                    }
+                                } else if text == "run_simul" {
+                                    //TODO: First send the load_message here
+                                    //Setup the map ID of the model
+                                    //Pass id to the simulator thread as well
+                                    simulator::spawn_simulator(
+                                        "/Users/avi/Documents/manual/lagrangian/app/assets/universal_robots_ur10e/ur10e.xml".to_string(),
+                                        tx.clone());
                                 }
                             }
-                            
+                            Ok(ws::Message::Binary(bin)) => {
+                                let _ = stream.send(
+                                    ws::Message::Binary(bin)).await;
+                            }
+                            Ok(ws::Message::Close(_)) => {
+                                println!("Client disconnected");
+                                break;
+                            }
+                            Err(e) => {
+                                eprintln!("WebSocket error: {:?}", e);
+                                break;
+                            }
+                            _ => {}
                         }
                     }
-                    Ok(ws::Message::Binary(bin)) => {
+                    Some(msg) = rx.recv() => {
+                        println!("Received simul updates");
+                        let response_message = match msg {
+                            messages::SimulatorThreadMessage::LoadModel(m) => {
+                                messages::ClientMessage::new_load_model_message(
+                                    "1".to_string(),m.model)
+                            },
+                            messages::SimulatorThreadMessage::SimulUpdate(m) => {
+                                messages::ClientMessage::new_simul_update_message(
+                                    "1".to_string(),vec![m.update])
+                            }
+                        };
+                        let json_response = 
+                            serde_json::to_string(&response_message)
+                            .unwrap_or_else(|_| "{}".to_string());
                         let _ = stream.send(
-                            ws::Message::Binary(bin)).await;
+                            ws::Message::Text(json_response)).await;
                     }
-                    Ok(ws::Message::Close(_)) => {
-                        println!("Client disconnected");
-                        break;
-                    }
-                    Err(e) => {
-                        eprintln!("WebSocket error: {:?}", e);
-                        break;
-                    }
-                    _ => {}
+                    else => break
                 }
             }
             Ok(())
