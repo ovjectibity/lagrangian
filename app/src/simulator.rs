@@ -325,11 +325,11 @@ pub unsafe fn create_model(
 
 unsafe extern "C" fn controller(m: *const mujoco::mjModel, d: *mut mujoco::mjData) {
     unsafe {
-        //TODO: Hook the control to a model here
-        let ctrl_d = (*m).nu;
-        for _i in 0..ctrl_d {
-            //Applying random actuation as sinusoidal:
-            (*d).ctrl.add(0).write(100.0 * f64::sin((*d).time));
+        let ctrl_d = (*m).nu as usize;
+        for i in 0..ctrl_d {
+            // Apply a smoother, gentler sinusoidal actuation to each joint.
+            // A phase offset (i as f64) is added to create more interesting motion.
+            (*d).ctrl.add(i).write(0.1 * f64::sin((*d).time + i as f64));
         }
     }
 }
@@ -401,7 +401,7 @@ pub fn spawn_simulator(
                 }
 
                 //Sending the simulation updates
-                while (*d).time < 20.0 {
+                while (*d).time < 100.0 {
                     run_dynamics_step(m, d);
                     let xpos: Vec<f64> = std::slice::from_raw_parts(
                         (*d).xpos, (*m).nbody as usize * 3).to_vec();
