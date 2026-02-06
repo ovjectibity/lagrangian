@@ -1,6 +1,6 @@
-use tch::{Kind, Tensor, nn::{self, OptimizerConfig}};
+use tch::{Kind, Tensor, nn::{self, Module, OptimizerConfig}};
 
-use crate::plugin::{Simulator,PluginHandle};
+use crate::plugin::{Simulator};
 
 struct Trajectory {
     //Shape of indv element: [nq] 
@@ -23,7 +23,8 @@ struct PPOTrainer {
     traj_depth: i32,
     simulator: Box<dyn Simulator>,
     model: Box<dyn PPOTrainedModel>,
-    policy_opt: nn::Optimizer<nn::Adam>
+    policy_opt: nn::Optimizer,
+    value_opt: nn::Optimizer
 }
 
 pub trait PPOTrainedModel {
@@ -39,65 +40,17 @@ pub trait PPOTrainedModel {
         wstatenext: Option<&Tensor>, action: &Tensor) -> f64;
     fn get_policy_output(&self,state: &Tensor) -> Tensor;
     fn get_value_output(&self,state: &Tensor) -> f64;
-    fn get_policy(&self) -> &&nn::Sequential;
-    fn get_value_func(&self) -> &&nn::Sequential;
+    fn get_policy(&self) -> &nn::Sequential;
+    fn get_value_func(&self) -> &nn::Sequential;
     fn get_policy_store(&self) -> &nn::VarStore;
     fn get_policy_store_mut(&mut self) -> &mut nn::VarStore;
-}
-
-impl PluginHandle for PPOTrainer {
-    fn process_input(&self, 
-        input: ControlModelInput) -> ControlModelOutput {
-
-    }
+    fn get_value_store(&self) -> &nn::VarStore;
+    fn get_value_store_mut(&mut self) -> &mut nn::VarStore;
 }
 
 //TODO: Optimising with aggregating all 
 // computations to single tensor where possible 
 impl PPOTrainer {
-    fn init_policy(
-        input_dimension: i64,
-        output_dimension: i64,
-        hidden_layer_dimension: i64,
-        num_layers: i64,
-        add_softmax: bool) -> (nn::Sequential, nn::VarStore) {
-        let mut vs = nn::VarStore::new(tch::Device::Mps);
-        let vs_p = vs.root();
-        let mut y = nn::seq()
-            .add(nn::linear(
-                vs_p.clone(),
-                input_dimension,
-                hidden_layer_dimension,
-                Default::default(),
-            ))
-            .add_fn(Tensor::relu);
-        for i in 0..num_layers - 2 {
-            y = y
-                .add(nn::linear(
-                    vs_p.clone(),
-                    hidden_layer_dimension,
-                    hidden_layer_dimension,
-                    Default::default(),
-                ))
-                .add_fn(Tensor::relu);
-        }
-        y = y
-            .add(nn::linear(
-                vs_p.clone(),
-                hidden_layer_dimension,
-                output_dimension,
-                Default::default(),
-            ));
-        //TODO: This needs to output the 
-        //mean & log(std-dev) n_q's for target positions: 
-        if add_softmax {
-            y = y.add_fn(Tensor::relu)
-                .add_fn(|xs| xs.softmax(-1, tch::Kind::Float));
-        }
-
-        (y, vs)
-    }
-
     fn new(
         simulator: Box<dyn Simulator>,
         model: Box<dyn PPOTrainedModel>,
@@ -106,6 +59,8 @@ impl PPOTrainer {
     ) -> Result<Self, tch::TchError> {
         let policy_opt = nn::Adam::default().build(
             model.get_policy_store(), 1e-3)?;
+        let value_opt = nn::Adam::default().build(
+            model.get_value_store(), 1e-3)?;
         Ok(PPOTrainer {
             num_trajs: num_trajs,
             epsilon: epsilon,
@@ -113,7 +68,8 @@ impl PPOTrainer {
             traj_depth: 10,
             simulator: simulator,
             model: model,
-            policy_opt: policy_opt
+            policy_opt: policy_opt,
+            value_opt: value_opt
         })
     }
 
@@ -270,9 +226,10 @@ impl PPOTrainer {
     }
 
     fn get_ppo_clip_objective(&self, 
-        trajs: Vec<Trajectory>) -> Tensor {
+        trajs: &[Trajectory]) -> Tensor {
         //Collect everything in singular tensors first:
-        let start_log_probs_v: Vec<Tensor> = trajs.iter().map(|traj| {
+        let start_log_probs_v: Vec<Tensor> = 
+        trajs.iter().map(|traj| {
             Tensor::from_slice(&traj.model_output_sample_log_probs)
         }).collect();
         let gae_v: Vec<Tensor> = trajs.iter().map(|traj| {
@@ -303,11 +260,40 @@ impl PPOTrainer {
         (ratio * gaes).minimum(&clipped).sum(tch::Kind::Float)
     }
 
+    fn get_value_function_objective(&self, 
+        trajs: &[Trajectory]) -> Tensor {
+        let nq = self.model.get_nq();
+        let rtgs_v: Vec<Tensor> = trajs
+            .iter()
+            .map(|traj| 
+                Tensor::from_slice(&traj.rtgs))
+            .collect();
+        let wstates_v: Vec<Tensor> = trajs
+            .iter()
+            .map(|traj| 
+                Tensor::stack(&traj.world_states, 0))
+            .collect();
+        let rtgs = Tensor::stack(&rtgs_v, 0).detach();
+        let wstates = Tensor::stack(&wstates_v, 0);
+        let values = self.model.get_value_func().forward(&wstates);
+        let rtgs = rtgs.to_device_(
+            values.device(),
+            values.kind(),
+            false,
+            false,
+        );
+        (values - rtgs).pow_tensor_scalar(2.0).mean(Kind::Float)
+    }
+
     fn train_an_epoch(&mut self) {
         let trajs = self.gen_trajectories(self.num_trajs);
-        let objective = self.get_ppo_clip_objective(trajs);
-        let loss = -objective;
-        self.policy_opt.backward_step(&loss);
+        for _ in 0..10 {
+            let objective = self.get_ppo_clip_objective(&trajs);
+            let loss = -objective;
+            self.policy_opt.backward_step(&loss);
+            let value_loss = self.get_value_function_objective(&trajs);
+            self.value_opt.backward_step(&value_loss);
+        }
     }
 
     fn train_n_epochs(&mut self, n: u32) {
