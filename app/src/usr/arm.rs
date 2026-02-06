@@ -27,7 +27,7 @@ impl ArmModel {
         hidden_layer_dimension: i64,
         num_layers: i64,
         add_softmax: bool) -> (nn::Sequential, nn::VarStore) {
-        let mut vs = nn::VarStore::new(tch::Device::Mps);
+        let vs = nn::VarStore::new(tch::Device::Mps);
         let vs_p = vs.root();
         let mut y = nn::seq()
             .add(nn::linear(
@@ -95,6 +95,7 @@ impl PPOTrainedModel for ArmModel {
         self.nq
     }
 
+    //TODO: Add contact bonus here
     fn get_reward(
         &self,
         wstate: &Tensor,
@@ -129,7 +130,7 @@ impl PPOTrainedModel for ArmModel {
         };
 
         let act_penalty = {
-            let act_sq = action.pow_tensor_scalar(2.0).sum(Kind::Float);
+            let act_sq = action.pow_tensor_scalar(2.0).sum(tch::Kind::Float);
             let act_sq_v = f64::try_from(act_sq).expect("Expected action to be f64 tensor");
             -self.w_act * act_sq_v
         };

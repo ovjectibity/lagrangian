@@ -1,12 +1,14 @@
 use tch::Tensor;
 
 pub mod ppo_trainer;
+pub mod mj_simulator;
 
 pub trait Simulator {
     //Shape of u: [nu]
     fn forward_dyn(&self,controls: &Tensor);
     //Shape of acc: [nq]
-    fn inverse_dyn(&self,acc: &Tensor);
+    //Shape of output: [nv]
+    fn inverse_dyn(&self,acc: &Tensor) -> Tensor;
     fn get_model_state(&self) -> Tensor;
     fn get_target_controls_from_target_positions(
         &self,target_pos: &Tensor) -> Tensor;
