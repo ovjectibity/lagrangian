@@ -1,4 +1,4 @@
-use tch::{nn, Kind, Tensor};
+use tch::{Kind, Tensor, nn::{self, OptimizerConfig}};
 
 use crate::plugin::{Simulator,PluginHandle};
 
@@ -22,7 +22,8 @@ struct PPOTrainer {
     gamma_lambda: (f64,f64),
     traj_depth: i32,
     simulator: Box<dyn Simulator>,
-    model: Box<dyn PPOTrainedModel>
+    model: Box<dyn PPOTrainedModel>,
+    policy_opt: nn::Optimizer<nn::Adam>
 }
 
 pub trait PPOTrainedModel {
@@ -40,6 +41,8 @@ pub trait PPOTrainedModel {
     fn get_value_output(&self,state: &Tensor) -> f64;
     fn get_policy(&self) -> &&nn::Sequential;
     fn get_value_func(&self) -> &&nn::Sequential;
+    fn get_policy_store(&self) -> &nn::VarStore;
+    fn get_policy_store_mut(&mut self) -> &mut nn::VarStore;
 }
 
 impl PluginHandle for PPOTrainer {
@@ -95,14 +98,23 @@ impl PPOTrainer {
         (y, vs)
     }
 
-    fn new(simulator: Box<dyn Simulator>,
-        model: Box<dyn PPOTrainedModel>) -> Self {
-        PPOTrainer {
+    fn new(
+        simulator: Box<dyn Simulator>,
+        model: Box<dyn PPOTrainedModel>,
+        num_trajs: i32,
+        epsilon: f64,
+    ) -> Result<Self, tch::TchError> {
+        let policy_opt = nn::Adam::default().build(
+            model.get_policy_store(), 1e-3)?;
+        Ok(PPOTrainer {
+            num_trajs: num_trajs,
+            epsilon: epsilon,
             gamma_lambda: (0.1,0.1),
             traj_depth: 10,
             simulator: simulator,
-            model: model
-        }
+            model: model,
+            policy_opt: policy_opt
+        })
     }
 
     fn gen_trajectory(&self) -> Trajectory {
@@ -260,7 +272,6 @@ impl PPOTrainer {
     fn get_ppo_clip_objective(&self, 
         trajs: Vec<Trajectory>) -> Tensor {
         //Collect everything in singular tensors first:
-        let nq = self.model.get_nq();
         let start_log_probs_v: Vec<Tensor> = trajs.iter().map(|traj| {
             Tensor::from_slice(&traj.model_output_sample_log_probs)
         }).collect();
@@ -274,10 +285,10 @@ impl PPOTrainer {
             Tensor::stack(&traj.model_output_samples,0)
         }).collect();
         let start_log_probs = 
-                Tensor::stack(&start_log_probs_v,0);
+                Tensor::stack(&start_log_probs_v,0).detach();
         let wstates = Tensor::stack(&wstates_v,0);
         let action_samples = Tensor::stack(&action_samples_v,0);
-        let gaes = Tensor::stack(&gae_v,0);
+        let gaes = Tensor::stack(&gae_v,0).detach();
         
         let action_gaussian_params = 
                 self.model.get_policy_output(&wstates);
@@ -292,11 +303,16 @@ impl PPOTrainer {
         (ratio * gaes).minimum(&clipped).sum(tch::Kind::Float)
     }
 
-    fn train_an_epoch(&self) {
-        
+    fn train_an_epoch(&mut self) {
+        let trajs = self.gen_trajectories(self.num_trajs);
+        let objective = self.get_ppo_clip_objective(trajs);
+        let loss = -objective;
+        self.policy_opt.backward_step(&loss);
     }
 
-    fn train_n_epochs(&self,n: u32) {
-
+    fn train_n_epochs(&mut self, n: u32) {
+        for _ in 0..n {
+            self.train_an_epoch();
+        }
     }
 }
