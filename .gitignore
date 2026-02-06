@@ -4,4 +4,8 @@
 /client/node_modules
 /client/dist
 /app/target
+/app/.env
 .DS_Store
+/app/lib
+.env
+.envrc

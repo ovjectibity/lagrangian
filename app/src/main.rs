@@ -13,6 +13,7 @@ pub mod mujoco;
 pub mod model;
 pub mod messages;
 pub mod plugin;
+pub mod usr;
 
 // --- API Routes ---
 #[get("/hello")]

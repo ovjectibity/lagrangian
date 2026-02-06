@@ -1,7 +1,22 @@
-#.cargo/config.toml
+# .cargo/config.toml
 
 [build]
 rustflags = [
-    "-L", "/Users/avi/Documents/manual/mujoco-build/lib", 
-    "-l", "mujoco",
-    "-C", "link-arg=-Wl,-rpath,/Users/avi/Documents/manual/mujoco-build/lib"]
+  # ---- search paths ----
+  "-L", "/Users/avi/Documents/manual/mujoco-build/lib",
+  "-L", "/Users/avi/Documents/manual/assembly-theory/deps/libtorch/lib",
+
+  # ---- link the libs ----
+  "-l", "mujoco",
+
+  # Libtorch typically needs at least these:
+  "-l", "torch",
+  "-l", "c10",
+
+  # Depending on your libtorch distro, you may need torch_cpu too:
+  "-l", "torch_cpu",
+
+  # ---- runtime search paths (rpath) ----
+  "-C", "link-arg=-Wl,-rpath,/Users/avi/Documents/manual/mujoco-build/lib",
+  "-C", "link-arg=-Wl,-rpath,/Users/avi/Documents/manual/lagrangian/app/lib/libtorch/lib",
+]

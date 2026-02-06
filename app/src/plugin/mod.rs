@@ -1,23 +1,42 @@
-pub mod manipulator;
+use tch::Tensor;
 
-pub trait SimulatorUtilities {
-    //Get methods for forward dynamics steps
-    fn forward();
+pub mod ppo_trainer;
+
+pub trait Simulator {
+    //Shape of u: [nu]
+    fn forward_dyn(&self,controls: &Tensor);
+    //Shape of acc: [nq]
+    fn inverse_dyn(&self,acc: &Tensor);
+    fn get_model_state(&self) -> Tensor;
+    fn get_target_controls_from_target_positions(
+        &self,target_pos: &Tensor) -> Tensor;
 }
 
 pub struct ControlModelInput {
     //Get the world state & model state for reward calculation + model input
+    //Get sensor data
+    //Generalised positions - nq
+    //User controls
+    //TODO: interface for the user to provide the reward calculations
+    generalised_model_positions: Vec<f64>
 }
 
-pub enum ControlOutput {
-    Direct(Vec<f64>),
+pub enum ControlModelOutput {
+    Direct(DirectActuation),
     //Inverse dynamics calculations to 
     //be handled by the simulator directly
-    TargetPositions(Vec<f64>)
+    TargetPositions(TargetPositions)
+}
+
+pub struct DirectActuation {
+    actuation: Vec<f64>
+}
+
+pub struct TargetPositions {
+    positions: Vec<f64>
 }
 
 pub trait PluginHandle {
-    fn create_plugin_handle() -> Self;
-    fn output_control(&self, 
-        input: ControlModelInput) -> ControlOutput; 
+    fn process_input(&self, 
+        input: ControlModelInput) -> ControlModelOutput;
 }
