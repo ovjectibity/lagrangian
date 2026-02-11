@@ -36,25 +36,3 @@ export interface WorldBody {
 	bodies: Body[];
 }
 
-export interface ModelForward {
-    xpos: number[]; //nbody x 3 
-    xquat: number[]; //nbody x 4
-}
-
-export interface SetModelMessage {
-    set_model: WorldBody;
-}
-export interface LoadModelMessage {
-    id: string;
-    model: WorldBody;
-}
-
-export interface SimulUpdateMessage {
-    id: string;
-    updates: ModelForward[];
-}
-
-export type ClientMessage =
-  | { SetModelMessage: SetModelMessage }
-  | { LoadModelMessage: LoadModelMessage }
-  | { SimulUpdateMessage: SimulUpdateMessage };

@@ -1,3 +1,5 @@
+@import "@xterm/xterm/css/xterm.css";
+
 :root {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;  line-height: 1.5;
   font-weight: 400;
@@ -54,40 +56,85 @@ h1 {
   }
 }
 
+.main-container {
+  padding: 2px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* .views-container {
+  padding: 2px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+} */
+
+.editors-tabs-pane {
+  padding: 2px;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.logs-tabs-pane {
+  padding: 2px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
 .viewport {
-  border: 2px solid #383838;
-  /* border-radius: 8px; */
-  padding: 8px 8px;
+  /* border: 1px solid #C9C8C7; */
+  /* border-radius: 1px; */
+  padding: 2px 2px;
+  margin: 1px;
 }
 
 .menu-bar {
+  margin: 1px;
   position: sticky;
   top: 0;
   left: 0;
   width: 100%;
-  height: 20px;
+  height: 30px;
   background-color: #2c2c2c;
-  padding: 5px 10px;
+  /* border: 1px solid #C9C8C7; */
+  border: 1px solid #383838;
+  border-radius: 1px;
+  /* padding: 5px 10px; */
   display: flex;
   align-items: center;
   /* justify-content: center; */
   z-index: 1000; /* Ensure it stays on top of other content */
 }
 
+.menu-bar-item {
+  width: 50px;
+  height: 100%;
+}
+
 .menu-button {
   /* background: none; */
   border: none;
   color: white;
-  background-color: #2c2c2c;
+  /* background-color: #2c2c2c; */
+  background-color: transparent;
   /* border: 1px solid #383838; */
-  border-radius: 2px;
-  padding: 3px 6px;
+  /* border-radius: 2px; */
+  /* padding: 3px 6px; */
   cursor: pointer;
   font-size: 13px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0px;
 }
 
 .menu-button:hover {
@@ -105,6 +152,16 @@ h1 {
   flex-direction: column;
 }
 
+.dropdown-list.bottom-left {
+  top: calc(100% + 4px);
+  left: 0;
+}
+
+.dropdown-list.bottom-right {
+  top: calc(100% + 4px);
+  right: 0;
+}
+
 .dropdown-item {
   background: none;
   border: none;
@@ -117,4 +174,132 @@ h1 {
 
 .dropdown-item:hover {
   background-color: #383838;
+}
+
+.dropdown-item.selected {
+  background-color: #383838;
+}
+
+.topbar-container {
+  display: flex;
+  justify-content: center;
+  padding: 2px;
+  gap: 2px;
+}
+
+.mode-menu {
+  margin: 1px;
+  position: relative;
+  display: inline-flex;
+  /* border: 1px solid #C9C8C7; */
+  border: 1px solid #383838;
+  border-radius: 1px;
+  width: 90px;
+  align-items: center;
+  justify-items: center;
+  justify-content: center;
+}
+
+.tabbed-container {
+  display: flex;
+  flex-direction: column;
+  /* border: 1px solid #C9C8C7; */
+  border: 1px solid #383838;
+  border-radius: 1px;
+  background-color: #1f1f1f;
+  margin: 1px;
+  height: auto;
+  width: 100%;
+}
+
+.logs-tabs-pane > .tabbed-container {
+  height: 100%;
+}
+
+.tabbed-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* border-bottom: 1px solid #C9C8C7; */
+  border-bottom: 1px solid #383838;
+  background-color: #2c2c2c;
+  font-size: 13px;
+  gap: 8px;
+  /* padding-right: 5px; */
+}
+
+.tabbed-tabs-left {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.tabbed-tabs-left > button {
+  font-size: 13px;
+  color: white;
+}
+
+.tabbed-tabs-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  width: 132px;
+  justify-content: flex-end;
+}
+
+.tab-channel-menu {
+  width: 110px;
+  height: 100%;
+  margin: 0px;
+  /* padding: 2px; */
+}
+
+.tabbed-tab {
+  border: none;
+  border-right: 1px solid #383838;
+  background-color: #2c2c2c;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.tabbed-tab:hover {
+  background-color: #383838;
+}
+
+.tabbed-tab.active {
+  background-color: #383838;
+}
+
+.tabbed-content {
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.logger-container {
+  width: 100%;
+  height: 100%;
+  background-color: #111111;
+  border-top: 1px solid #383838;
+  box-sizing: border-box;
+}
+
+.logger-terminal {
+  width: 100%;
+  height: 100%;
+  text-align: left;
+}
+
+.training-graph-editor {
+  width: 100%;
+  height: 540px;
+  text-align: left;
+}
+
+.graph-editor {
+  width: 100%;
+  height: 100%;
 }

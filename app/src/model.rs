@@ -1,4 +1,5 @@
 use typeshare::typeshare;
+use serde;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]

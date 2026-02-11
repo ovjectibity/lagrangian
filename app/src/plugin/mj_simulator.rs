@@ -56,7 +56,9 @@ impl MjSimulator {
             return true;
         }
         unsafe {
-            let biastype = (*self.model).actuator_biastype.add(0).read();
+            let biastype = 
+                (*self.model).actuator_biastype.
+                add(0).read();
             biastype == mujoco::mjtBias__mjBIAS_NONE as i32
         }
     }
@@ -159,7 +161,8 @@ impl Simulator for MjSimulator {
             .collect();
 
         if !self.is_torque_actuator() {
-            let ctrl_vals: Vec<f64> = target_pos.into_iter().take(nu).collect();
+            let ctrl_vals: Vec<f64> = 
+                target_pos.into_iter().take(nu).collect();
             return Tensor::from_slice(&ctrl_vals);
         }
 

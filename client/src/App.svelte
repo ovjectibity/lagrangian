@@ -2,11 +2,73 @@
   import { onMount, onDestroy } from 'svelte';
   import Viewport from './lib/viewport.svelte';
   import MenuBar from './lib/menubar.svelte';
+  import DropdownList from './lib/dropdownlist.svelte';
+  import TabbedContainer from './lib/tabbedcontainer.svelte';
+  import Logger from './lib/logger.svelte';
+  import TrainingGraphEditor from './lib/traininggrapheditor.svelte';
+  import type { TabbedTab } from './lib/tabbedcontainer.svelte';
   import type { WorldBody, ClientMessage, ModelForward } from './common/types';
 
   let websocket: WebSocket | null = null;
   let worldBody: WorldBody | undefined = $state(undefined);
   let simulUpdateData: ModelForward | undefined = $state(undefined);
+  let showModeMenu = $state(false);
+  let selectedMode = $state('Modeling');
+  const modeOptions = ['Modeling', 'Training'];
+  const logTabChannels = ['Training logs'];
+  let selectedLogTabChannel = $state('Training logs');
+  let editorTabs = $derived<TabbedTab[]>([
+    {
+      id: 'viewport',
+      name: 'Model Editor',
+      component: Viewport,
+      props: {
+        width: 800,
+        height: 500,
+        worldBody,
+        simulUpdateData
+      }
+    },
+    {
+      id: 'training-graph',
+      name: 'Training setup',
+      component: TrainingGraphEditor
+    }
+  ]);
+  let logTabs = $derived<TabbedTab[]>([
+    {
+      id: 'logs',
+      name: 'Logs',
+      component: Logger
+    }
+  ]);
+  let modeMenuContainer: HTMLDivElement;
+
+  const toggleModeMenu = () => {
+    showModeMenu = !showModeMenu;
+  };
+
+  const selectMode = (mode: string) => {
+    selectedMode = mode;
+    showModeMenu = false;
+  };
+
+  const handleGlobalClick = (event: MouseEvent) => {
+    if (!showModeMenu) {
+      return;
+    }
+    if (modeMenuContainer && !modeMenuContainer.contains(event.target as Node)) {
+      showModeMenu = false;
+    }
+  };
+
+  const handleGlobalKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      showModeMenu = false;
+    }
+  };
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'l' && websocket && websocket.readyState === WebSocket.OPEN) {
@@ -94,12 +156,16 @@
     };
 
     window.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('click', handleGlobalClick);
+    window.addEventListener('keydown', handleGlobalKeyDown);
 
     return () => {
       if (websocket) {
         websocket.close();
       }
       window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('click', handleGlobalClick);
+      window.removeEventListener('keydown', handleGlobalKeyDown);
     };
   });
 
@@ -108,12 +174,41 @@
         websocket.close();
     }
     window.removeEventListener('keydown', handleKeyDown);
+    document.removeEventListener('click', handleGlobalClick);
+    window.removeEventListener('keydown', handleGlobalKeyDown);
   });
 </script>
 
-<main>
-  <MenuBar />
-  <div>
-    <Viewport width={800} height={500} worldBody={worldBody} simulUpdateData={simulUpdateData}/>
+<div class="main-container">
+  <div class="topbar-container">
+    <div class="mode-menu" bind:this={modeMenuContainer}>
+      <button class="menu-button" onclick={toggleModeMenu}>
+        {selectedMode}
+      </button>
+      <DropdownList
+        items={modeOptions}
+        show={showModeMenu}
+        onSelect={selectMode}
+        selectedItem={selectedMode}
+        position="bottom-left"
+      />
+    </div>
+    <MenuBar/>
   </div>
-</main>
+  <!-- <div class="views-container"> -->
+  <div class="editors-tabs-pane">
+    <TabbedContainer tabs={editorTabs} />
+  </div>
+  <div class="logs-tabs-pane">
+    <TabbedContainer
+      tabs={logTabs}
+      showTabChannel={true}
+      tabChannelOptions={logTabChannels}
+      selectedTabChannel={selectedLogTabChannel}
+      onTabChannelChange={(channel) => {
+        selectedLogTabChannel = channel;
+      }}
+    />
+  </div>
+  <!-- </div> -->
+</div>

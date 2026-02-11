@@ -24,9 +24,9 @@
   });
 </script>
 
-<nav class="menu-bar">
-  <div style="position: relative;" bind:this={menuContainer}>
+<div class="menu-bar">
+  <div class="menu-bar-item" style="position: relative;" bind:this={menuContainer}>
     <button class="menu-button" onclick={toggleFileMenu}>File</button>
     <DropdownList items={['Import']} show={showFileMenu} />
   </div>
-</nav>
+</div>

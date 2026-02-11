@@ -15,7 +15,7 @@ struct Trajectory {
     rtgs: Vec<f64>
 }
 
-struct PPOTrainer {
+pub struct PPOTrainer {
     num_trajs: i32,
     epsilon: f64,
     //Used for GAE: 

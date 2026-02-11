@@ -12,6 +12,8 @@ pub mod simulator;
 pub mod mujoco;
 pub mod model;
 pub mod messages;
+pub mod training;
+pub mod workflowgraph;
 pub mod plugin;
 pub mod usr;
 

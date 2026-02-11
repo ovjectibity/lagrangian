@@ -127,6 +127,11 @@ export const Button = ({ label, onClick }: ButtonProps) => {
 2.  **Explicit Types:** Do not rely on implicit `any`. If a type is complex, define it separately.
 3.  **Async/Await:** Prefer `async/await` over `.then()` chains.
 4.  **Error Handling:** Use `try/catch` blocks for async operations and handle errors gracefully.
+5.  **Post-edit Validation (Required):** After TypeScript/Svelte edits in `client`, run:
+    * `npm run check`
+    * `npm run build`
+    from the `client` directory before finalizing changes. Report failures clearly.
+6.  **Centralized CSS (Required):** Keep component styling in `client/src/app.css`. Do not add inline `<style>` blocks in Svelte components unless explicitly requested.
 
 ---
 ### Appendix: Minimal `.prettierrc`
