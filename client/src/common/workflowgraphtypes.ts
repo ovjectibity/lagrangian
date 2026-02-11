@@ -5,7 +5,7 @@ export interface WorkflowNodeSetting {
   min?: number;
   max?: number;
   step?: number;
-  inputType?: "number" | "select";
+  inputType?: "number" | "select" | "link";
   options?: Array<{ label: string; value: string }>;
   disabled?: boolean;
 }
@@ -64,6 +64,7 @@ export const TrainingMethodNode: WorkflowNode = {
   inputAnchors: [
     { id: "control_model", label: "ControlModel" },
     { id: "value_model", label: "ValueModel" },
+    { id: "reward_function", label: "RewardFunction" },
   ],
 };
 
@@ -117,10 +118,31 @@ export const ValueModelNode: WorkflowNode = {
   ],
 };
 
+export const RewardFunctionNode: WorkflowNode = {
+  id: "reward-function",
+  label: "RewardFunction",
+  nodeType: "RewardFunction",
+  position: { x: 520, y: 480 },
+  inputs: 0,
+  outputs: 1,
+  outputAnchors: [
+    { id: "reward-function-output", label: "RewardFunctionOutput" },
+  ],
+  settings: [
+    {
+      key: "function_code",
+      label: "Function code",
+      value: "Edit in Reward editor",
+      inputType: "link",
+    },
+  ],
+};
+
 export const TrainingGraphNodes: WorkflowNode[] = [
   TrainingMethodNode,
   ControlModelNode,
   ValueModelNode,
+  RewardFunctionNode,
 ];
 
 export const TrainingGraphEdges: WorkflowEdge[] = [
@@ -137,5 +159,12 @@ export const TrainingGraphEdges: WorkflowEdge[] = [
     targetNodeId: "training-method",
     sourceOutputAnchor: { id: "value-model-output", label: "ValueModelOutput" },
     targetInputAnchor: { id: "value_model", label: "ValueModel" },
+  },
+  {
+    id: "reward-function-to-training-method",
+    sourceNodeId: "reward-function",
+    targetNodeId: "training-method",
+    sourceOutputAnchor: { id: "reward-function-output", label: "RewardFunctionOutput" },
+    targetInputAnchor: { id: "reward_function", label: "RewardFunction" },
   },
 ];

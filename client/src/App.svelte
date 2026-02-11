@@ -21,6 +21,12 @@
   const logTabChannels = ['Training logs'];
   let selectedLogTabChannel = $state('Training logs');
   let isTrainingRunning = $state(false);
+  let selectedEditorTabId = $state('model-editor');
+
+  function openRewardEditor() {
+    selectedEditorTabId = 'reward-editor';
+  }
+
   let editorTabs = $derived<TabbedTab[]>([
     {
       id: 'model-editor',
@@ -36,7 +42,10 @@
     {
       id: 'training-graph',
       name: 'Training setup',
-      component: TrainingGraphEditor
+      component: TrainingGraphEditor,
+      props: {
+        onOpenRewardEditor: openRewardEditor
+      }
     },
     {
       id: 'reward-editor',
@@ -220,7 +229,13 @@
   </div>
   <!-- <div class="views-container"> -->
   <div class="editors-tabs-pane">
-    <TabbedContainer tabs={editorTabs} />
+    <TabbedContainer
+      tabs={editorTabs}
+      activeTabId={selectedEditorTabId}
+      onTabChange={(tabId) => {
+        selectedEditorTabId = tabId;
+      }}
+    />
   </div>
   <div class="logs-tabs-pane">
     <TabbedContainer

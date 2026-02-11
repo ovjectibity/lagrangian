@@ -17,30 +17,54 @@
     tabChannelOptions = [],
     selectedTabChannel = "",
     onTabChannelChange,
+    activeTabId = "",
+    onTabChange,
   } = $props<{
     tabs: TabbedTab[];
     showTabChannel?: boolean;
     tabChannelOptions?: string[];
     selectedTabChannel?: string;
     onTabChannelChange?: (channel: string) => void;
+    activeTabId?: string;
+    onTabChange?: (tabId: string) => void;
   }>();
 
-  let activeTabId = $state('');
+  let internalActiveTabId = $state('');
   let activeTab = $derived(
-    tabs.find((tab: TabbedTab) => tab.id === activeTabId) ?? tabs[0]
+    tabs.find((tab: TabbedTab) => tab.id === internalActiveTabId) ?? tabs[0]
   );
   let showTabChannelMenu = $state(false);
   let tabChannelMenuContainer = $state<HTMLDivElement | undefined>(undefined);
 
   $effect(() => {
-    const activeExists = tabs.some((tab: TabbedTab) => tab.id === activeTabId);
+    if (activeTab && activeTab.id !== internalActiveTabId) {
+      internalActiveTabId = activeTab.id;
+    }
+    const activeExists = tabs.some((tab: TabbedTab) => tab.id === internalActiveTabId);
     if (!activeExists) {
-      activeTabId = tabs[0]?.id ?? '';
+      internalActiveTabId = tabs[0]?.id ?? '';
+      if (internalActiveTabId) {
+        onTabChange?.(internalActiveTabId);
+      }
+    }
+  });
+
+  $effect(() => {
+    if (!activeTabId) {
+      return;
+    }
+    const controlledExists = tabs.some((tab: TabbedTab) => tab.id === activeTabId);
+    if (!controlledExists) {
+      return;
+    }
+    if (activeTabId !== internalActiveTabId) {
+      internalActiveTabId = activeTabId;
     }
   });
 
   const selectTab = (tabId: string) => {
-    activeTabId = tabId;
+    internalActiveTabId = tabId;
+    onTabChange?.(tabId);
   };
 
   const toggleTabChannelMenu = () => {
@@ -86,7 +110,7 @@
     <div class="tabbed-tabs-left">
       {#each tabs as tab}
         <button
-          class={`tabbed-tab ${activeTabId === tab.id ? 'active' : ''}`}
+          class={`tabbed-tab ${internalActiveTabId === tab.id ? 'active' : ''}`}
           onclick={() => selectTab(tab.id)}
         >
           {tab.name}
