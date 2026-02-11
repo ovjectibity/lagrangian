@@ -1,24 +1,149 @@
 <script lang="ts">
-  import { Controls, Node, Svelvet } from "svelvet";
-
-  export type WorkflowNode = {
-    id: string;
-    label: string;
-    position: { x: number; y: number };
-    inputs?: number;
-    outputs?: number;
-  };
-
-  export type WorkflowEdge = {
-    id: string;
-    source: string;
-    target: string;
-  };
+  import { Anchor, Controls, Node, Svelvet } from "svelvet";
+  import type {
+    WorkflowEdge,
+    WorkflowNode,
+    WorkflowNodeSetting,
+  } from "../common/workflowgraphtypes";
 
   const { nodes = [], edges = [] } = $props<{
     nodes?: WorkflowNode[];
     edges?: WorkflowEdge[];
   }>();
+
+  let nodeSettingValues = $state<Record<string, Record<string, number | string>>>({});
+  let edgeRevision = $state(0);
+
+  $effect(() => {
+    const nextValues: Record<string, Record<string, number | string>> = {};
+    for (const node of nodes) {
+      const settings = node.settings ?? [];
+      if (!settings.length) {
+        continue;
+      }
+      nextValues[node.id] = {};
+      for (const setting of settings) {
+        nextValues[node.id][setting.key] = setting.value;
+      }
+    }
+    nodeSettingValues = nextValues;
+  });
+
+  const getSettingValue = (nodeId: string, setting: WorkflowNodeSetting): number | string => {
+    return nodeSettingValues[nodeId]?.[setting.key] ?? setting.value;
+  };
+
+  const setSettingValue = (nodeId: string, setting: WorkflowNodeSetting, rawValue: string): void => {
+    let value: number | string = rawValue;
+    if ((setting.inputType ?? "number") === "number") {
+      const parsedValue = Number.parseFloat(rawValue);
+      value = Number.isNaN(parsedValue) ? setting.value : parsedValue;
+    }
+    nodeSettingValues[nodeId] = {
+      ...(nodeSettingValues[nodeId] ?? {}),
+      [setting.key]: value,
+    };
+    const targetNode = nodes.find((node: WorkflowNode) => node.id === nodeId);
+    const targetSetting = targetNode?.settings?.find(
+      (nodeSetting: WorkflowNodeSetting) => nodeSetting.key === setting.key
+    );
+    if (targetSetting) {
+      targetSetting.value = value;
+    }
+    nodeSettingValues = { ...nodeSettingValues };
+  };
+
+  const getOutputConnections = (
+    sourceNodeId: string,
+    sourceOutputAnchorId: string
+  ): Array<[string, string]> => {
+    edgeRevision;
+    return edges
+      .filter(
+        (edge: WorkflowEdge) =>
+          edge.sourceNodeId === sourceNodeId &&
+          edge.sourceOutputAnchor.id === sourceOutputAnchorId
+      )
+      .map((edge: WorkflowEdge) => [edge.targetNodeId, edge.targetInputAnchor.id]);
+  };
+
+  const normalizeNodeId = (id: string | number): string => {
+    return String(id).replace(/^N-/, "");
+  };
+
+  const normalizeAnchorId = (id: string | number): string => {
+    return String(id).replace(/^A-/, "").split("/")[0];
+  };
+
+  const handleAnchorConnection = (event: Event): void => {
+    const customEvent = event as CustomEvent<{
+      node: { id: string | number };
+      anchor: { id: string | number; type?: string };
+      connectedNode: { id: string | number };
+      connectedAnchor: { id: string | number };
+    }>;
+    const detail = customEvent.detail;
+    if (!detail) {
+      return;
+    }
+
+    const sourceNodeId = normalizeNodeId(detail.node.id);
+    const sourceAnchorId = normalizeAnchorId(detail.anchor.id);
+    const targetNodeId = normalizeNodeId(detail.connectedNode.id);
+    const targetAnchorId = normalizeAnchorId(detail.connectedAnchor.id);
+
+    const exists = edges.some(
+      (edge: WorkflowEdge) =>
+        edge.sourceNodeId === sourceNodeId &&
+        edge.targetNodeId === targetNodeId &&
+        edge.sourceOutputAnchor.id === sourceAnchorId &&
+        edge.targetInputAnchor.id === targetAnchorId
+    );
+    if (exists) {
+      return;
+    }
+
+    edges.push({
+      id: `${sourceNodeId}-${sourceAnchorId}-to-${targetNodeId}-${targetAnchorId}`,
+      sourceNodeId,
+      targetNodeId,
+      sourceOutputAnchor: { id: sourceAnchorId, label: sourceAnchorId },
+      targetInputAnchor: { id: targetAnchorId, label: targetAnchorId },
+    });
+    edgeRevision += 1;
+  };
+
+  const handleAnchorDisconnection = (event: Event): void => {
+    const customEvent = event as CustomEvent<{
+      node: { id: string | number };
+      anchor: { id: string | number; type?: string };
+      connectedNode: { id: string | number };
+      connectedAnchor: { id: string | number };
+    }>;
+    const detail = customEvent.detail;
+    if (!detail) {
+      return;
+    }
+
+    const sourceNodeId = normalizeNodeId(detail.node.id);
+    const sourceAnchorId = normalizeAnchorId(detail.anchor.id);
+    const targetNodeId = normalizeNodeId(detail.connectedNode.id);
+    const targetAnchorId = normalizeAnchorId(detail.connectedAnchor.id);
+
+    const edgeIndex = edges.findIndex(
+      (edge: WorkflowEdge) =>
+        edge.sourceNodeId === sourceNodeId &&
+        edge.targetNodeId === targetNodeId &&
+        edge.sourceOutputAnchor.id === sourceAnchorId &&
+        edge.targetInputAnchor.id === targetAnchorId
+    );
+    if (edgeIndex < 0) {
+      return;
+    }
+
+    edges.splice(edgeIndex, 1);
+    edgeRevision += 1;
+  };
 </script>
 
 <div class="graph-editor">
@@ -27,10 +152,87 @@
       <Node
         id={node.id}
         label={node.label}
-        position={node.position}
-        inputs={node.inputs ?? 1}
-        outputs={node.outputs ?? 1}
-      />
+        bind:position={node.position}
+        inputs={node.inputAnchors?.length ?? node.inputs ?? 1}
+        outputs={node.outputAnchors?.length ?? node.outputs ?? 1}
+      >
+        <div class="workflow-node-shell">
+          <div class="workflow-node-header">{node.label}</div>
+          {#if (node.settings?.length ?? 0) > 0}
+            <div class="workflow-node-settings">
+              {#each node.settings ?? [] as setting}
+                <label class="workflow-node-setting">
+                  <span>{setting.label}</span>
+                  {#if (setting.inputType ?? "number") === "select"}
+                    <select
+                      class="workflow-node-setting-select"
+                      value={String(getSettingValue(node.id, setting))}
+                      oninput={(event) =>
+                        setSettingValue(
+                          node.id,
+                          setting,
+                          (event.currentTarget as HTMLSelectElement).value
+                        )}
+                    >
+                      {#each setting.options ?? [] as option}
+                        <option value={option.value}>{option.label}</option>
+                      {/each}
+                    </select>
+                  {:else}
+                    <input
+                      class="workflow-node-setting-input"
+                      type="number"
+                      min={setting.min}
+                      max={setting.max}
+                      step={setting.step ?? 1}
+                      value={getSettingValue(node.id, setting)}
+                      oninput={(event) =>
+                        setSettingValue(
+                          node.id,
+                          setting,
+                          (event.currentTarget as HTMLInputElement).value
+                        )}
+                    />
+                  {/if}
+                </label>
+              {/each}
+            </div>
+          {/if}
+          {#if (node.inputAnchors?.length ?? 0) > 0}
+            <div class="workflow-node-inputs">
+              {#each node.inputAnchors ?? [] as anchor}
+                <div class="workflow-node-input-item">
+                  <Anchor id={anchor.id} input direction="west" />
+                  <span>{anchor.label}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+          {#if (node.outputAnchors?.length ?? 0) > 0}
+            <div class="workflow-node-outputs">
+              {#each node.outputAnchors ?? [] as anchor}
+                <div class="workflow-node-output-item">
+                  <span>{anchor.label}</span>
+                  <Anchor
+                    id={anchor.id}
+                    output
+                    direction="east"
+                    connections={getOutputConnections(node.id, anchor.id)}
+                    on:connection={handleAnchorConnection}
+                    on:disconnection={handleAnchorDisconnection}
+                  />
+                </div>
+              {/each}
+            </div>
+          {/if}
+          {#if
+            (node.settings?.length ?? 0) === 0 &&
+            (node.inputAnchors?.length ?? 0) === 0 &&
+            (node.outputAnchors?.length ?? 0) === 0}
+            <div class="workflow-node-default-body">{node.nodeType ?? node.label}</div>
+          {/if}
+        </div>
+      </Node>
     {/each}
     <Controls horizontal slot="controls" />
   </Svelvet>
