@@ -8,7 +8,8 @@
   import TrainingGraphEditor from './lib/traininggrapheditor.svelte';
   import PlayPauseCta from './lib/playpausecta.svelte';
   import type { TabbedTab } from './lib/tabbedcontainer.svelte';
-  import type { WorldBody, ClientMessage, ModelForward } from './common/types';
+  import type { WorldBody } from './common/types';
+  import type { ClientMessage, ModelForward } from "./common/messages";
 
   let websocket: WebSocket | null = null;
   let worldBody: WorldBody | undefined = $state(undefined);
@@ -21,7 +22,7 @@
   let isTrainingRunning = $state(false);
   let editorTabs = $derived<TabbedTab[]>([
     {
-      id: 'viewport',
+      id: 'model-editor',
       name: 'Model Editor',
       component: Viewport,
       props: {
@@ -108,11 +109,11 @@
         // Handle JSON messages
         try {
           const clientMessage: ClientMessage = JSON.parse(event.data);
-          if ("SetModelMessage" in clientMessage) {
-            worldBody = clientMessage.SetModelMessage.set_model;
+          if (clientMessage.type === "SetModelMessage") {
+            worldBody = clientMessage.content.set_model;
             simulUpdateData = undefined; // Clear simulation data on new model load
-          } else if ("LoadModelMessage" in clientMessage) {
-            worldBody = clientMessage.LoadModelMessage.model;
+          } else if (clientMessage.type === "LoadModelMessage") {
+            worldBody = clientMessage.content.model;
             simulUpdateData = undefined; // Clear simulation data on new model load
           }
         } catch (e) {

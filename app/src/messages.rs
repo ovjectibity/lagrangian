@@ -1,7 +1,10 @@
-use serde::Serialize;
 use crate::model;
+use typeshare::typeshare;
+use serde;
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content="content")]
+#[typeshare]
 pub enum ClientMessage {
     SetModelMessage(SetModelMessage),
     LoadModelMessage(LoadModelMessage),
@@ -62,29 +65,36 @@ impl ClientMessage {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
 pub struct SetModelMessage {
     pub set_model: model::WorldBody
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
 pub struct LoadModelMessage {
     pub id: String,
     pub model: model::WorldBody
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
 pub struct SimulUpdateMessage {
     pub id: String,
     pub updates: Vec<ModelForward>
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
 pub struct ModelForward {
     pub xpos: Vec<f64>, //nbody x 3 
     pub xquat: Vec<f64>, //nbody x 4
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content="content")]
+#[typeshare]
 pub enum SimulatorThreadMessage {
     LoadModel(SimulatorThreadLoadModelMessage),
     SimulUpdate(SimulatorThreadSimulUpdateMessage)
@@ -111,10 +121,14 @@ impl SimulatorThreadMessage {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
 pub struct SimulatorThreadLoadModelMessage {
     pub model: model::WorldBody
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
 pub struct SimulatorThreadSimulUpdateMessage {
     pub update: ModelForward
 }
