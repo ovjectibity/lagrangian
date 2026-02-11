@@ -6,6 +6,7 @@
   import TabbedContainer from './lib/tabbedcontainer.svelte';
   import Logger from './lib/logger.svelte';
   import TrainingGraphEditor from './lib/traininggrapheditor.svelte';
+  import PlayPauseCta from './lib/playpausecta.svelte';
   import type { TabbedTab } from './lib/tabbedcontainer.svelte';
   import type { WorldBody, ClientMessage, ModelForward } from './common/types';
 
@@ -17,6 +18,7 @@
   const modeOptions = ['Modeling', 'Training'];
   const logTabChannels = ['Training logs'];
   let selectedLogTabChannel = $state('Training logs');
+  let isTrainingRunning = $state(false);
   let editorTabs = $derived<TabbedTab[]>([
     {
       id: 'viewport',
@@ -51,6 +53,13 @@
   const selectMode = (mode: string) => {
     selectedMode = mode;
     showModeMenu = false;
+    if (mode !== 'Training') {
+      isTrainingRunning = false;
+    }
+  };
+
+  const toggleTrainingState = () => {
+    isTrainingRunning = !isTrainingRunning;
   };
 
   const handleGlobalClick = (event: MouseEvent) => {
@@ -193,6 +202,9 @@
         position="bottom-left"
       />
     </div>
+    {#if selectedMode === 'Training'}
+      <PlayPauseCta isRunning={isTrainingRunning} onToggle={toggleTrainingState} />
+    {/if}
     <MenuBar/>
   </div>
   <!-- <div class="views-container"> -->

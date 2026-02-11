@@ -166,6 +166,7 @@
                   {#if (setting.inputType ?? "number") === "select"}
                     <select
                       class="workflow-node-setting-select"
+                      disabled={setting.disabled ?? false}
                       value={String(getSettingValue(node.id, setting))}
                       oninput={(event) =>
                         setSettingValue(
@@ -182,6 +183,7 @@
                     <input
                       class="workflow-node-setting-input"
                       type="number"
+                      disabled={setting.disabled ?? false}
                       min={setting.min}
                       max={setting.max}
                       step={setting.step ?? 1}

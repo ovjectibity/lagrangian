@@ -200,6 +200,47 @@ h1 {
   justify-content: center;
 }
 
+.play-pause-cta {
+  margin: 1px;
+  border: 1px solid #383838;
+  border-radius: 1px;
+  width: 132px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #2c2c2c;
+}
+
+.play-pause-cta-button {
+  border: none;
+  background-color: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.play-pause-cta-button:hover {
+  background-color: #383838;
+}
+
+.play-pause-cta-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.play-pause-cta-label {
+  font-size: 12px;
+  line-height: 1;
+  color: #ffffff;
+}
+
 .tabbed-container {
   display: flex;
   flex-direction: column;

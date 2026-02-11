@@ -7,6 +7,7 @@ export interface WorkflowNodeSetting {
   step?: number;
   inputType?: "number" | "select";
   options?: Array<{ label: string; value: string }>;
+  disabled?: boolean;
 }
 
 export interface WorkflowNodeInputAnchor {
@@ -111,7 +112,7 @@ export const ValueModelNode: WorkflowNode = {
     },
     { key: "num_hidden_layers", label: "num_hidden_layers", value: 2, min: 1, step: 1 },
     { key: "hidden_layer_dim", label: "hidden_layer_dim", value: 128, min: 1, step: 1 },
-    { key: "output_dim", label: "output_dim", value: 1, min: 1, step: 1 },
+    { key: "output_dim", label: "output_dim", value: 1, min: 1, step: 1, disabled: true },
     { key: "input_dim", label: "input_dim", value: 8, min: 1, step: 1 },
   ],
 };
