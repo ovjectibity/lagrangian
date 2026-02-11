@@ -79,6 +79,14 @@ h1 {
   min-height: 0;
 }
 
+.editors-tabs-pane .tabbed-content {
+  height: 500px;
+  flex: 0 0 500px;
+  min-height: 500px;
+  max-height: 500px;
+  overflow: hidden;
+}
+
 .logs-tabs-pane {
   padding: 2px;
   flex: 1;
@@ -336,7 +344,18 @@ h1 {
 
 .training-graph-editor {
   width: 100%;
-  height: 540px;
+  height: 100%;
+  text-align: left;
+}
+
+.reward-editor {
+  width: 100%;
+  height: 100%;
+}
+
+.code-editor-root {
+  width: 100%;
+  height: 100%;
   text-align: left;
 }
 

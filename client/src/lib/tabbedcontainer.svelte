@@ -7,7 +7,7 @@
   export type TabbedTab = {
     id: string;
     name: string;
-    component: Component<any>;
+    component?: Component<any>;
     props?: Record<string, unknown>;
   };
 
@@ -115,8 +115,10 @@
   </div>
   <div class="tabbed-content">
     {#if activeTab}
-      {@const ActiveComponent = activeTab.component}
-      <ActiveComponent {...(activeTab.props ?? {})} />
+      {#if activeTab.component}
+        {@const ActiveComponent = activeTab.component}
+        <ActiveComponent {...(activeTab.props ?? {})} />
+      {/if}
     {/if}
   </div>
 </div>
