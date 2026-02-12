@@ -49,3 +49,41 @@ pub struct PPOTrainingMethod {
 pub struct RewardSystem {
     reward_function_code: String
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content="content")]
+#[typeshare]
+pub enum TrainingMetrics {
+    AvgReward(AvgReward),
+    MeanPolicyLoss(MeanPolicyLoss),
+    ValueLoss(ValueLoss),
+    MeanEntropy(MeanEntropy)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct AvgReward {
+    x_axis: Vec<f64>,
+    y_axis: Vec<f64>
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct MeanPolicyLoss {
+    x_axis: Vec<f64>,
+    y_axis: Vec<f64>
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct ValueLoss {
+    x_axis: Vec<f64>,
+    y_axis: Vec<f64>
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct MeanEntropy {
+    x_axis: Vec<f64>,
+    y_axis: Vec<f64>
+}

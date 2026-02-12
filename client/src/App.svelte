@@ -8,6 +8,7 @@
   import TrainingGraphEditor from './lib/traininggrapheditor.svelte';
   import PlayPauseCta from './lib/playpausecta.svelte';
   import RewardEditor from './lib/rewardeditor.svelte';
+  import TrainingRuntimeDashboard from './lib/trainingruntimedashboard.svelte';
   import type { TabbedTab } from './lib/tabbedcontainer.svelte';
   import type { WorldBody } from './common/types';
   import type { ClientMessage, ModelForward } from "./common/messages";
@@ -54,7 +55,8 @@
     },
     {
       id: 'training-runtime-dashboard',
-      name: 'Training runtime dashboard'
+      name: 'Training runtime dashboard',
+      component: TrainingRuntimeDashboard
     }
   ]);
   let logTabs = $derived<TabbedTab[]>([
