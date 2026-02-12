@@ -10,8 +10,8 @@
   import RewardEditor from './lib/rewardeditor.svelte';
   import TrainingRuntimeDashboard from './lib/trainingruntimedashboard.svelte';
   import type { TabbedTab } from './lib/tabbedcontainer.svelte';
-  import type { WorldBody } from './common/types';
-  import type { ClientMessage, ModelForward } from "./common/messages";
+  import type { WorldBody } from './commondef/model';
+  import type { ClientMessage, ModelForward } from "./commondef/messages";
 
   let websocket: WebSocket | null = null;
   let worldBody: WorldBody | undefined = $state(undefined);

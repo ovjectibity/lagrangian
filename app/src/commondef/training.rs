@@ -54,36 +54,15 @@ pub struct RewardSystem {
 #[serde(tag = "type", content="content")]
 #[typeshare]
 pub enum TrainingMetrics {
-    AvgReward(AvgReward),
-    MeanPolicyLoss(MeanPolicyLoss),
-    ValueLoss(ValueLoss),
-    MeanEntropy(MeanEntropy)
+    AvgReward(MetricsData),
+    MeanPolicyLoss(MetricsData),
+    ValueLoss(MetricsData),
+    MeanEntropy(MetricsData)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
-pub struct AvgReward {
-    x_axis: Vec<f64>,
-    y_axis: Vec<f64>
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct MeanPolicyLoss {
-    x_axis: Vec<f64>,
-    y_axis: Vec<f64>
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct ValueLoss {
-    x_axis: Vec<f64>,
-    y_axis: Vec<f64>
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct MeanEntropy {
+pub struct MetricsData {
     x_axis: Vec<f64>,
     y_axis: Vec<f64>
 }

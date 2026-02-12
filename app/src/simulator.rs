@@ -5,8 +5,8 @@ use std::thread;
 use rocket::tokio::sync::mpsc;
 
 use crate::mujoco;
-use crate::messages;
-use crate::model::{Body, Geom, GeomType, WorldBody};
+use crate::commondef::messages;
+use crate::commondef::model::{Body, Geom, GeomType, WorldBody};
 
 pub fn get_test_model() -> WorldBody {
     // A simple robot arm model

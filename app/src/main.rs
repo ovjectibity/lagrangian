@@ -8,12 +8,12 @@ use rocket_ws as ws;
 use rocket::fs::FileServer;
 use rocket::futures::{SinkExt, StreamExt};
 
+use crate::commondef::messages;
+
 pub mod simulator;
 pub mod mujoco;
-pub mod model;
-pub mod messages;
 pub mod training;
-pub mod workflowgraph;
+pub mod commondef;
 pub mod plugin;
 pub mod usr;
 

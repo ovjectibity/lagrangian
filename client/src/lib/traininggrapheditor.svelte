@@ -3,8 +3,8 @@
   import {
     TrainingGraphEdges,
     TrainingGraphNodes,
-  } from "../common/workflowgraphtypes";
-  import type { WorkflowEdge, WorkflowNode } from "../common/workflowgraphtypes";
+  } from "../commondef/workflowgraph";
+  import type { WorkflowEdge, WorkflowNode } from "../commondef/workflowgraph";
   const { onOpenRewardEditor } = $props<{ onOpenRewardEditor?: () => void }>();
 
   const trainingNodes: WorkflowNode[] = TrainingGraphNodes;

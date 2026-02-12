@@ -1,7 +1,8 @@
 <script lang="ts">
   import * as three from 'three';
   import { onMount } from 'svelte';
-  import type { WorldBody, Body, Geom, ModelForward } from '../common/types';
+  import type { WorldBody, Body, Geom } from '../commondef/model';
+  import type { ModelForward } from "../commondef/messages";
   import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 

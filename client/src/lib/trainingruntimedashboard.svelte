@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { TRAINING_METRICS_CHARTS } from "../common/charts";
+  import { TRAINING_METRICS_CHARTS } from "../commondef/charts";
   import type { ECharts, EChartsOption } from "echarts";
 
   let chartContainers = $state<Array<HTMLDivElement | undefined>>([]);

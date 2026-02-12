@@ -1,6 +1,29 @@
-use crate::model;
 use typeshare::typeshare;
 use serde;
+
+use crate::commondef::model;
+use crate::commondef::training::{TrainingMethod, TrainingMetrics};
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content="content")]
+#[typeshare]
+pub enum ServerMessage {
+    StartTrainingMessage(StartTrainingMessage),
+    StopTrainingMessage(StopTrainingMessage)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct StartTrainingMessage {
+    id: String,
+    training_workflow: TrainingMethod
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct StopTrainingMessage {
+    id: String
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content="content")]
@@ -8,7 +31,8 @@ use serde;
 pub enum ClientMessage {
     SetModelMessage(SetModelMessage),
     LoadModelMessage(LoadModelMessage),
-    SimulUpdateMessage(SimulUpdateMessage)
+    SimulUpdateMessage(SimulUpdateMessage),
+    TrainingUpdatesMessage(TrainingUpdatesMessage)
 }
 
 impl ClientMessage {
@@ -90,6 +114,14 @@ pub struct SimulUpdateMessage {
 pub struct ModelForward {
     pub xpos: Vec<f64>, //nbody x 3 
     pub xquat: Vec<f64>, //nbody x 4
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct TrainingUpdatesMessage {
+    id: String,
+    metrics: TrainingMetrics,
+    logs: Vec<String>
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
