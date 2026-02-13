@@ -27,7 +27,7 @@ impl ArmModel {
         hidden_layer_dimension: i64,
         num_layers: i64,
         add_softmax: bool) -> (nn::Sequential, nn::VarStore) {
-        let vs = nn::VarStore::new(tch::Device::Mps);
+        let vs = nn::VarStore::new(tch::Device::Cpu);
         let vs_p = vs.root();
         let mut y = nn::seq()
             .add(nn::linear(

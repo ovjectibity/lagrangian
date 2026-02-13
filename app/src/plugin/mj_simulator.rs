@@ -1,3 +1,5 @@
+use std::sync::Once;
+
 use tch::{Kind, Tensor};
 
 use crate::mujoco;
@@ -66,6 +68,7 @@ impl MjSimulator {
 
 impl Drop for MjSimulator {
     fn drop(&mut self) {
+        println!("Cleaning up model held by the simulator");
         unsafe {
             simulator::cleanup_model(self.model, self.data);
         }
@@ -126,10 +129,39 @@ impl Simulator for MjSimulator {
         let nq = self.nq();
         unsafe {
             let qpos_ptr = (*self.data).qpos;
+            assert!(!qpos_ptr.is_null());
+            assert!(nq > 0);
             let qpos = 
                 std::slice::from_raw_parts(
                     qpos_ptr, nq).to_vec();
             Tensor::from_slice(&qpos)
+
+            // match Tensor::f_from_slice(&qpos) {
+            //     Ok(qpos_tensor) => qpos_tensor,
+            //     Err(e) => {
+            //         let qpos_preview: Vec<f64> = 
+            //             qpos.iter().copied().take(4).collect();
+            //         eprintln!("get_model_state f_from_slice failed: {:?}", e);
+            //         eprintln!(
+            //             "get_model_state context nq={}, qpos_ptr={:p}, qpos_len={}, qpos_preview={:?}, has_mps={}",
+            //             nq,
+            //             qpos_ptr,
+            //             qpos.len(),
+            //             qpos_preview,
+            //             tch::utils::has_mps()
+            //         );
+            //         let fallback = Tensor::zeros(
+            //             [nq as i64],
+            //             (Kind::Double, tch::Device::Cpu)
+            //         );
+            //         eprintln!(
+            //             "get_model_state fallback kind={:?}, device={:?}",
+            //             fallback.kind(),
+            //             fallback.device()
+            //         );
+            //         fallback
+            //     }
+            // }
         }
     }
 

@@ -4,7 +4,7 @@
 rustflags = [
   # ---- search paths ----
   "-L", "/Users/avi/Documents/manual/mujoco-build/lib",
-  "-L", "/Users/avi/Documents/manual/lagrangian/app/lib/libtorch/lib",
+  "-L", "/Users/avi/Documents/manual/assembly-theory/deps/libtorch/lib",
 
   # ---- link the libs ----
   "-l", "mujoco",
@@ -18,5 +18,5 @@ rustflags = [
 
   # ---- runtime search paths (rpath) ----
   "-C", "link-arg=-Wl,-rpath,/Users/avi/Documents/manual/mujoco-build/lib",
-  "-C", "link-arg=-Wl,-rpath,/Users/avi/Documents/manual/lagrangian/app/lib/libtorch/lib",
+  "-C", "link-arg=-Wl,-rpath,/Users/avi/Documents/manual/assembly-theory/deps/libtorch/lib",
 ]

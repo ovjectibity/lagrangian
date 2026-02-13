@@ -88,7 +88,7 @@ export const ControlModelNode: WorkflowNode = {
     },
     { key: "num_hidden_layers", label: "num_hidden_layers", value: 2, min: 1, step: 1 },
     { key: "hidden_layer_dim", label: "hidden_layer_dim", value: 128, min: 1, step: 1 },
-    { key: "output_dim", label: "output_dim", value: 8, min: 1, step: 1 },
+    { key: "output_dim", label: "output_dim", value: 16, min: 1, step: 1 },
     { key: "input_dim", label: "input_dim", value: 8, min: 1, step: 1 },
   ],
 };

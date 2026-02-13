@@ -87,6 +87,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                         Ok(m) => {
                                             match m {
                                                 messages::ServerMessage::StartTrainingMessage(t) => {
+                                                    println!("Start training ask from client {:?}",t);
                                                     let commondef::training::TrainingMethod::PPO(ppomethod) = 
                                                         t.training_workflow;
                                                     let tx_tc = tx_t.clone();
@@ -102,6 +103,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                     training_tasks.insert(t.id.clone(),h);
                                                 },
                                                 messages::ServerMessage::StopTrainingMessage(t) => {
+                                                     println!("Stopping training as asked by client {:?}",t);
                                                     training_tasks.remove(&t.id.clone());
                                                 }
                                             }
@@ -145,6 +147,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                         };
                     },
                     Some(msg) = rx_t.recv() => {
+                        println!("Sending training updates to client {:?}",msg);
                         match msg {
                             workermessages::TrainingTaskMessage::TrainingUpdates(m) => {
                                 let response_message =
