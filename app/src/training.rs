@@ -25,6 +25,23 @@ pub struct TrainingWorkflow {
 }
 
 impl TrainingWorkflow {
+    async fn log_and_send(
+        tx: &mpsc::Sender<TrainingTaskMessage>,
+        training_id: String,
+        msg: String,
+    ) {
+        println!("{msg}");
+        let log_update = 
+            TrainingTaskMessage::TrainingUpdates(
+            TrainingUpdatesMessage {
+                id: training_id,
+                metrics: vec![],
+                logs: vec![msg],
+            },
+        );
+        let _ = tx.send(log_update).await;
+    }
+
     pub fn new(
         model_path: String, 
         id: String, 
@@ -92,7 +109,11 @@ impl TrainingWorkflow {
         tx: mpsc::Sender<TrainingTaskMessage>) {
         let params = &self.params;
         for i in 0..params.num_epochs {
-            println!("Running the training epoch {:?}",i);
+            Self::log_and_send(
+                &tx,
+                self.id.clone(),
+                format!("Running the training epoch {i}"),
+            ).await;
             //TODO: Expose num trajs as a param
             let trajs = self.trainer.gen_trajectories(10);
             self.trainer.train_an_epoch(&trajs);

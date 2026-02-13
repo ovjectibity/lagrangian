@@ -29,12 +29,13 @@
   let worldBody: WorldBody | undefined = $state(undefined);
   let simulUpdateData: ModelForward | undefined = $state(undefined);
   let showModeMenu = $state(false);
-  let selectedMode = $state('Modeling');
+  let selectedMode = $state('Training');
   const modeOptions = ['Modeling', 'Training'];
   const logTabChannels = ['Training logs'];
   let selectedLogTabChannel = $state('Training logs');
   let isTrainingRunning = $state(false);
   let selectedEditorTabId = $state('model-editor');
+  let trainingLogs = $state<string[]>([]);
   type TrainingMetricType = TrainingMetrics['type'];
   type TrainingMetricsByType = Record<TrainingMetricType, MetricsData>;
 
@@ -80,6 +81,13 @@
     trainingMetricsByType = nextMetricsByType;
   };
 
+  const appendTrainingLogs = (logs: string[]): void => {
+    if (logs.length === 0) {
+      return;
+    }
+    trainingLogs = [...trainingLogs, ...logs];
+  };
+
   function openRewardEditor() {
     selectedEditorTabId = 'reward-editor';
   }
@@ -122,7 +130,10 @@
     {
       id: 'logs',
       name: 'Logs',
-      component: Logger
+      component: Logger,
+      props: {
+        logs: trainingLogs
+      }
     }
   ]);
   let modeMenuContainer: HTMLDivElement;
@@ -221,6 +232,7 @@
     });
     if (wasSent) {
       trainingMetricsByType = createEmptyTrainingMetricsByType();
+      trainingLogs = [];
       isTrainingRunning = true;
     }
   };
@@ -298,6 +310,7 @@
           } else if (clientMessage.type === 'TrainingUpdatesMessage') {
             if (clientMessage.content.id === trainingTaskId) {
               appendTrainingMetrics(clientMessage.content.metrics);
+              appendTrainingLogs(clientMessage.content.logs);
             }
           } else if (clientMessage.type === 'StopTrainingMessage') {
             isTrainingRunning = false;
