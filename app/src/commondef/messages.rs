@@ -119,48 +119,7 @@ pub struct ModelForward {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct TrainingUpdatesMessage {
-    id: String,
-    metrics: TrainingMetrics,
-    logs: Vec<String>
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content="content")]
-#[typeshare]
-pub enum SimulatorThreadMessage {
-    LoadModel(SimulatorThreadLoadModelMessage),
-    SimulUpdate(SimulatorThreadSimulUpdateMessage)
-}
-
-impl SimulatorThreadMessage {
-    pub fn new_load_model_message(wb: model::WorldBody) -> Self {
-        SimulatorThreadMessage::LoadModel(
-            SimulatorThreadLoadModelMessage { 
-                model: wb 
-            }
-        )
-    }
-
-    pub fn new_simul_update_message(xpos: Vec<f64>, xquat: Vec<f64>) -> Self {
-        SimulatorThreadMessage::SimulUpdate(
-            SimulatorThreadSimulUpdateMessage { 
-                update: ModelForward { 
-                    xpos: xpos, 
-                    xquat: xquat
-                } 
-            } 
-        )
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct SimulatorThreadLoadModelMessage {
-    pub model: model::WorldBody
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct SimulatorThreadSimulUpdateMessage {
-    pub update: ModelForward
+    pub id: String,
+    pub metrics: Vec<TrainingMetrics>,
+    pub logs: Vec<String>
 }

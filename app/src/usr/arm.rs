@@ -21,7 +21,7 @@ pub struct ArmModel {
 }
 
 impl ArmModel {
-    fn init_policy(
+    pub fn init_policy(
         input_dimension: i64,
         output_dimension: i64,
         hidden_layer_dimension: i64,

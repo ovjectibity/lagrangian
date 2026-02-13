@@ -39,7 +39,7 @@ export type TrainingMethod =
 	| { type: "PPO", content: PPOTrainingMethod };
 
 export type TrainingMetrics = 
-	| { type: "AvgReward", content: MetricsData }
+	| { type: "MeanReward", content: MetricsData }
 	| { type: "MeanPolicyLoss", content: MetricsData }
 	| { type: "ValueLoss", content: MetricsData }
 	| { type: "MeanEntropy", content: MetricsData };

@@ -8,7 +8,7 @@ use rocket_ws as ws;
 use rocket::fs::FileServer;
 use rocket::futures::{SinkExt, StreamExt};
 
-use crate::commondef::messages;
+use crate::commondef::{messages, workermessages};
 
 pub mod simulator;
 pub mod mujoco;
@@ -26,7 +26,9 @@ fn api_hello() -> &'static str {
 #[get("/viewport")]
 fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
     let (tx,mut rx) = 
-        mpsc::channel::<messages::SimulatorThreadMessage>(32);
+        mpsc::channel::<workermessages::SimulatorThreadMessage>(32);
+    let (tx_t,mut rx_t) = 
+        mpsc::channel::<workermessages::TrainingTaskMessage>(32);
     ws.channel(move |mut stream| {
         Box::pin(async move {
             loop {
@@ -77,6 +79,24 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                     simulator::spawn_simulator(
                                         "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml".to_string(),
                                         tx.clone());
+                                } else {
+                                    match serde_json::from_str::<messages::ServerMessage>(&text) {
+                                        Ok(m) => {
+                                            match m {
+                                                messages::ServerMessage::StartTrainingMessage(t) => {
+                                                    let h = tokio::spawn(async {
+                                                        
+                                                    });
+                                                },
+                                                messages::ServerMessage::StopTrainingMessage(t) => {
+                                                    //TODO: Stop training here for the current training handle
+                                                }
+                                            }
+                                        },
+                                        Err(e) => {
+                                            println!("Couldn't deserialise the msg from client to a server message {:?}",e);
+                                        }
+                                    }
                                 }
                             }
                             Ok(ws::Message::Binary(bin)) => {
@@ -96,21 +116,24 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                     }
                     Some(msg) = rx.recv() => {
                         match msg {
-                            messages::SimulatorThreadMessage::LoadModel(m) => {
+                            workermessages::SimulatorThreadMessage::LoadModel(m) => {
                                 let response_message = messages::ClientMessage::new_load_model_message(
                                     "1".to_string(), m.model);
                                 let json_response = serde_json::to_string(&response_message)
                                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e));
                                 let _ = stream.send(ws::Message::Text(json_response)).await;
                             },
-                            messages::SimulatorThreadMessage::SimulUpdate(m) => {
+                            workermessages::SimulatorThreadMessage::SimulUpdate(m) => {
                                 let binary_data = messages::ClientMessage::to_binary_simul_update(
                                     "1".to_string(), m.update
                                 );
                                 let _ = stream.send(ws::Message::Binary(binary_data)).await;
                             }
                         };
-                    }
+                    },
+                    Some(msg) = rx_t.recv() => {
+
+                    },
                     else => break
                 }
             }

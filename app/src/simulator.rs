@@ -5,7 +5,7 @@ use std::thread;
 use rocket::tokio::sync::mpsc;
 
 use crate::mujoco;
-use crate::commondef::messages;
+use crate::commondef::{workermessages};
 use crate::commondef::model::{Body, Geom, GeomType, WorldBody};
 
 pub fn get_test_model() -> WorldBody {
@@ -382,7 +382,7 @@ pub unsafe fn load_model(
 
 pub fn spawn_simulator(
     model_name: String,
-    tx: mpsc::Sender<messages::SimulatorThreadMessage>) {
+    tx: mpsc::Sender<workermessages::SimulatorThreadMessage>) {
     let dyn_th = thread::spawn(move || {
         unsafe {
             if let Some((m, d)) = 
@@ -392,7 +392,7 @@ pub fn spawn_simulator(
                 //Sending the base loaded model first
                 if let Some(b) = create_model(m, d) {
                     if let Err(e) = 
-                        tx.blocking_send(messages::SimulatorThreadMessage::
+                        tx.blocking_send(workermessages::SimulatorThreadMessage::
                             new_load_model_message(b)) {
                         println!("Loading model for simul update failed {:?}",e);
                     }
@@ -408,7 +408,7 @@ pub fn spawn_simulator(
                     let xquat: Vec<f64> = std::slice::from_raw_parts(
                         (*d).xquat, (*m).nbody as usize * 4).to_vec();
                     if let Err(e) = 
-                        tx.blocking_send(messages::SimulatorThreadMessage::
+                        tx.blocking_send(workermessages::SimulatorThreadMessage::
                             new_simul_update_message(xpos, xquat)) {
                         println!("Sending simul update failed from the simulator thread {:?}",e);
                     }
