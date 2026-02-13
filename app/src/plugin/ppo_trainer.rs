@@ -1,5 +1,4 @@
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 use tch::{Kind, Tensor, nn::{self, Module, OptimizerConfig}};
 
@@ -25,18 +24,20 @@ pub struct PPOTrainer {
     //Used for GAE: 
     gamma_lambda: (f64,f64),
     traj_depth: i32,
-    simulator: Rc<RefCell<dyn Simulator>>,
-    model: Rc<RefCell<dyn PPOTrainedModel>>,
+    simulator: Arc<Mutex<dyn Simulator + Send>>,
+    model: Arc<Mutex<dyn PPOTrainedModel + Send>>,
     policy_opt: nn::Optimizer,
     value_opt: nn::Optimizer
 }
 
 pub trait PPOTrainedModel {
+    //TODO: Replace NQ with richer model info
     fn init_ppo_trained_model(
         policy: nn::Sequential, 
         val_estimator: nn::Sequential,
         pol_store: nn::VarStore,
-        val_estimator_store: nn::VarStore) -> Self where Self: Sized;
+        val_estimator_store: nn::VarStore,
+        nq: i64) -> Self where Self: Sized;
     fn get_nq(&self) -> i64;
     // Using SpinningUp's formulation of reward function: 
     // https://spinningup.openai.com/en/latest/spinningup/rl_intro.html
@@ -56,15 +57,19 @@ pub trait PPOTrainedModel {
 // computations to single tensor where possible 
 impl PPOTrainer {
     pub fn new(
-        simulator: Rc<RefCell<dyn Simulator>>,
-        model: Rc<RefCell<dyn PPOTrainedModel>>,
+        simulator: Arc<Mutex<dyn Simulator + Send>>,
+        model: Arc<Mutex<dyn PPOTrainedModel + Send>>,
         num_trajs: i32,
         epsilon: f64,
     ) -> Result<Self, tch::TchError> {
-        let policy_opt = nn::Adam::default().build(
-            model.borrow().get_policy_store(), 1e-3)?;
-        let value_opt = nn::Adam::default().build(
-            model.borrow().get_value_store(), 1e-3)?;
+        let policy_opt = {
+            let m = model.lock().expect("Model mutex poisoned");
+            nn::Adam::default().build(m.get_policy_store(), 1e-3)?
+        };
+        let value_opt = {
+            let m = model.lock().expect("Model mutex poisoned");
+            nn::Adam::default().build(m.get_value_store(), 1e-3)?
+        };
         Ok(PPOTrainer {
             num_trajs: num_trajs,
             epsilon: epsilon,
@@ -78,42 +83,68 @@ impl PPOTrainer {
     }
 
     fn gen_trajectory(&self) -> Trajectory {
-        let nq = self.model.borrow().get_nq();
+        let nq = self.model.lock().expect("Model mutex poisoned").get_nq();
         let mut wstates = Vec::new();
         let mut model_outputs = Vec::new();
         let mut model_output_samples = Vec::new();
         let mut rewards = Vec::new();
         tch::no_grad(|| {
+            self.simulator
+                .lock()
+                .expect("Simulator mutex poisoned")
+                .reset_state();
             for i in 0..self.traj_depth {
-                let wstate: Tensor = self.simulator.borrow().get_model_state();
+                let wstate: Tensor = self.simulator
+                    .lock()
+                    .expect("Simulator mutex poisoned")
+                    .get_model_state();
                 let action_gaussian_params = 
-                    self.model.borrow().get_policy_output(&wstate);
+                    self.model
+                    .lock()
+                    .expect("Model mutex poisoned")
+                    .get_policy_output(&wstate);
                 //Output action needs to be sampled & 
                 // then passed on to the simulator
+                // println!("DEBUG: NQ is {:?}",nq);
                 let s_action_gaussian_params = 
-                    action_gaussian_params.split_with_sizes([nq,nq], 0);
+                    action_gaussian_params.split_with_sizes([nq, nq], 0);
                 let action_gaussian_mean = s_action_gaussian_params.get(0).
                     expect("Couldn't extract the action_gaussian_mean");
                 let action_gaussian_stdev = s_action_gaussian_params.get(1).
                     expect("Couldn't extract the action_gaussian_stddev").exp();
                 let eps = Tensor::randn([nq],
-                    (tch::Kind::Float, tch::Device::Cpu));
+                    (tch::Kind::Double, tch::Device::Cpu));
                 let sampled_action = action_gaussian_mean + &eps * &action_gaussian_stdev;
                 let controls = 
-                    self.simulator.borrow().get_target_controls_from_target_positions(
+                    self.simulator
+                    .lock()
+                    .expect("Simulator mutex poisoned")
+                    .get_target_controls_from_target_positions(
                         &sampled_action);
-                self.simulator.borrow().forward_dyn(&controls);
+                self.simulator
+                    .lock()
+                    .expect("Simulator mutex poisoned")
+                    .forward_dyn(&controls);
                 //TODO: Assuming no PPOTrained model is using wstatenext for now: 
-                rewards.push(self.model.borrow().get_reward(&wstate, None,
+                rewards.push(self.model
+                        .lock()
+                        .expect("Model mutex poisoned")
+                        .get_reward(&wstate, None,
                         &sampled_action));
                 wstates.push(wstate);
                 model_outputs.push(action_gaussian_params);
                 model_output_samples.push(sampled_action);
             }
             //Adding a terminal wstate given it's used for terminal val calculations 
-            let wstate_end: Tensor = self.simulator.borrow().get_model_state();
+            let wstate_end: Tensor = self.simulator
+                .lock()
+                .expect("Simulator mutex poisoned")
+                .get_model_state();
             wstates.push(wstate_end);
-            let v_terminal = self.model.borrow().get_value_output(
+            let v_terminal = self.model
+                .lock()
+                .expect("Model mutex poisoned")
+                .get_value_output(
                 wstates.last().expect("missing terminal world state"));
             let rtgs = self.compute_rtg(&rewards, v_terminal);
             let action_sample_log_probs = self.compute_action_log_probs(
@@ -150,10 +181,16 @@ impl PPOTrainer {
                 traj.world_states.get(i as usize).expect("");
             let reward = traj.rewards.
                 get(i as usize).expect("");
-            let val = self.model.borrow().get_value_output(wstate);
+            let val = self.model
+                .lock()
+                .expect("Model mutex poisoned")
+                .get_value_output(wstate);
             let wstate_next = traj.world_states.get(
                 (i + 1) as usize).expect("");
-            let val_next = self.model.borrow().get_value_output(wstate_next);
+            let val_next = self.model
+                .lock()
+                .expect("Model mutex poisoned")
+                .get_value_output(wstate_next);
             //for terminal values, 
             //don't assume there's no future value
             let adv = reward + (self.gamma_lambda.0 * val_next) - val;
@@ -165,16 +202,17 @@ impl PPOTrainer {
         for i in 0..self.traj_depth {
             let exps = Tensor::arange(
                 (self.traj_depth - i) as f64, 
-                (tch::Kind::Float, tch::Device::Cpu));
+                (tch::Kind::Double, tch::Device::Cpu));
             let weights = Tensor::full(
                 [(self.traj_depth - i) as i64],
                 self.gamma_lambda.0 * self.gamma_lambda.1,
-                (tch::Kind::Float,tch::Device::Cpu)).
+                (tch::Kind::Double,tch::Device::Cpu)).
                 pow(&exps);
             let advs_t = Tensor::from_slice(
                 advs.split_at(i as usize).1);
             let gae = (advs_t * weights).
-                sum(tch::Kind::Float);
+                sum(tch::Kind::Double).
+                unsqueeze(0);
             gaes = Tensor::concat(&[gaes,gae], 0);
         }
         gaes
@@ -197,7 +235,10 @@ impl PPOTrainer {
     fn compute_action_log_probs(&self,
         model_output_sample: &Tensor, 
         model_output: &Tensor) -> Tensor {
-        let nq = self.model.borrow().get_nq();
+        let nq = self.model
+            .lock()
+            .expect("Model mutex poisoned")
+            .get_nq();
         let s_action_gaussian_params = 
             model_output.split_with_sizes([nq, nq], -1);
         let action_gaussian_mean = 
@@ -220,7 +261,7 @@ impl PPOTrainer {
                 + log_two_pi);
         let summed_log_probs = 
             log_probs.sum_dim_intlist(vec![-1], 
-                false, Kind::Float);
+                false, Kind::Double);
         summed_log_probs
     }
 
@@ -247,7 +288,10 @@ impl PPOTrainer {
             detach();
         
         let action_gaussian_params = 
-                self.model.borrow().get_policy_output(&wstates);
+                self.model
+                .lock()
+                .expect("Model mutex poisoned")
+                .get_policy_output(&wstates);
         let action_log_probs = self.compute_action_log_probs(
             &action_samples,
             &action_gaussian_params);
@@ -256,7 +300,7 @@ impl PPOTrainer {
         let clipped = ratio.clamp(
             1.0 - self.epsilon as f64, 
             1.0 + self.epsilon as f64) * gaes;
-        (ratio * gaes).minimum(&clipped).mean(tch::Kind::Float)
+        (ratio * gaes).minimum(&clipped).mean(tch::Kind::Double)
     }
 
     fn get_value_function_objective(&self, 
@@ -273,15 +317,30 @@ impl PPOTrainer {
                     &traj.world_states[..self.traj_depth as usize], 0))
             .collect();
         let rtgs = Tensor::stack(&rtgs_v, 0).detach();
-        let wstates = Tensor::stack(&wstates_v, 0);
-        let values = self.model.borrow().get_value_func().forward(&wstates);
+        let (value_device, value_kind) = {
+            let model = self.model
+                .lock()
+                .expect("Model mutex poisoned");
+            (
+                model.get_value_store().device(),
+                model.get_value_store().kind(),
+            )
+        };
+        let wstates = Tensor::stack(&wstates_v, 0)
+            .to_device(value_device)
+            .to_kind(value_kind);
+        let values = self.model
+            .lock()
+            .expect("Model mutex poisoned")
+            .get_value_func()
+            .forward(&wstates);
         let rtgs = rtgs.to_device_(
             values.device(),
             values.kind(),
             false,
             false,
         );
-        (values - rtgs).pow_tensor_scalar(2.0).mean(Kind::Float)
+        (values - rtgs).pow_tensor_scalar(2.0).mean(Kind::Double)
     }
 
     pub fn train_an_epoch(&mut self, trajs: &[Trajectory]) {
@@ -290,7 +349,8 @@ impl PPOTrainer {
         }).collect();
         let gaes = Tensor::stack(&gae_v,0).detach();
         //TODO: Expose iterations as param here
-        for _ in 0..10 {
+        for i in 0..10 {
+            println!("Running epoch's update iteration {:?}",i);
             let objective = self.get_ppo_clip_objective(&trajs, &gaes);
             let loss = -objective;
             self.policy_opt.backward_step(&loss);
@@ -303,7 +363,10 @@ impl PPOTrainer {
         if trajs.is_empty() {
             return 0.0;
         }
-        let nq = self.model.borrow().get_nq();
+        let nq = self.model
+            .lock()
+            .expect("Model mutex poisoned")
+            .get_nq();
         let model_outputs_v: Vec<Tensor> = trajs
             .iter()
             .map(|traj| Tensor::stack(
@@ -319,8 +382,8 @@ impl PPOTrainer {
             .expect("Couldn't extract the action_gaussian_log_stddev");
         let log_two_pi = (2.0_f64 * std::f64::consts::PI).ln();
         let entropy = (action_gaussian_log_stddev + 0.5 * (1.0 + log_two_pi))
-            .sum_dim_intlist(vec![-1], false, Kind::Float)
-            .mean(Kind::Float);
+            .sum_dim_intlist(vec![-1], false, Kind::Double)
+            .mean(Kind::Double);
         f64::try_from(entropy).expect("wrong type of tensor")
     }
 

@@ -1,5 +1,3 @@
-use std::sync::Once;
-
 use tch::{Kind, Tensor};
 
 use crate::mujoco;
@@ -10,6 +8,10 @@ pub struct MjSimulator {
     model: *mut mujoco::mjModel,
     data: *mut mujoco::mjData,
 }
+
+// Safety: Access to the simulator in training is synchronized through a Mutex,
+// so moving this owner between threads does not permit concurrent pointer use.
+unsafe impl Send for MjSimulator {}
 
 impl MjSimulator {
     pub fn new(model_path: String) -> Result<Self, String> {
@@ -24,19 +26,19 @@ impl MjSimulator {
         }
     }
 
-    fn nq(&self) -> usize {
+    pub fn nq(&self) -> usize {
         unsafe { (*self.model).nq as usize }
     }
 
-    fn nv(&self) -> usize {
+    pub fn nv(&self) -> usize {
         unsafe { (*self.model).nv as usize }
     }
 
-    fn nu(&self) -> usize {
+    pub fn nu(&self) -> usize {
         unsafe { (*self.model).nu as usize }
     }
 
-    fn qpos(&self) -> Vec<f64> {
+    pub fn qpos(&self) -> Vec<f64> {
         let nq = self.nq();
         unsafe {
             let qpos_ptr = (*self.data).qpos;
@@ -44,7 +46,7 @@ impl MjSimulator {
         }
     }
 
-    fn qvel(&self) -> Vec<f64> {
+    pub fn qvel(&self) -> Vec<f64> {
         let nv = self.nv();
         unsafe {
             let qvel_ptr = (*self.data).qvel;
@@ -76,6 +78,13 @@ impl Drop for MjSimulator {
 }
 
 impl Simulator for MjSimulator {
+    fn reset_state(&self) {
+        unsafe {
+            mujoco::mj_resetData(self.model, self.data);
+            mujoco::mj_forward(self.model, self.data);
+        }
+    }
+
     fn forward_dyn(&self, controls: &Tensor) {
         let controls = controls.to_kind(Kind::Double);
         let ctrl_vals: Vec<f64> = 

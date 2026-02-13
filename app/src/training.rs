@@ -1,5 +1,4 @@
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 use rocket::tokio::sync::mpsc;
 
@@ -8,7 +7,7 @@ use crate::commondef::training::{
     MetricsData, ValueModel, 
     TrainingMetrics
 };
-use crate::plugin::{mj_simulator::MjSimulator};
+use crate::plugin::{mj_simulator::MjSimulator, Simulator};
 use crate::plugin::ppo_trainer::{PPOTrainedModel, PPOTrainer};
 use crate::usr::arm::ArmModel;
 use crate::commondef::workermessages::{TrainingTaskMessage};
@@ -19,8 +18,8 @@ use crate::commondef::messages::{
 
 pub struct TrainingWorkflow {
     id: String,
-    simulator: Rc<RefCell<MjSimulator>>,
-    model: Rc<RefCell<ArmModel>>,
+    simulator: Arc<Mutex<dyn Simulator + Send>>,
+    model: Arc<Mutex<dyn PPOTrainedModel + Send>>,
     trainer: PPOTrainer,
     params: PPOTrainingMethod
 }
@@ -42,29 +41,28 @@ impl TrainingWorkflow {
                 control_params.input_dim as i64,
                 control_params.output_dim as i64,
                 control_params.hidden_layer_dim as i64,
-                // TODO: Possible bug here, hidden vs total layers
                 control_params.num_hidden_layers as i64,
-                true
+                false
             );
         let (value_model,value_model_store) = 
             ArmModel::init_policy(
                 value_params.input_dim as i64,
                 value_params.output_dim as i64,
                 value_params.hidden_layer_dim as i64,
-                // TODO: Possible bug here, hidden vs total layers
                 value_params.num_hidden_layers as i64,
-                true
+                false
             );
-        let model = 
-            ArmModel::init_ppo_trained_model(
-                control_model, value_model, 
-                control_model_store, value_model_store);
         
         if let Ok(s) = simulator {
-            let simulator_p = 
-                Rc::new(RefCell::new(s));
-            let model_p = 
-                Rc::new(RefCell::new(model));
+            let model = 
+                ArmModel::init_ppo_trained_model(
+                    control_model, value_model, 
+                    control_model_store, value_model_store,
+                    s.nq() as i64);
+            let simulator_p: Arc<Mutex<dyn Simulator + Send>> =
+                Arc::new(Mutex::new(s));
+            let model_p: Arc<Mutex<dyn PPOTrainedModel + Send>> =
+                Arc::new(Mutex::new(model));
             let trainer = 
                 PPOTrainer::new(simulator_p.clone(),
                 model_p.clone(),
@@ -90,10 +88,11 @@ impl TrainingWorkflow {
         }
     }
 
-    pub fn run_training(&mut self,
+    pub async fn run_training(&mut self,
         tx: mpsc::Sender<TrainingTaskMessage>) {
         let params = &self.params;
         for i in 0..params.num_epochs {
+            println!("Running the training epoch {:?}",i);
             //TODO: Expose num trajs as a param
             let trajs = self.trainer.gen_trajectories(10);
             self.trainer.train_an_epoch(&trajs);
@@ -116,12 +115,11 @@ impl TrainingWorkflow {
                         metrics: vec![mean_entropy_m,mean_reward_m],
                         logs: vec![]
                     });
-            //TODO: How to avoid blocking_send correctly? 
-            let _ = tx.blocking_send(update);
+            let _ = tx.send(update).await;
         }
-        let _ = tx.blocking_send(TrainingTaskMessage::StopTraining(
-        StopTrainingMessage {
-            id: self.id.clone()
-        }));
+        let _ = tx.send(TrainingTaskMessage::StopTraining(
+            StopTrainingMessage {
+                id: self.id.clone()
+            })).await;
     }
 }

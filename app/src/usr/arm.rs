@@ -37,7 +37,7 @@ impl ArmModel {
                 Default::default(),
             ))
             .add_fn(Tensor::relu);
-        for i in 0..num_layers - 2 {
+        for _ in 0..num_layers.saturating_sub(1) {
             y = y
                 .add(nn::linear(
                     vs_p.clone(),
@@ -58,7 +58,7 @@ impl ArmModel {
         //mean & log(std-dev) n_q's for target positions: 
         if add_softmax {
             y = y.add_fn(Tensor::relu)
-                .add_fn(|xs| xs.softmax(-1, tch::Kind::Float));
+                .add_fn(|xs| xs.softmax(-1, xs.kind()));
         }
 
         (y, vs)
@@ -71,13 +71,14 @@ impl PPOTrainedModel for ArmModel {
         val_estimator: nn::Sequential,
         pol_store: nn::VarStore,
         val_estimator_store: nn::VarStore,
+        nq: i64
     ) -> Self {
         ArmModel {
             policy: policy,
             value: val_estimator,
             policy_store: pol_store,
             value_store: val_estimator_store,
-            nq: 0,
+            nq: nq,
             bq: 7,
             start_center_xy: (0.0, 0.0),
             target_center_xy: (1.0, 0.0),
@@ -130,7 +131,7 @@ impl PPOTrainedModel for ArmModel {
         };
 
         let act_penalty = {
-            let act_sq = action.pow_tensor_scalar(2.0).sum(tch::Kind::Float);
+            let act_sq = action.pow_tensor_scalar(2.0).sum(tch::Kind::Double);
             let act_sq_v = f64::try_from(act_sq).expect("Expected action to be f64 tensor");
             -self.w_act * act_sq_v
         };
@@ -139,11 +140,20 @@ impl PPOTrainedModel for ArmModel {
     }
 
     fn get_policy_output(&self, _state: &Tensor) -> Tensor {
-        self.policy.forward(_state)
+        let state = _state
+            .to_device(self.policy_store.device())
+            .to_kind(self.policy_store.kind());
+        self.policy.forward(&state)
     }
 
-    fn get_value_output(&self, _state: &Tensor) -> f64 {
-        0.0
+    fn get_value_output(&self, state: &Tensor) -> f64 {
+        let state = state
+            .to_device(self.value_store.device())
+            .to_kind(self.value_store.kind());
+        Vec::<f64>::try_from(self.value.forward(&state)).
+            expect("Expected a 1-d tensor as value output").
+            get(0).expect("Expected 0 index of value output").
+            clone()
     }
 
     fn get_policy(&self) -> &nn::Sequential {

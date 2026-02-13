@@ -97,7 +97,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                             "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml".to_string(),
                                                             id_c,ppomethod);
                                                         if let Ok(mut workflow) = workflow_r {
-                                                            workflow.run_training(tx_tc);
+                                                            workflow.run_training(tx_tc).await;
                                                         }
                                                     });
                                                     training_tasks.insert(t.id.clone(),h);

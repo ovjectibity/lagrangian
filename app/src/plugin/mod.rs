@@ -4,6 +4,7 @@ pub mod ppo_trainer;
 pub mod mj_simulator;
 
 pub trait Simulator {
+    fn reset_state(&self);
     //Shape of u: [nu]
     fn forward_dyn(&self,controls: &Tensor);
     //Shape of acc: [nq]
