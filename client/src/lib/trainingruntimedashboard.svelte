@@ -1,33 +1,53 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { TRAINING_METRICS_CHARTS } from "../commondef/charts";
+  import type { MetricsData, TrainingMetrics } from "../commondef/training";
   import type { ECharts, EChartsOption } from "echarts";
 
-  let chartContainers = $state<Array<HTMLDivElement | undefined>>([]);
-  let chartInstances: ECharts[] = [];
+  type TrainingMetricType = TrainingMetrics["type"];
+  type TrainingMetricsByType = Record<TrainingMetricType, MetricsData>;
 
-  const makeSeriesData = (chartIdx: number): number[] => {
-    return Array.from({ length: 20 }, (_, i) => {
-      const t = i + 1;
-      if (chartIdx === 0) {
-        return Number((20 + t * 0.8 + Math.sin(t / 2) * 2).toFixed(3));
-      }
-      if (chartIdx === 1) {
-        return Number((0.9 / (t + 1) + 0.05 * Math.sin(t / 3)).toFixed(4));
-      }
-      if (chartIdx === 2) {
-        return Number((1.2 / (t + 1) + 0.03 * Math.cos(t / 2)).toFixed(4));
-      }
-      return Number((0.8 - t * 0.015 + 0.02 * Math.sin(t / 4)).toFixed(4));
-    });
+  const CHART_METRIC_ORDER: TrainingMetricType[] = [
+    "MeanReward",
+    "MeanEntropy",
+    "ValueLoss",
+    "MeanPolicyLoss",
+  ];
+
+  const EMPTY_METRICS: TrainingMetricsByType = {
+    MeanReward: { x_axis: [], y_axis: [] },
+    MeanPolicyLoss: { x_axis: [], y_axis: [] },
+    ValueLoss: { x_axis: [], y_axis: [] },
+    MeanEntropy: { x_axis: [], y_axis: [] },
   };
 
-  const makeXAxis = (): number[] => Array.from({ length: 20 }, (_, i) => i + 1);
+  const { metricsByType = EMPTY_METRICS } = $props<{
+    metricsByType?: TrainingMetricsByType;
+  }>();
+
+  let chartContainers = $state<Array<HTMLDivElement | undefined>>([]);
+  let chartInstances: Array<ECharts | undefined> = [];
+
+  const getMetricDataForChart = (chartIdx: number): MetricsData => {
+    const metricType = CHART_METRIC_ORDER[chartIdx];
+    if (!metricType) {
+      return { x_axis: [], y_axis: [] };
+    }
+    return metricsByType[metricType] ?? { x_axis: [], y_axis: [] };
+  };
+
+  const isMetricDisabled = (chartIdx: number): boolean => {
+    const metricData = getMetricDataForChart(chartIdx);
+    return metricData.x_axis.length === 0 || metricData.y_axis.length === 0;
+  };
 
   const buildOption = (
     chart: (typeof TRAINING_METRICS_CHARTS)[number],
-    chartIdx: number
+    chartIdx: number,
   ): EChartsOption => {
+    const metricData = getMetricDataForChart(chartIdx);
+    const hasData = !isMetricDisabled(chartIdx);
+
     return {
       backgroundColor: "#1f1f1f",
       title: {
@@ -47,7 +67,7 @@
         name: chart.x_axis,
         nameLocation: "middle",
         nameGap: 26,
-        data: makeXAxis(),
+        data: metricData.x_axis,
         axisLine: { lineStyle: { color: "#6b6b6b" } },
         axisLabel: { color: "#c9c8c7", fontSize: 10 },
         nameTextStyle: { color: "#c9c8c7", fontSize: 10 },
@@ -64,6 +84,7 @@
         nameTextStyle: { color: "#c9c8c7", fontSize: 10 },
       },
       tooltip: {
+        show: hasData,
         trigger: "axis",
       },
       series: [
@@ -71,16 +92,34 @@
           type: "line",
           smooth: true,
           showSymbol: false,
-          lineStyle: { width: 2 },
-          data: makeSeriesData(chartIdx),
+          lineStyle: {
+            width: 2,
+            color: hasData ? "#6fa7ff" : "#666666",
+          },
+          data: metricData.y_axis,
         },
       ],
+      graphic: hasData
+        ? []
+        : [
+            {
+              type: "text",
+              left: "center",
+              top: "middle",
+              style: {
+                text: "No data",
+                fill: "#6b6b6b",
+                fontSize: 11,
+                fontWeight: 500,
+              },
+            },
+          ],
     };
   };
 
   const resizeCharts = (): void => {
     for (const chart of chartInstances) {
-      chart.resize();
+      chart?.resize();
     }
   };
 
@@ -95,16 +134,27 @@
       }
       const instance = echarts.init(target);
       instance.setOption(buildOption(chart, idx));
-      chartInstances.push(instance);
+      chartInstances[idx] = instance;
     });
 
     window.addEventListener("resize", resizeCharts);
   });
 
+  $effect(() => {
+    metricsByType;
+    TRAINING_METRICS_CHARTS.forEach((chart, idx) => {
+      const instance = chartInstances[idx];
+      if (!instance) {
+        return;
+      }
+      instance.setOption(buildOption(chart, idx), true);
+    });
+  });
+
   onDestroy(() => {
     window.removeEventListener("resize", resizeCharts);
     for (const chart of chartInstances) {
-      chart.dispose();
+      chart?.dispose();
     }
     chartInstances = [];
   });
@@ -112,8 +162,13 @@
 
 <div class="training-runtime-dashboard">
   {#each TRAINING_METRICS_CHARTS as chart, idx}
-    <div class="training-metric-chart-card">
-      <div class="training-metric-chart" bind:this={chartContainers[idx]} data-metric={chart.metric_name}></div>
+    <div class="training-metric-chart-card" style:opacity={isMetricDisabled(idx) ? 0.72 : 1}>
+      <div
+        class="training-metric-chart"
+        bind:this={chartContainers[idx]}
+        data-metric={chart.metric_name}
+        style:pointer-events={isMetricDisabled(idx) ? "none" : "auto"}
+      ></div>
     </div>
   {/each}
 </div>

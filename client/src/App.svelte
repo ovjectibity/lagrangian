@@ -12,7 +12,12 @@
   import { TrainingGraphNodes } from './commondef/workflowgraph';
   import type { TabbedTab } from './lib/tabbedcontainer.svelte';
   import type { WorldBody } from './commondef/model';
-  import type { FFNModel, TrainingMethod } from './commondef/training';
+  import type {
+    FFNModel,
+    MetricsData,
+    TrainingMethod,
+    TrainingMetrics,
+  } from './commondef/training';
   import type {
     ClientMessage,
     ModelForward,
@@ -30,6 +35,50 @@
   let selectedLogTabChannel = $state('Training logs');
   let isTrainingRunning = $state(false);
   let selectedEditorTabId = $state('model-editor');
+  type TrainingMetricType = TrainingMetrics['type'];
+  type TrainingMetricsByType = Record<TrainingMetricType, MetricsData>;
+
+  const createEmptyMetricsData = (): MetricsData => ({ x_axis: [], y_axis: [] });
+
+  const createEmptyTrainingMetricsByType = (): TrainingMetricsByType => ({
+    MeanReward: createEmptyMetricsData(),
+    MeanPolicyLoss: createEmptyMetricsData(),
+    ValueLoss: createEmptyMetricsData(),
+    MeanEntropy: createEmptyMetricsData(),
+  });
+
+  let trainingMetricsByType = $state<TrainingMetricsByType>(
+    createEmptyTrainingMetricsByType(),
+  );
+
+  const appendTrainingMetrics = (metrics: TrainingMetrics[]): void => {
+    const nextMetricsByType: TrainingMetricsByType = {
+      MeanReward: {
+        x_axis: [...trainingMetricsByType.MeanReward.x_axis],
+        y_axis: [...trainingMetricsByType.MeanReward.y_axis],
+      },
+      MeanPolicyLoss: {
+        x_axis: [...trainingMetricsByType.MeanPolicyLoss.x_axis],
+        y_axis: [...trainingMetricsByType.MeanPolicyLoss.y_axis],
+      },
+      ValueLoss: {
+        x_axis: [...trainingMetricsByType.ValueLoss.x_axis],
+        y_axis: [...trainingMetricsByType.ValueLoss.y_axis],
+      },
+      MeanEntropy: {
+        x_axis: [...trainingMetricsByType.MeanEntropy.x_axis],
+        y_axis: [...trainingMetricsByType.MeanEntropy.y_axis],
+      },
+    };
+    for (const metric of metrics) {
+      const existing = nextMetricsByType[metric.type];
+      nextMetricsByType[metric.type] = {
+        x_axis: [...existing.x_axis, ...metric.content.x_axis],
+        y_axis: [...existing.y_axis, ...metric.content.y_axis],
+      };
+    }
+    trainingMetricsByType = nextMetricsByType;
+  };
 
   function openRewardEditor() {
     selectedEditorTabId = 'reward-editor';
@@ -63,7 +112,10 @@
     {
       id: 'training-runtime-dashboard',
       name: 'Training runtime dashboard',
-      component: TrainingRuntimeDashboard
+      component: TrainingRuntimeDashboard,
+      props: {
+        metricsByType: trainingMetricsByType
+      }
     }
   ]);
   let logTabs = $derived<TabbedTab[]>([
@@ -168,6 +220,7 @@
       },
     });
     if (wasSent) {
+      trainingMetricsByType = createEmptyTrainingMetricsByType();
       isTrainingRunning = true;
     }
   };
@@ -243,7 +296,9 @@
             worldBody = clientMessage.content.model;
             simulUpdateData = undefined; // Clear simulation data on new model load
           } else if (clientMessage.type === 'TrainingUpdatesMessage') {
-            // Intentionally left empty for now.
+            if (clientMessage.content.id === trainingTaskId) {
+              appendTrainingMetrics(clientMessage.content.metrics);
+            }
           } else if (clientMessage.type === 'StopTrainingMessage') {
             isTrainingRunning = false;
           }

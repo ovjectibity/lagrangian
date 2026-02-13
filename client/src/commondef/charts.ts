@@ -40,8 +40,8 @@ export const TRAINING_METRICS_CHARTS: TrainingMetricsChart[] = [
     type: "LineChart",
   },
   {
-    metric_name: "Mean policy loss",
-    y_axis: "Mean policy loss",
+    metric_name: "Mean entropy",
+    y_axis: "Mean entropy",
     x_axis: "Number of epochs",
     type: "LineChart",
   },
@@ -52,8 +52,8 @@ export const TRAINING_METRICS_CHARTS: TrainingMetricsChart[] = [
     type: "LineChart",
   },
   {
-    metric_name: "Mean entropy",
-    y_axis: "Mean entropy",
+    metric_name: "Mean policy loss",
+    y_axis: "Mean policy loss",
     x_axis: "Number of epochs",
     type: "LineChart",
   },
