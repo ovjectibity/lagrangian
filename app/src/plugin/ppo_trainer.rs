@@ -4,6 +4,7 @@ use crate::plugin::{Simulator};
 
 struct Trajectory {
     //Shape of indv element: [nq] 
+    //Number of world_states: traj_depth + 1
     world_states: Vec<Tensor>,
     //Shape of indv element: [nq+nq]
     //Note: the std devs are logs
@@ -79,46 +80,53 @@ impl PPOTrainer {
         let mut model_outputs = Vec::new();
         let mut model_output_samples = Vec::new();
         let mut rewards = Vec::new();
-        for i in 0..self.traj_depth {
-            let wstate = self.simulator.get_model_state();
-            let action_gaussian_params = 
-                self.model.get_policy_output(&wstate);
-            //Output action needs to be sampled & 
-            // then passed on to the simulator
-            let s_action_gaussian_params = 
-                action_gaussian_params.split_with_sizes([nq,nq], 0);
-            let action_gaussian_mean = s_action_gaussian_params.get(0).
-                expect("Couldn't extract the action_gaussian_mean");
-            let action_gaussian_stdev = s_action_gaussian_params.get(1).
-                expect("Couldn't extract the action_gaussian_stddev").exp();
-            let eps = Tensor::rand([nq],
-                (tch::Kind::Float, tch::Device::Cpu));
-            let sampled_action = action_gaussian_mean + &eps * &action_gaussian_stdev;
-            let controls = 
-                self.simulator.get_target_controls_from_target_positions(
-                    &sampled_action);
-            self.simulator.forward_dyn(&controls);
-            //TODO: Assuming no PPOTrained model is using wstatenext for now: 
-            rewards.push(self.model.get_reward(&wstate, None,
-                    &sampled_action));
-            wstates.push(wstate);
-            model_outputs.push(action_gaussian_params);
-            model_output_samples.push(sampled_action);
-        }
-        let rtgs = self.compute_rtg(&rewards);
-        let action_sample_log_probs = self.compute_action_log_probs(
-            &Tensor::stack(&model_output_samples,0), 
-            &Tensor::stack(&model_outputs,0));
-        Trajectory { 
-            world_states: wstates, 
-            model_outputs: model_outputs,
-            model_output_samples: model_output_samples,
-            rewards: rewards,
-            rtgs: rtgs,
-            model_output_sample_log_probs: 
-                Vec::<f64>::try_from(action_sample_log_probs).
-                expect("wrong type of tensor")
-        }
+        tch::no_grad(|| {
+            for i in 0..self.traj_depth {
+                let wstate: Tensor = self.simulator.get_model_state();
+                let action_gaussian_params = 
+                    self.model.get_policy_output(&wstate);
+                //Output action needs to be sampled & 
+                // then passed on to the simulator
+                let s_action_gaussian_params = 
+                    action_gaussian_params.split_with_sizes([nq,nq], 0);
+                let action_gaussian_mean = s_action_gaussian_params.get(0).
+                    expect("Couldn't extract the action_gaussian_mean");
+                let action_gaussian_stdev = s_action_gaussian_params.get(1).
+                    expect("Couldn't extract the action_gaussian_stddev").exp();
+                let eps = Tensor::randn([nq],
+                    (tch::Kind::Float, tch::Device::Cpu));
+                let sampled_action = action_gaussian_mean + &eps * &action_gaussian_stdev;
+                let controls = 
+                    self.simulator.get_target_controls_from_target_positions(
+                        &sampled_action);
+                self.simulator.forward_dyn(&controls);
+                //TODO: Assuming no PPOTrained model is using wstatenext for now: 
+                rewards.push(self.model.get_reward(&wstate, None,
+                        &sampled_action));
+                wstates.push(wstate);
+                model_outputs.push(action_gaussian_params);
+                model_output_samples.push(sampled_action);
+            }
+            //Adding a terminal wstate given it's used for terminal val calculations 
+            let wstate_end: Tensor = self.simulator.get_model_state();
+            wstates.push(wstate_end);
+            let v_terminal = self.model.get_value_output(
+                wstates.last().expect("missing terminal world state"));
+            let rtgs = self.compute_rtg(&rewards, v_terminal);
+            let action_sample_log_probs = self.compute_action_log_probs(
+                &Tensor::stack(&model_output_samples,0), 
+                &Tensor::stack(&model_outputs,0));
+            Trajectory { 
+                world_states: wstates, 
+                model_outputs: model_outputs,
+                model_output_samples: model_output_samples,
+                rewards: rewards,
+                rtgs: rtgs,
+                model_output_sample_log_probs: 
+                    Vec::<f64>::try_from(action_sample_log_probs).
+                    expect("wrong type of tensor")
+            }
+        })
     }
 
     fn gen_trajectories(&self, num_trajs: i32) -> Vec<Trajectory> {
@@ -140,16 +148,13 @@ impl PPOTrainer {
             let reward = traj.rewards.
                 get(i as usize).expect("");
             let val = self.model.get_value_output(wstate);
-            if i != (self.traj_depth - 1) {
-                let wstate_next = traj.world_states.get(
-                    (i + 1) as usize).expect("");
-                let val_next = self.model.get_value_output(wstate_next);
-                let adv = reward + (self.gamma_lambda.0 * val_next) - val;
-                advs.push(adv);
-            } else {
-                let adv = reward - val;
-                advs.push(adv);
-            }
+            let wstate_next = traj.world_states.get(
+                (i + 1) as usize).expect("");
+            let val_next = self.model.get_value_output(wstate_next);
+            //for terminal values, 
+            //don't assume there's no future value
+            let adv = reward + (self.gamma_lambda.0 * val_next) - val;
+            advs.push(adv);
         }
         advs.reverse();
         let mut gaes = Tensor::from_slice::<f64>(&[]);
@@ -172,24 +177,15 @@ impl PPOTrainer {
         gaes
     }
 
-    fn compute_rtg(&self,rewards: &Vec<f64>) -> Vec<f64> {
-        let mut rtgs = Tensor::from_slice::<f64>(&[]);
-        for i in 0..self.traj_depth {
-            let exps = Tensor::arange(
-                (self.traj_depth - i) as f64, 
-                (tch::Kind::Float, tch::Device::Cpu));
-            let weights = Tensor::full(
-                [(self.traj_depth - i) as i64],
-                self.gamma_lambda.0,
-                (tch::Kind::Float,tch::Device::Cpu)).
-                pow(&exps);
-            let rewards_t = Tensor::from_slice(
-                rewards.split_at(i as usize).1);
-            let rtg = (rewards_t * weights).
-                sum(tch::Kind::Float);
-            rtgs = Tensor::concat(&[rtgs,rtg], 0);
+    fn compute_rtg(&self,rewards: &Vec<f64>, v_terminal: f64) -> Vec<f64> {
+        let mut rtgs = vec![0.0_f64; self.traj_depth as usize];
+        let mut running_rtg = v_terminal;
+        for i in (0..self.traj_depth).rev() {
+            let reward = rewards.get(i as usize).expect("");
+            running_rtg = reward + (self.gamma_lambda.0 * running_rtg);
+            rtgs[i as usize] = running_rtg;
         }
-        Vec::<f64>::try_from(rtgs).expect("wrong type of tensor")
+        rtgs
     }
 
     //Shape model_output_sample - [traj_depth,nq]
@@ -226,17 +222,16 @@ impl PPOTrainer {
     }
 
     fn get_ppo_clip_objective(&self, 
-        trajs: &[Trajectory]) -> Tensor {
+        trajs: &[Trajectory],
+        gaes: &Tensor) -> Tensor {
         //Collect everything in singular tensors first:
         let start_log_probs_v: Vec<Tensor> = 
         trajs.iter().map(|traj| {
             Tensor::from_slice(&traj.model_output_sample_log_probs)
         }).collect();
-        let gae_v: Vec<Tensor> = trajs.iter().map(|traj| {
-            self.compute_gae(traj)
-        }).collect();
-        let wstates_v: Vec<Tensor> = trajs.iter().map(|traj| {
-            Tensor::stack(&traj.world_states,0)
+        let wstates_v: Vec<Tensor> = trajs.iter().
+        map(|traj| {
+            Tensor::stack(&traj.world_states[..self.traj_depth as usize],0)
         }).collect();
         let action_samples_v: Vec<Tensor> = trajs.iter().map(|traj| {
             Tensor::stack(&traj.model_output_samples,0)
@@ -244,8 +239,9 @@ impl PPOTrainer {
         let start_log_probs = 
                 Tensor::stack(&start_log_probs_v,0).detach();
         let wstates = Tensor::stack(&wstates_v,0);
-        let action_samples = Tensor::stack(&action_samples_v,0);
-        let gaes = Tensor::stack(&gae_v,0).detach();
+        let action_samples = 
+            Tensor::stack(&action_samples_v,0).
+            detach();
         
         let action_gaussian_params = 
                 self.model.get_policy_output(&wstates);
@@ -256,22 +252,22 @@ impl PPOTrainer {
         let ratio = (action_log_probs - start_log_probs).exp();
         let clipped = ratio.clamp(
             1.0 - self.epsilon as f64, 
-            1.0 + self.epsilon as f64) * &gaes;
-        (ratio * gaes).minimum(&clipped).sum(tch::Kind::Float)
+            1.0 + self.epsilon as f64) * gaes;
+        (ratio * gaes).minimum(&clipped).mean(tch::Kind::Float)
     }
 
     fn get_value_function_objective(&self, 
         trajs: &[Trajectory]) -> Tensor {
-        let nq = self.model.get_nq();
-        let rtgs_v: Vec<Tensor> = trajs
-            .iter()
+        // let nq = self.model.get_nq();
+        let rtgs_v: Vec<Tensor> = trajs.iter()
             .map(|traj| 
                 Tensor::from_slice(&traj.rtgs))
             .collect();
         let wstates_v: Vec<Tensor> = trajs
             .iter()
             .map(|traj| 
-                Tensor::stack(&traj.world_states, 0))
+                Tensor::stack(
+                    &traj.world_states[..self.traj_depth as usize], 0))
             .collect();
         let rtgs = Tensor::stack(&rtgs_v, 0).detach();
         let wstates = Tensor::stack(&wstates_v, 0);
@@ -287,8 +283,12 @@ impl PPOTrainer {
 
     fn train_an_epoch(&mut self) {
         let trajs = self.gen_trajectories(self.num_trajs);
+        let gae_v: Vec<Tensor> = trajs.iter().map(|traj| {
+            self.compute_gae(traj)
+        }).collect();
+        let gaes = Tensor::stack(&gae_v,0).detach();
         for _ in 0..10 {
-            let objective = self.get_ppo_clip_objective(&trajs);
+            let objective = self.get_ppo_clip_objective(&trajs, &gaes);
             let loss = -objective;
             self.policy_opt.backward_step(&loss);
             let value_loss = self.get_value_function_objective(&trajs);
