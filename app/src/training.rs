@@ -12,7 +12,10 @@ use crate::plugin::{mj_simulator::MjSimulator};
 use crate::plugin::ppo_trainer::{PPOTrainedModel, PPOTrainer};
 use crate::usr::arm::ArmModel;
 use crate::commondef::workermessages::{TrainingTaskMessage};
-use crate::commondef::messages::TrainingUpdatesMessage;
+use crate::commondef::messages::{
+    TrainingUpdatesMessage,
+    StopTrainingMessage
+};
 
 pub struct TrainingWorkflow {
     id: String,
@@ -23,8 +26,11 @@ pub struct TrainingWorkflow {
 }
 
 impl TrainingWorkflow {
-    fn new(params: PPOTrainingMethod) -> Result<Self,String> {
-        let simulator =  MjSimulator::new("".to_string());
+    pub fn new(
+        model_path: String, 
+        id: String, 
+        params: PPOTrainingMethod) -> Result<Self,String> {
+        let simulator =  MjSimulator::new(model_path);
         let control_params = match &params.control_model {
             ControlModel::FFN(m) => m
         };
@@ -70,7 +76,7 @@ impl TrainingWorkflow {
             if let Ok(t) = trainer {
                 Ok(TrainingWorkflow {
                     //TODO: Fix the identifier here
-                    id: "".to_string(),
+                    id: id,
                     simulator: simulator_p.clone(),
                     trainer: t, 
                     model: model_p.clone(),
@@ -84,7 +90,7 @@ impl TrainingWorkflow {
         }
     }
 
-    fn run_training(&mut self,
+    pub fn run_training(&mut self,
         tx: mpsc::Sender<TrainingTaskMessage>) {
         let params = &self.params;
         for i in 0..params.num_epochs {
@@ -110,7 +116,12 @@ impl TrainingWorkflow {
                         metrics: vec![mean_entropy_m,mean_reward_m],
                         logs: vec![]
                     });
-            tx.send(update);
+            //TODO: How to avoid blocking_send correctly? 
+            let _ = tx.blocking_send(update);
         }
+        let _ = tx.blocking_send(TrainingTaskMessage::StopTraining(
+        StopTrainingMessage {
+            id: self.id.clone()
+        }));
     }
 }

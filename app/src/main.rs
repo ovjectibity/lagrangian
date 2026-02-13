@@ -1,4 +1,5 @@
 use std::fs;
+use std::collections::HashMap;
 
 #[macro_use]
 extern crate rocket;
@@ -9,6 +10,7 @@ use rocket::fs::FileServer;
 use rocket::futures::{SinkExt, StreamExt};
 
 use crate::commondef::{messages, workermessages};
+use crate::training::TrainingWorkflow;
 
 pub mod simulator;
 pub mod mujoco;
@@ -29,6 +31,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
         mpsc::channel::<workermessages::SimulatorThreadMessage>(32);
     let (tx_t,mut rx_t) = 
         mpsc::channel::<workermessages::TrainingTaskMessage>(32);
+    let mut training_tasks = HashMap::new();
     ws.channel(move |mut stream| {
         Box::pin(async move {
             loop {
@@ -84,12 +87,22 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                         Ok(m) => {
                                             match m {
                                                 messages::ServerMessage::StartTrainingMessage(t) => {
-                                                    let h = tokio::spawn(async {
-                                                        
+                                                    let commondef::training::TrainingMethod::PPO(ppomethod) = 
+                                                        t.training_workflow;
+                                                    let tx_tc = tx_t.clone();
+                                                    let id_c = t.id.clone();
+                                                    let h = tokio::spawn(async move {
+                                                        let workflow_r = TrainingWorkflow::new(
+                                                            "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml".to_string(),
+                                                            id_c,ppomethod);
+                                                        if let Ok(mut workflow) = workflow_r {
+                                                            workflow.run_training(tx_tc);
+                                                        }
                                                     });
+                                                    training_tasks.insert(t.id.clone(),h);
                                                 },
                                                 messages::ServerMessage::StopTrainingMessage(t) => {
-                                                    //TODO: Stop training here for the current training handle
+                                                    training_tasks.remove(&t.id.clone());
                                                 }
                                             }
                                         },
@@ -132,7 +145,23 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                         };
                     },
                     Some(msg) = rx_t.recv() => {
-
+                        match msg {
+                            workermessages::TrainingTaskMessage::TrainingUpdates(m) => {
+                                let response_message =
+                                    messages::ClientMessage::TrainingUpdatesMessage(m);
+                                let json_response = serde_json::to_string(&response_message)
+                                    .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e));
+                                let _ = stream.send(ws::Message::Text(json_response)).await;
+                            },
+                            workermessages::TrainingTaskMessage::StopTraining(m) => {
+                                training_tasks.remove(&m.id);
+                                let response_message =
+                                    messages::ClientMessage::StopTrainingMessage(m);
+                                let json_response = serde_json::to_string(&response_message)
+                                    .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e));
+                                let _ = stream.send(ws::Message::Text(json_response)).await;
+                            },
+                        }
                     },
                     else => break
                 }

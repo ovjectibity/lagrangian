@@ -1,6 +1,6 @@
 use crate::commondef::model;
 use crate::commondef::messages::
-    { ModelForward, TrainingUpdatesMessage };
+    { ModelForward, StopTrainingMessage, TrainingUpdatesMessage };
 
 pub enum SimulatorThreadMessage {
     LoadModel(SimulatorThreadLoadModelMessage),
@@ -37,5 +37,6 @@ pub struct SimulatorThreadSimulUpdateMessage {
 }
 
 pub enum TrainingTaskMessage {
-    TrainingUpdates(TrainingUpdatesMessage)
+    TrainingUpdates(TrainingUpdatesMessage),
+    StopTraining(StopTrainingMessage)
 }

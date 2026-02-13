@@ -15,14 +15,14 @@ pub enum ServerMessage {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct StartTrainingMessage {
-    id: String,
-    training_workflow: TrainingMethod
+    pub id: String,
+    pub training_workflow: TrainingMethod
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct StopTrainingMessage {
-    id: String
+    pub id: String
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -32,7 +32,8 @@ pub enum ClientMessage {
     SetModelMessage(SetModelMessage),
     LoadModelMessage(LoadModelMessage),
     SimulUpdateMessage(SimulUpdateMessage),
-    TrainingUpdatesMessage(TrainingUpdatesMessage)
+    TrainingUpdatesMessage(TrainingUpdatesMessage),
+    StopTrainingMessage(StopTrainingMessage)
 }
 
 impl ClientMessage {

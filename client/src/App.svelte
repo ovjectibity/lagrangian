@@ -9,11 +9,18 @@
   import PlayPauseCta from './lib/playpausecta.svelte';
   import RewardEditor from './lib/rewardeditor.svelte';
   import TrainingRuntimeDashboard from './lib/trainingruntimedashboard.svelte';
+  import { TrainingGraphNodes } from './commondef/workflowgraph';
   import type { TabbedTab } from './lib/tabbedcontainer.svelte';
   import type { WorldBody } from './commondef/model';
-  import type { ClientMessage, ModelForward } from "./commondef/messages";
+  import type { FFNModel, TrainingMethod } from './commondef/training';
+  import type {
+    ClientMessage,
+    ModelForward,
+    ServerMessage,
+  } from './commondef/messages';
 
   let websocket: WebSocket | null = null;
+  const trainingTaskId = 'training-task-1';
   let worldBody: WorldBody | undefined = $state(undefined);
   let simulUpdateData: ModelForward | undefined = $state(undefined);
   let showModeMenu = $state(false);
@@ -80,8 +87,107 @@
     }
   };
 
+  const getNodeSettingValue = (
+    nodeId: string,
+    settingKey: string,
+  ): number | string | undefined => {
+    const node = TrainingGraphNodes.find((workflowNode) => workflowNode.id === nodeId);
+    return node?.settings?.find((setting) => setting.key === settingKey)?.value;
+  };
+
+  const getNumericSetting = (
+    nodeId: string,
+    settingKey: string,
+    fallbackValue: number,
+  ): number => {
+    const value = getNodeSettingValue(nodeId, settingKey);
+    return typeof value === 'number' ? value : fallbackValue;
+  };
+
+  const getStringSetting = (
+    nodeId: string,
+    settingKey: string,
+    fallbackValue: string,
+  ): string => {
+    const value = getNodeSettingValue(nodeId, settingKey);
+    return typeof value === 'string' ? value : fallbackValue;
+  };
+
+  const buildFfnModel = (nodeId: string): FFNModel => {
+    return {
+      num_hidden_layers: getNumericSetting(nodeId, 'num_hidden_layers', 2),
+      hidden_layer_dim: getNumericSetting(nodeId, 'hidden_layer_dim', 128),
+      output_dim: getNumericSetting(nodeId, 'output_dim', 1),
+      input_dim: getNumericSetting(nodeId, 'input_dim', 8),
+    };
+  };
+
+  const buildTrainingWorkflow = (): TrainingMethod => {
+    return {
+      type: 'PPO',
+      content: {
+        num_epochs: getNumericSetting('training-method', 'num_epochs', 10),
+        num_updates: getNumericSetting('training-method', 'num_updates', 10),
+        epsilon: getNumericSetting('training-method', 'epsilon', 0.2),
+        gamma: getNumericSetting('training-method', 'gamma', 0.99),
+        lambda: getNumericSetting('training-method', 'lambda', 0.95),
+        reward_function: {
+          reward_function_code: getStringSetting(
+            'reward-function',
+            'function_code',
+            '',
+          ),
+        },
+        control_model: {
+          type: 'FFN',
+          content: buildFfnModel('control-model'),
+        },
+        value_model: {
+          type: 'FFN',
+          content: buildFfnModel('value-model'),
+        },
+      },
+    };
+  };
+
+  const sendServerMessage = (message: ServerMessage): boolean => {
+    if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+      console.warn('WebSocket is not connected. Could not send message:', message.type);
+      return false;
+    }
+    websocket.send(JSON.stringify(message));
+    return true;
+  };
+
+  const startTraining = () => {
+    const wasSent = sendServerMessage({
+      type: 'StartTrainingMessage',
+      content: {
+        id: trainingTaskId,
+        training_workflow: buildTrainingWorkflow(),
+      },
+    });
+    if (wasSent) {
+      isTrainingRunning = true;
+    }
+  };
+
+  const stopTraining = () => {
+    const wasSent = sendServerMessage({
+      type: 'StopTrainingMessage',
+      content: { id: trainingTaskId },
+    });
+    if (wasSent) {
+      isTrainingRunning = false;
+    }
+  };
+
   const toggleTrainingState = () => {
-    isTrainingRunning = !isTrainingRunning;
+    if (isTrainingRunning) {
+      stopTraining();
+      return;
+    }
+    startTraining();
   };
 
   const handleGlobalClick = (event: MouseEvent) => {
@@ -136,6 +242,10 @@
           } else if (clientMessage.type === "LoadModelMessage") {
             worldBody = clientMessage.content.model;
             simulUpdateData = undefined; // Clear simulation data on new model load
+          } else if (clientMessage.type === 'TrainingUpdatesMessage') {
+            // Intentionally left empty for now.
+          } else if (clientMessage.type === 'StopTrainingMessage') {
+            isTrainingRunning = false;
           }
         } catch (e) {
           console.error("Failed to parse WebSocket JSON message:", e);
@@ -179,6 +289,7 @@
 
     websocket.onclose = (event) => {
       console.log("WebSocket connection closed:", event);
+      isTrainingRunning = false;
       websocket = null;
     };
 
