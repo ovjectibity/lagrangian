@@ -281,8 +281,7 @@ impl PPOTrainer {
         (values - rtgs).pow_tensor_scalar(2.0).mean(Kind::Float)
     }
 
-    fn train_an_epoch(&mut self) {
-        let trajs = self.gen_trajectories(self.num_trajs);
+    fn train_an_epoch(&mut self, trajs: &[Trajectory]) {
         let gae_v: Vec<Tensor> = trajs.iter().map(|traj| {
             self.compute_gae(traj)
         }).collect();
@@ -296,9 +295,42 @@ impl PPOTrainer {
         }
     }
 
-    fn train_n_epochs(&mut self, n: u32) {
-        for _ in 0..n {
-            self.train_an_epoch();
+    fn get_rollout_mean_entropy(&self, trajs: &[Trajectory]) -> f64 {
+        if trajs.is_empty() {
+            return 0.0;
         }
+        let nq = self.model.get_nq();
+        let model_outputs_v: Vec<Tensor> = trajs
+            .iter()
+            .map(|traj| Tensor::stack(
+                &traj.model_outputs, 0))
+            .collect();
+        let model_outputs = 
+            Tensor::stack(&model_outputs_v, 0);
+        let s_action_gaussian_params = 
+            model_outputs.split_with_sizes([nq, nq], -1);
+        let action_gaussian_log_stddev = 
+            s_action_gaussian_params
+            .get(1)
+            .expect("Couldn't extract the action_gaussian_log_stddev");
+        let log_two_pi = (2.0_f64 * std::f64::consts::PI).ln();
+        let entropy = (action_gaussian_log_stddev + 0.5 * (1.0 + log_two_pi))
+            .sum_dim_intlist(vec![-1], false, Kind::Float)
+            .mean(Kind::Float);
+        f64::try_from(entropy).expect("wrong type of tensor")
+    }
+
+    fn get_rollout_mean_reward(&self, trajs: &[Trajectory]) -> f64 {
+        let reward_count: usize = trajs.iter()
+            .map(|traj| traj.rewards.len()).sum();
+        if reward_count == 0 {
+            return 0.0;
+        }
+        let reward_sum: f64 = trajs
+            .iter()
+            .flat_map(|traj| 
+                traj.rewards.iter())
+            .sum();
+        reward_sum / reward_count as f64
     }
 }
