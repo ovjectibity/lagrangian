@@ -20,7 +20,7 @@ pub struct TrainingWorkflow {
 }
 
 impl TrainingWorkflow {
-    async fn log_and_send(
+    fn log_and_send_blocking(
         tx: &mpsc::Sender<TrainingTaskMessage>,
         training_id: String,
         msg: String,
@@ -33,7 +33,7 @@ impl TrainingWorkflow {
                 metrics: vec![],
                 logs: vec![msg],
             });
-        let _ = tx.send(log_update).await;
+        let _ = tx.blocking_send(log_update);
     }
 
     pub fn new(model_path: String, 
@@ -54,7 +54,7 @@ impl TrainingWorkflow {
             control_params.input_dim as i64,
             control_params.output_dim as i64,
             control_params.hidden_layer_dim as i64,
-            control_params.num_hidden_layers as i64,
+            value_params.num_hidden_layers as i64,
             false,
         );
         let (value_model, 
@@ -82,7 +82,9 @@ impl TrainingWorkflow {
             let trainer = PPOTrainer::new(
                 simulator_p.clone(),
                 model_p.clone(),
-                10,
+                20,
+                1000,
+                100,
                 // params.num_trajs,
                 params.epsilon,
                 ControlModelOutput::TargetPositions,
@@ -105,18 +107,18 @@ impl TrainingWorkflow {
         }
     }
 
-    pub async fn run_training(&mut self, tx: mpsc::Sender<TrainingTaskMessage>) {
+    pub fn run_training_blocking(&mut self, 
+        tx: mpsc::Sender<TrainingTaskMessage>) {
         let params = &self.params;
         for i in 0..params.num_epochs {
-            Self::log_and_send(
+            Self::log_and_send_blocking(
                 &tx,
                 self.id.clone(),
                 format!("Running the training epoch {i}"),
-            )
-            .await;
+            );
             //TODO: Expose num trajs as a param
             let trajs = self.trainer.gen_trajectories(10);
-            self.trainer.train_an_epoch(&trajs);
+            let runtime_info = self.trainer.train_an_epoch(&trajs);
             let mean_entropy = self.trainer.get_rollout_mean_entropy(&trajs);
             let mean_reward = self.trainer.get_rollout_mean_reward(&trajs);
             let mean_entropy_m = 
@@ -129,19 +131,39 @@ impl TrainingWorkflow {
                 x_axis: vec![i as f64],
                 y_axis: vec![mean_reward],
             });
+            let num_updates = runtime_info.mean_policy_loss().len();
+            let base_update_step = (i as usize) * num_updates;
+            let update_steps: Vec<f64> = (0..num_updates)
+                .map(|u| (base_update_step + u) as f64)
+                .collect();
+            let mean_policy_loss_m = 
+            TrainingMetrics::MeanPolicyLoss(MetricsData {
+                x_axis: update_steps.clone(),
+                y_axis: runtime_info.mean_policy_loss().to_vec(),
+            });
+            let mean_value_loss_m = 
+            TrainingMetrics::ValueLoss(MetricsData {
+                x_axis: update_steps,
+                y_axis: runtime_info.mean_value_loss().to_vec(),
+            });
             let update = 
                 TrainingTaskMessage::TrainingUpdates(
                     TrainingUpdatesMessage {
                         id: self.id.clone(),
-                        metrics: vec![mean_entropy_m, mean_reward_m],
+                        metrics: vec![
+                            mean_entropy_m, 
+                            mean_reward_m,
+                            mean_policy_loss_m,
+                            mean_value_loss_m
+                        ],
                         logs: vec![],
                     });
-            let _ = tx.send(update).await;
+            let _ = tx.blocking_send(update);
         }
-        let _ = tx
-            .send(TrainingTaskMessage::StopTraining(StopTrainingMessage {
+        let _ = tx.blocking_send(
+            TrainingTaskMessage::StopTraining(StopTrainingMessage {
                 id: self.id.clone(),
-            }))
-            .await;
+            })
+        );
     }
 }

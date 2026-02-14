@@ -202,6 +202,27 @@ impl Simulator for MjSimulator {
         }
     }
 
+    fn get_world_body(&self) -> Option<crate::commondef::model::WorldBody> {
+        unsafe { simulator::create_model(self.model, self.data) }
+    }
+
+    fn get_simul_update(&self) -> (Vec<f64>, Vec<f64>) {
+        unsafe {
+            let nbody = (*self.model).nbody as usize;
+            let xpos = std::slice::from_raw_parts(
+                (*self.data).xpos,
+                nbody * 3,
+            )
+            .to_vec();
+            let xquat = std::slice::from_raw_parts(
+                (*self.data).xquat,
+                nbody * 4,
+            )
+            .to_vec();
+            (xpos, xquat)
+        }
+    }
+
     fn get_target_controls_from_target_positions(
         &self, target_pos_diff: &Tensor) -> Tensor {
         let nu = self.nu();

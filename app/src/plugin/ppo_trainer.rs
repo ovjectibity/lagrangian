@@ -21,12 +21,38 @@ pub struct Trajectory {
     rtgs: Vec<f64>,
 }
 
+pub struct PPOTrainerRuntimeInfo {
+    mean_policy_loss: Vec<f64>,
+    mean_value_loss: Vec<f64>
+}
+
+impl PPOTrainerRuntimeInfo {
+    pub fn new(
+        mean_policy_loss: Vec<f64>,
+        mean_value_loss: Vec<f64>,
+    ) -> Self {
+        PPOTrainerRuntimeInfo {
+            mean_policy_loss: mean_policy_loss,
+            mean_value_loss: mean_value_loss,
+        }
+    }
+
+    pub fn mean_policy_loss(&self) -> &[f64] {
+        &self.mean_policy_loss
+    }
+
+    pub fn mean_value_loss(&self) -> &[f64] {
+        &self.mean_value_loss
+    }
+}
+
 pub struct PPOTrainer {
     num_trajs: i32,
+    traj_depth: i32,
+    num_updates: i32,
     epsilon: f64,
     //Used for GAE:
     gamma_lambda: (f64, f64),
-    traj_depth: i32,
     simulator: Arc<Mutex<dyn Simulator + Send>>,
     model: Arc<Mutex<dyn PPOTrainedModel + Send>>,
     policy_opt: nn::Optimizer,
@@ -69,13 +95,13 @@ impl PPOTrainer {
                 .simulator
                 .lock()
                 .expect("Simulator mutex poisoned")
-                .nu() * 2,
+                .nu(),
             ControlModelOutput::TargetPositions | 
             ControlModelOutput::TargetVelocities => self
                 .simulator
                 .lock()
                 .expect("Simulator mutex poisoned")
-                .nq() * 2,
+                .nq(),
         }
     }
 
@@ -83,6 +109,8 @@ impl PPOTrainer {
         simulator: Arc<Mutex<dyn Simulator + Send>>,
         model: Arc<Mutex<dyn PPOTrainedModel + Send>>,
         num_trajs: i32,
+        traj_depth: i32,
+        num_updates: i32,
         epsilon: f64,
         output_mode: ControlModelOutput,
     ) -> Result<Self, tch::TchError> {
@@ -98,9 +126,10 @@ impl PPOTrainer {
         };
         Ok(PPOTrainer {
             num_trajs: num_trajs,
+            traj_depth: traj_depth,
+            num_updates: num_updates,
             epsilon: epsilon,
             gamma_lambda: (0.1, 0.1),
-            traj_depth: 10,
             simulator: simulator,
             model: model,
             policy_opt: policy_opt,
@@ -387,6 +416,7 @@ impl PPOTrainer {
             .expect("Model mutex poisoned")
             .get_value_func()
             .forward(&wstates);
+        let values = values.squeeze_dim(-1);
         let rtgs = rtgs.to_device_(
             values.device(), 
             values.kind(), 
@@ -394,19 +424,36 @@ impl PPOTrainer {
         (values - rtgs).pow_tensor_scalar(2.0).mean(Kind::Double)
     }
 
-    pub fn train_an_epoch(&mut self, trajs: &[Trajectory]) {
+    fn get_mean_policy_loss(&self, trajs: &[Trajectory], gaes: &Tensor) -> Tensor {
+        -self.get_ppo_clip_objective(trajs, gaes)
+    }
+
+    fn get_mean_value_loss(&self, trajs: &[Trajectory]) -> Tensor {
+        self.get_value_function_objective(trajs)
+    }
+
+    pub fn train_an_epoch(&mut self, trajs: &[Trajectory]) -> 
+    PPOTrainerRuntimeInfo {
         let gae_v: Vec<Tensor> = trajs.iter().map(|traj| 
             self.compute_gae(traj)).collect();
         let gaes = Tensor::stack(&gae_v, 0).detach();
+        let mut mean_policy_loss: Vec<f64> = Vec::new();
+        let mut mean_value_loss: Vec<f64> = Vec::new();
         //TODO: Expose iterations as param here
-        for i in 0..10 {
+        for i in 0..100 {
             println!("Running epoch's update iteration {:?}", i);
-            let objective = self.get_ppo_clip_objective(&trajs, &gaes);
-            let loss = -objective;
-            self.policy_opt.backward_step(&loss);
-            let value_loss = self.get_value_function_objective(&trajs);
+            let policy_loss = self.get_mean_policy_loss(&trajs, &gaes);
+            let policy_loss_v = f64::try_from(policy_loss.detach())
+                .expect("Policy loss should be a scalar f64 tensor");
+            mean_policy_loss.push(policy_loss_v);
+            self.policy_opt.backward_step(&policy_loss);
+            let value_loss = self.get_mean_value_loss(&trajs);
+            let value_loss_v = f64::try_from(value_loss.detach())
+                .expect("Value loss should be a scalar f64 tensor");
+            mean_value_loss.push(value_loss_v);
             self.value_opt.backward_step(&value_loss);
         }
+        PPOTrainerRuntimeInfo::new(mean_policy_loss, mean_value_loss)
     }
 
     pub fn get_rollout_mean_entropy(&self, trajs: &[Trajectory]) -> f64 {

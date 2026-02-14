@@ -2,6 +2,7 @@ use typeshare::typeshare;
 use serde;
 
 use crate::commondef::model;
+use crate::commondef::testing::SimulationParams;
 use crate::commondef::training::{TrainingMethod, TrainingMetrics};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -9,7 +10,9 @@ use crate::commondef::training::{TrainingMethod, TrainingMetrics};
 #[typeshare]
 pub enum ServerMessage {
     StartTrainingMessage(StartTrainingMessage),
-    StopTrainingMessage(StopTrainingMessage)
+    StopTrainingMessage(StopTrainingMessage),
+    StartSimulationMessage(StartSimulationMessage),
+    StopSimulationMessage(StopSimulationMessage)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -22,6 +25,19 @@ pub struct StartTrainingMessage {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct StopTrainingMessage {
+    pub id: String
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct StartSimulationMessage {
+    pub simulation_params: SimulationParams,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct StopSimulationMessage {
     pub id: String
 }
 

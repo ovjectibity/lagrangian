@@ -1,6 +1,6 @@
 use tch::{Tensor, nn::{self, Module}};
 
-use crate::{plugin::ppo_trainer::PPOTrainedModel, usr::UsrDefined};
+use crate::plugin::{ControlPolicyModel, ppo_trainer::PPOTrainedModel};
 
 pub struct ArmModel {
     policy: nn::Sequential,
@@ -62,6 +62,25 @@ impl ArmModel {
         }
 
         (y, vs)
+    }
+
+    fn forward_policy_impl(&self, state: &Tensor) -> Tensor {
+        let state = state
+            .to_device(self.policy_store.device())
+            .to_kind(self.policy_store.kind());
+        self.policy.forward(&state)
+    }
+
+    fn get_policy_impl(&self) -> &nn::Sequential {
+        &self.policy
+    }
+
+    fn get_policy_store_impl(&self) -> &nn::VarStore {
+        &self.policy_store
+    }
+
+    fn get_policy_store_mut_impl(&mut self) -> &mut nn::VarStore {
+        &mut self.policy_store
     }
 }
 
@@ -142,11 +161,8 @@ impl PPOTrainedModel for ArmModel {
         r_dist + r_prog + r_success + act_penalty
     }
 
-    fn get_policy_output(&self, _state: &Tensor) -> Tensor {
-        let state = _state
-            .to_device(self.policy_store.device())
-            .to_kind(self.policy_store.kind());
-        self.policy.forward(&state)
+    fn get_policy_output(&self, state: &Tensor) -> Tensor {
+        self.forward_policy_impl(state)
     }
 
     fn get_value_output(&self, state: &Tensor) -> f64 {
@@ -160,7 +176,7 @@ impl PPOTrainedModel for ArmModel {
     }
 
     fn get_policy(&self) -> &nn::Sequential {
-        &self.policy
+        self.get_policy_impl()
     }
 
     fn get_value_func(&self) -> &nn::Sequential {
@@ -168,11 +184,11 @@ impl PPOTrainedModel for ArmModel {
     }
 
     fn get_policy_store(&self) -> &nn::VarStore {
-        &self.policy_store
+        self.get_policy_store_impl()
     }
 
     fn get_policy_store_mut(&mut self) -> &mut nn::VarStore {
-        &mut self.policy_store
+        self.get_policy_store_mut_impl()
     }
 
     fn get_value_store(&self) -> &nn::VarStore {
@@ -184,6 +200,20 @@ impl PPOTrainedModel for ArmModel {
     }
 }
 
-impl UsrDefined for ArmModel {
+impl ControlPolicyModel for ArmModel {
+    fn get_policy_output(&self, state: &Tensor) -> Tensor {
+        self.forward_policy_impl(state)
+    }
 
+    fn get_policy(&self) -> &nn::Sequential {
+        self.get_policy_impl()
+    }
+
+    fn get_policy_store(&self) -> &nn::VarStore {
+        self.get_policy_store_impl()
+    }
+
+    fn get_policy_store_mut(&mut self) -> &mut nn::VarStore {
+        self.get_policy_store_mut_impl()
+    }
 }

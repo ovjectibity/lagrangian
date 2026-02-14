@@ -181,7 +181,7 @@
       num_hidden_layers: getNumericSetting(nodeId, 'num_hidden_layers', 2),
       hidden_layer_dim: getNumericSetting(nodeId, 'hidden_layer_dim', 128),
       output_dim: getNumericSetting(nodeId, 'output_dim', 1),
-      input_dim: getNumericSetting(nodeId, 'input_dim', 8),
+      input_dim: getNumericSetting(nodeId, 'input_dim', 58),
     };
   };
 

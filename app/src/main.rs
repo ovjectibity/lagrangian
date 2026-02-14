@@ -10,11 +10,11 @@ use rocket::fs::FileServer;
 use rocket::futures::{SinkExt, StreamExt};
 
 use crate::commondef::{messages, workermessages};
-use crate::training::TrainingWorkflow;
+use crate::workflows::training::TrainingWorkflow;
 
 pub mod simulator;
 pub mod mujoco;
-pub mod training;
+pub mod workflows;
 pub mod commondef;
 pub mod plugin;
 pub mod usr;
@@ -27,7 +27,7 @@ fn api_hello() -> &'static str {
 
 #[get("/viewport")]
 fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
-    let (tx,mut rx) = 
+    let (tx_test,mut rx_test) = 
         mpsc::channel::<workermessages::SimulatorThreadMessage>(32);
     let (tx_t,mut rx_t) = 
         mpsc::channel::<workermessages::TrainingTaskMessage>(32);
@@ -84,7 +84,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                     //Pass id to the simulator thread as well
                                     simulator::spawn_simulator(
                                         "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml".to_string(),
-                                        tx.clone());
+                                        tx_test.clone());
                                 } else {
                                     match serde_json::from_str::<messages::ServerMessage>(&text) {
                                         Ok(m) => {
@@ -95,12 +95,12 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                         t.training_workflow;
                                                     let tx_tc = tx_t.clone();
                                                     let id_c = t.id.clone();
-                                                    let h = tokio::spawn(async move {
+                                                    let h = tokio::task::spawn_blocking(move || {
                                                         let workflow_r = TrainingWorkflow::new(
                                                             "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml".to_string(),
                                                             id_c,ppomethod);
                                                         if let Ok(mut workflow) = workflow_r {
-                                                            workflow.run_training(tx_tc).await;
+                                                            workflow.run_training_blocking(tx_tc);
                                                         }
                                                     });
                                                     training_tasks.insert(t.id.clone(),h);
@@ -108,6 +108,12 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                 messages::ServerMessage::StopTrainingMessage(t) => {
                                                      println!("Stopping training as asked by client {:?}",t);
                                                     training_tasks.remove(&t.id.clone());
+                                                },
+                                                messages::ServerMessage::StartSimulationMessage(_t) => {
+                                                    // TODO: wire testing workflow start
+                                                },
+                                                messages::ServerMessage::StopSimulationMessage(_t) => {
+                                                    // TODO: wire testing workflow stop
                                                 }
                                             }
                                         },
@@ -132,7 +138,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                             _ => {}
                         }
                     }
-                    Some(msg) = rx.recv() => {
+                    Some(msg) = rx_test.recv() => {
                         match msg {
                             workermessages::SimulatorThreadMessage::LoadModel(m) => {
                                 let response_message = messages::ClientMessage::new_load_model_message(
