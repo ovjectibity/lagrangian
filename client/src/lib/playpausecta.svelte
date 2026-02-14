@@ -1,11 +1,13 @@
 <script lang="ts">
   const {
     isRunning = false,
+    isDisabled = false,
     onToggle,
     startLabel = "Start training",
     stopLabel = "Stop training",
   } = $props<{
     isRunning?: boolean;
+    isDisabled?: boolean;
     onToggle?: () => void;
     startLabel?: string;
     stopLabel?: string;
@@ -15,6 +17,7 @@
 <div class="play-pause-cta">
   <button
     class="play-pause-cta-button"
+    disabled={isDisabled}
     onclick={() => onToggle?.()}
     title={isRunning ? stopLabel : startLabel}
     aria-label={isRunning ? stopLabel : startLabel}

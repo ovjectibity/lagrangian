@@ -195,13 +195,14 @@
   }
 
   onMount(() => {
+    three.Object3D.DEFAULT_UP.set(0, 0, 1);
     scene = new three.Scene();
     scene.background = new three.Color(0xFCB603);
     camera = new three.PerspectiveCamera(20, width / height, 0.5, 1000);
+    camera.up.set(0, 0, 1);
     renderer = new three.WebGLRenderer({ canvas: canvas, antialias: true });
     cameraController = new OrbitControls(camera,canvas);
     renderer.setSize(width, height);
-
     camera.position.z = 5;
     cameraController.update();
 

@@ -38,6 +38,12 @@
   let selectedLogTabChannel = $state('Training logs');
   let isTrainingRunning = $state(false);
   let isTestingRunning = $state(false);
+  let isTrainingActionDisabled = $derived(
+    !isTrainingRunning && isTestingRunning
+  );
+  let isTestingActionDisabled = $derived(
+    !isTestingRunning && isTrainingRunning
+  );
   let selectedEditorTabId = $state('model-editor');
   let trainingLogs = $state<string[]>([]);
   type TrainingMetricType = TrainingMetrics['type'];
@@ -159,12 +165,6 @@
   const selectMode = (mode: string) => {
     selectedMode = mode;
     showModeMenu = false;
-    if (mode !== 'Training') {
-      isTrainingRunning = false;
-    }
-    if (mode !== 'Testing') {
-      isTestingRunning = false;
-    }
     selectedEditorTabId = 'model-editor';
   };
 
@@ -247,6 +247,9 @@
   };
 
   const startTraining = () => {
+    if (isTestingRunning) {
+      return;
+    }
     const wasSent = sendServerMessage({
       type: 'StartTrainingMessage',
       content: {
@@ -287,6 +290,9 @@
   };
 
   const startTesting = () => {
+    if (isTrainingRunning) {
+      return;
+    }
     const wasSent = sendServerMessage({
       type: 'StartSimulationMessage',
       content: {
@@ -479,6 +485,7 @@
     {#if selectedMode === 'Training'}
       <PlayPauseCta
         isRunning={isTrainingRunning}
+        isDisabled={isTrainingActionDisabled}
         onToggle={toggleTrainingState}
         startLabel="Start training"
         stopLabel="Stop training"
@@ -486,6 +493,7 @@
     {:else if selectedMode === 'Testing'}
       <PlayPauseCta
         isRunning={isTestingRunning}
+        isDisabled={isTestingActionDisabled}
         onToggle={toggleTestingState}
         startLabel="Run simulation"
         stopLabel="Stop simulation"

@@ -234,8 +234,13 @@ h1 {
   gap: 6px;
 }
 
-.play-pause-cta-button:hover {
+.play-pause-cta-button:hover:enabled {
   background-color: #383838;
+}
+
+.play-pause-cta-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .play-pause-cta-icon {
