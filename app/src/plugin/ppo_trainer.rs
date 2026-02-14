@@ -401,7 +401,7 @@ impl PPOTrainer {
         let mut mean_policy_loss: Vec<f64> = Vec::new();
         let mut mean_value_loss: Vec<f64> = Vec::new();
         //TODO: Expose iterations as param here
-        for i in 0..100 {
+        for i in 0..self.num_updates {
             println!("Running epoch's update iteration {:?}", i);
             let policy_loss = self.get_mean_policy_loss(&trajs, &gaes);
             let policy_loss_v = f64::try_from(policy_loss.detach())

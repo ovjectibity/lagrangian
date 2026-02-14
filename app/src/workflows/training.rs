@@ -50,8 +50,8 @@ impl TrainingWorkflow {
         let trainer = PPOTrainer::new(
             simulator.clone(),
             model.clone(),
-            20,
-            1000,
+            30,
+            10000,
             100,
             // params.num_trajs,
             params.epsilon,

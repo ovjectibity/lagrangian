@@ -1,6 +1,6 @@
 <mujoco model="vx300s">
   <compiler angle="radian" meshdir="assets" texturedir="assets" autolimits="true"/>
-
+  <option timestep="0.02"/>
   <option cone="elliptic" impratio="10"/>
 
   <asset>

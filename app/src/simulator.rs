@@ -235,9 +235,10 @@ pub unsafe fn create_model(
 ) -> Option<WorldBody> {
     unsafe {
         println!(
-            "Creating the requested model nv {:?} & nq: {:?}",
+            "Creating the requested model nv {:?} & nq: {:?} & nu: {:?}",
             (*m).nv,
-            (*m).nq
+            (*m).nq,
+            (*m).nu
         );
 
         let mut geoms_by_body: HashMap<i32, Vec<Geom>> = HashMap::new();
