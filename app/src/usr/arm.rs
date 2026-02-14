@@ -12,6 +12,7 @@ pub struct ArmModel {
     value_store: nn::VarStore,
     nq: i64,
     bq: i64,
+    target_cube_body_index: usize,
     start_center_xy: (f64, f64),
     target_center_xy: (f64, f64),
     start_radius: f64,
@@ -103,6 +104,9 @@ impl PPOTrainedModel for ArmModel {
             value_store: val_estimator_store,
             nq: nq,
             bq: 7,
+            // vx300 worldbody order assumption:
+            // 0=world, 1=left_box_body, 2=right_box_body, 3=target_cube_body
+            target_cube_body_index: 3,
             // Scene-tuned defaults for the vx300 setup:
             // left_box:  (0.35,  0.22), right_box: (0.35, -0.22)
             // target_cube sits on left_box at z ~ 0.125 (top ~ 0.15)
@@ -112,34 +116,57 @@ impl PPOTrainedModel for ArmModel {
             target_radius: 0.04,
             plane_z: 0.15,
             w_dist: 1.0,
-            w_prog: 1.0,
-            w_success: 5.0,
-            w_act: 1e-3,
+            w_prog: 5.0,
+            w_success: 50.0,
+            w_act: 0.0 //1e-3,
         }
     }
 
-    // fn get_nq(&self) -> i64 {
-    //     self.nq
-    // }
-
     //TODO: Add contact bonus here
-    fn get_reward(&self, wstate: &Tensor, wstatenext: Option<&Tensor>, action: &Tensor) -> f64 {
-        let curr = wstatenext.unwrap_or(wstate);
-        let curr_pos = curr.narrow(0, 0, 3);
-        let curr_pos_v: Vec<f64> =
-            Vec::<f64>::try_from(curr_pos).expect("Expected curr_pos to be a 1D f64 tensor");
-        let dx = curr_pos_v[0] - self.target_center_xy.0;
-        let dy = curr_pos_v[1] - self.target_center_xy.1;
-        let curr_dist = (dx * dx + dy * dy).sqrt();
+    fn get_reward(&self, 
+        cstate: &Tensor, 
+        cstate_next: Option<&Tensor>, 
+        action: &Tensor) -> f64 {
+        let cube_pos = 
+        |state: &Tensor| -> (f64, f64, f64) {
+            let state = state.to_kind(tch::Kind::Double);
+            let state_vals: Vec<f64> = Vec::<f64>::try_from(state)
+                .expect("Expected cartesian state to be a 1D f64 tensor");
+            if state_vals.len() % 7 != 0 {
+                panic!(
+                    "Expected cartesian state len to be 7*nbody, got {}",
+                    state_vals.len()
+                );
+            }
+            let nbody = state_vals.len() / 7;
+            if self.target_cube_body_index >= nbody {
+                panic!(
+                    "target_cube body index {} out of bounds for nbody {}",
+                    self.target_cube_body_index, nbody
+                );
+            }
+            let cube_x_idx = self.target_cube_body_index * 3;
+            (
+                state_vals[cube_x_idx],
+                state_vals[cube_x_idx + 1],
+                state_vals[cube_x_idx + 2],
+            )
+        };
+
+        let curr_state = cstate_next.unwrap_or(cstate);
+        let (curr_x, curr_y, curr_z) = cube_pos(curr_state);
+        let dx = curr_x - self.target_center_xy.0;
+        let dy = curr_y - self.target_center_xy.1;
+        let dz = curr_z - self.plane_z;
+        let curr_dist = (dx * dx + dy * dy + dz * dz).sqrt();
         let r_dist = -curr_dist * self.w_dist;
 
-        let r_prog = if let Some(next) = wstatenext {
-            let prev_pos = wstate.narrow(0, 0, 3);
-            let prev_pos_v: Vec<f64> =
-                Vec::<f64>::try_from(prev_pos).expect("Expected prev_pos to be a 1D f64 tensor");
-            let prev_dx = prev_pos_v[0] - self.target_center_xy.0;
-            let prev_dy = prev_pos_v[1] - self.target_center_xy.1;
-            let prev_dist = (prev_dx * prev_dx + prev_dy * prev_dy).sqrt();
+        let r_prog = if cstate_next.is_some() {
+            let (prev_x, prev_y, prev_z) = cube_pos(cstate);
+            let prev_dx = prev_x - self.target_center_xy.0;
+            let prev_dy = prev_y - self.target_center_xy.1;
+            let prev_dz = prev_z - self.plane_z;
+            let prev_dist = (prev_dx * prev_dx + prev_dy * prev_dy + prev_dz * prev_dz).sqrt();
             (prev_dist - curr_dist) * self.w_prog
         } else {
             0.0

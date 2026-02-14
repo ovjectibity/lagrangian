@@ -27,7 +27,11 @@ Agents must produce code that compiles under `strict` mode.
 
 ### Indentation and Spacing
 * **Indentation:** Use **2 spaces**. Do not use tabs.
-* **Line Length:** Aim for **80-100 characters**.
+* **Line Length (Required):** Keep every code line at **66 characters or fewer**.
+* **Line Wrapping (Required):** For lines exceeding 66 characters, break:
+  * after assignments `=`
+  * on function call arguments after `,`
+  * after function call opening `(` when needed
 * **Quotes:** Use double quotes `"` by default (unless project specifies single).
 * **Semicolons:** **Always** use semicolons.
 
@@ -141,7 +145,7 @@ export const Button = ({ label, onClick }: ButtonProps) => {
   "semi": true,
   "trailingComma": "all",
   "singleQuote": false,
-  "printWidth": 100,
+  "printWidth": 66,
   "tabWidth": 2
 }
 ```

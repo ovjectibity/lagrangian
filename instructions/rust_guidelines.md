@@ -26,7 +26,11 @@ Rust uses specific casing for different identifiers. Agents must strictly follow
 
 ### Indentation and Spacing
 * **Indentation:** Use **4 spaces**. Do not use tabs.
-* **Line Length:** Aim for **100 characters** (soft limit). Break long chains if necessary.
+* **Line Length (Required):** Keep every code line at **66 characters or fewer**.
+* **Line Wrapping (Required):** For lines exceeding 66 characters, break:
+  * after assignments `=`
+  * on function call arguments after `,`
+  * after function call opening `(` when needed
 * **Blocks:** Open braces `{` go on the **same line** as the statement.
 
 ```rust
@@ -147,7 +151,7 @@ If the agent needs to configure formatting, use these defaults:
 
 ```toml
 edition = "2021"
-max_width = 100
+max_width = 66
 tab_spaces = 4
 newline_style = "Unix"
 imports_granularity = "Crate"

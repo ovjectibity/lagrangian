@@ -16,6 +16,7 @@ pub trait Simulator {
     //Shape of output: [nv]
     fn inverse_dyn(&self, acc: &Tensor) -> Tensor;
     fn get_model_state(&self) -> Tensor;
+    fn get_model_cartesian_state(&self) -> Tensor;
     fn get_world_body(&self) -> Option<WorldBody>;
     fn get_simul_update(&self) -> (Vec<f64>, Vec<f64>);
     fn get_target_controls_from_target_positions(&self, target_pos: &Tensor) -> Tensor;

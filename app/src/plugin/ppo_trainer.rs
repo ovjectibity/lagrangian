@@ -71,7 +71,12 @@ pub trait PPOTrainedModel {
         Self: Sized;
     // Using SpinningUp's formulation of reward function:
     // https://spinningup.openai.com/en/latest/spinningup/rl_intro.html
-    fn get_reward(&self, wstate: &Tensor, wstatenext: Option<&Tensor>, action: &Tensor) -> f64;
+    fn get_reward(
+        &self,
+        cstate: &Tensor,
+        cstate_next: Option<&Tensor>,
+        action: &Tensor,
+    ) -> f64;
     fn get_policy_output(&self, state: &Tensor) -> Tensor;
     fn get_value_output(&self, state: &Tensor) -> f64;
     fn get_policy(&self) -> &nn::Sequential;
@@ -86,18 +91,10 @@ pub trait PPOTrainedModel {
 // computations to single tensor where possible
 impl PPOTrainer {
     fn get_action_output_size(&self) -> i64 {
-        match &self.output_mode {
-            ControlModelOutput::TargetTorques => self
-                .simulator
-                .lock()
-                .expect("Simulator mutex poisoned")
-                .nu(),
-            ControlModelOutput::TargetPositions | ControlModelOutput::TargetVelocities => self
-                .simulator
-                .lock()
-                .expect("Simulator mutex poisoned")
-                .nq(),
-        }
+        self.simulator
+            .lock()
+            .expect("Simulator mutex poisoned")
+            .nu()
     }
 
     pub fn new(
@@ -143,11 +140,16 @@ impl PPOTrainer {
                 .expect("Simulator mutex poisoned")
                 .reset_state();
             for i in 0..self.traj_depth {
-                let wstate: Tensor = self
-                    .simulator
-                    .lock()
-                    .expect("Simulator mutex poisoned")
-                    .get_model_state();
+                let (wstate, cstate): (Tensor, Tensor) = {
+                    let simulator = self
+                        .simulator
+                        .lock()
+                        .expect("Simulator mutex poisoned");
+                    (
+                        simulator.get_model_state(),
+                        simulator.get_model_cartesian_state(),
+                    )
+                };
                 let action_gaussian_params = self
                     .model
                     .lock()
@@ -185,12 +187,21 @@ impl PPOTrainer {
                     .lock()
                     .expect("Simulator mutex poisoned")
                     .forward_dyn(&controls);
-                //TODO: Assuming no PPOTrained model is using wstatenext for now:
-                rewards.push(self.model.lock().expect("Model mutex poisoned").get_reward(
-                    &wstate,
-                    None,
-                    &sampled_action,
-                ));
+                let cstate_next = self
+                    .simulator
+                    .lock()
+                    .expect("Simulator mutex poisoned")
+                    .get_model_cartesian_state();
+                let reward = self
+                    .model
+                    .lock()
+                    .expect("Model mutex poisoned")
+                    .get_reward(
+                        &cstate,
+                        Some(&cstate_next),
+                        &sampled_action,
+                    );
+                rewards.push(reward);
                 wstates.push(wstate);
                 model_outputs.push(action_gaussian_params);
                 model_output_samples.push(sampled_action);

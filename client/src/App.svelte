@@ -286,6 +286,15 @@
     return {
       policy_id: 'default-policy',
       num_timesteps: 1000,
+      control_model: {
+        type: 'FFN',
+        content: {
+          num_hidden_layers: 3,
+          hidden_layer_dim: 128,
+          output_dim: 58,
+          input_dim: 58,
+        },
+      },
     };
   };
 

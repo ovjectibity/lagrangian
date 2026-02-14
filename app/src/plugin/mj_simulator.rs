@@ -16,7 +16,8 @@ unsafe impl Send for MjSimulator {}
 impl MjSimulator {
     pub fn new(model_path: String) -> Result<Self, String> {
         unsafe {
-            if let Some((model, data)) = simulator::load_model(model_path) {
+            if let Some((model, data)) = 
+                simulator::load_model(model_path) {
                 mujoco::mj_forward(model, data);
                 Ok(MjSimulator { model, data })
             } else {
@@ -171,6 +172,7 @@ impl Simulator for MjSimulator {
 
     fn get_model_state(&self) -> Tensor {
         let nq = self.nq();
+        let nv = self.nv();
         unsafe {
             let qpos_ptr = (*self.data).qpos;
             let qvel_ptr = (*self.data).qvel;
@@ -178,8 +180,26 @@ impl Simulator for MjSimulator {
             assert!(!qvel_ptr.is_null());
             assert!(nq > 0);
             let mut qposvel = std::slice::from_raw_parts(qpos_ptr, nq as usize).to_vec();
-            qposvel.extend(std::slice::from_raw_parts(qvel_ptr, nq as usize).to_vec());
+            qposvel.extend(std::slice::from_raw_parts(qvel_ptr, nv as usize).to_vec());
             Tensor::from_slice(&qposvel)
+        }
+    }
+
+    fn get_model_cartesian_state(&self) -> Tensor {
+        unsafe {
+            let nbody = (*self.model).nbody as usize;
+            let xpos_ptr = (*self.data).xpos;
+            let xquat_ptr = (*self.data).xquat;
+            assert!(!xpos_ptr.is_null());
+            assert!(!xquat_ptr.is_null());
+            let mut xstate =
+                std::slice::from_raw_parts(
+                    xpos_ptr, nbody * 3).to_vec();
+            xstate.extend(
+                std::slice::from_raw_parts(
+                    xquat_ptr, nbody * 4).to_vec(),
+            );
+            Tensor::from_slice(&xstate)
         }
     }
 
@@ -190,39 +210,46 @@ impl Simulator for MjSimulator {
     fn get_simul_update(&self) -> (Vec<f64>, Vec<f64>) {
         unsafe {
             let nbody = (*self.model).nbody as usize;
-            let xpos = std::slice::from_raw_parts((*self.data).xpos, nbody * 3).to_vec();
-            let xquat = std::slice::from_raw_parts((*self.data).xquat, nbody * 4).to_vec();
+            let xpos = std::slice::from_raw_parts(
+                (*self.data).xpos, nbody * 3).to_vec();
+            let xquat = std::slice::from_raw_parts(
+                (*self.data).xquat, nbody * 4).to_vec();
             (xpos, xquat)
         }
     }
 
-    fn get_target_controls_from_target_positions(&self, target_pos_diff: &Tensor) -> Tensor {
+    fn get_target_controls_from_target_positions(
+        &self, target_pos_diff: &Tensor) -> Tensor {
         let nu = self.nu();
-        let nq = self.nq();
         let nv = self.nv();
         let target_pos_diff = target_pos_diff.to_kind(Kind::Double);
-        let target_diff_vals: Vec<f64> = Vec::<f64>::try_from(target_pos_diff)
+        let target_diff_vals: Vec<f64> = Vec::<f64>::try_from(
+            target_pos_diff)
             .expect("Expected target_pos_diff to be a 1D f64 tensor");
-        if target_diff_vals.len() != nq as usize {
+        if target_diff_vals.len() != nu as usize {
             panic!(
                 "Target position diff dimension mismatch. Expected {}, got {}",
-                nq,
+                nu,
                 target_diff_vals.len()
             );
         }
 
-        let qpos = self.qpos();
-        let target_pos: Vec<f64> = qpos
-            .iter()
-            .zip(target_diff_vals.iter())
-            .map(|(q, dq)| q + dq)
-            .collect();
-        let actuator_joint_indices = self.get_actuator_joint_indices();
+        let actuator_joint_indices = 
+            self.get_actuator_joint_indices();
+        if actuator_joint_indices.len() != nu as usize {
+            panic!(
+                "Actuator index mapping mismatch. Expected {}, got {}",
+                nu,
+                actuator_joint_indices.len()
+            );
+        }
 
         if !self.is_torque_actuator() {
+            let qpos = self.qpos();
             let mut ctrl_vals: Vec<f64> = Vec::with_capacity(nu as usize);
-            for (qpos_idx, _) in actuator_joint_indices.iter() {
-                ctrl_vals.push(target_pos[*qpos_idx]);
+            for (i, (qpos_idx, _)) in 
+            actuator_joint_indices.iter().enumerate() {
+                ctrl_vals.push(qpos[*qpos_idx] + target_diff_vals[i]);
             }
             return Tensor::from_slice(&ctrl_vals);
         }
@@ -237,8 +264,9 @@ impl Simulator for MjSimulator {
             );
         }
         let mut qacc_des: Vec<f64> = vec![0.0_f64; nv as usize];
-        for (qpos_idx, dof_idx) in actuator_joint_indices.iter() {
-            let dq = target_diff_vals[*qpos_idx];
+        for (i, (_, dof_idx)) in 
+        actuator_joint_indices.iter().enumerate() {
+            let dq = target_diff_vals[i];
             let v = qvel[*dof_idx];
             qacc_des[*dof_idx] = ((dq / t) - v) / t;
         }
@@ -255,32 +283,36 @@ impl Simulator for MjSimulator {
 
     fn get_target_controls_from_target_velocities(&self, target_vel: &Tensor) -> Tensor {
         let nu = self.nu();
-        let nq = self.nq();
         let nv = self.nv();
         let target_vel = target_vel.to_kind(Kind::Double);
         let target_vel_vals: Vec<f64> =
             Vec::<f64>::try_from(target_vel).expect("Expected target_vel to be a 1D f64 tensor");
-        let target_vel_is_nq = target_vel_vals.len() == nq as usize;
-        let target_vel_is_nv = target_vel_vals.len() == nv as usize;
-        if !target_vel_is_nq && !target_vel_is_nv {
+        if target_vel_vals.len() != nu as usize {
             panic!(
-                "Target velocity dimension mismatch. Expected {} or {}, got {}",
-                nq,
-                nv,
+                "Target velocity dimension mismatch. Expected {}, got {}",
+                nu,
                 target_vel_vals.len()
             );
         }
-        let actuator_joint_indices = self.get_actuator_joint_indices();
+        let actuator_joint_indices = 
+            self.get_actuator_joint_indices();
+        if actuator_joint_indices.len() != nu as usize {
+            panic!(
+                "Actuator index mapping mismatch. Expected {}, got {}",
+                nu,
+                actuator_joint_indices.len()
+            );
+        }
 
         if !self.is_torque_actuator() {
-            let mut ctrl_vals: Vec<f64> = Vec::with_capacity(nu as usize);
-            for (qpos_idx, dof_idx) in actuator_joint_indices.iter() {
-                let target_v = if target_vel_is_nq {
-                    target_vel_vals[*qpos_idx]
-                } else {
-                    target_vel_vals[*dof_idx]
-                };
-                ctrl_vals.push(target_v);
+            let qpos = self.qpos();
+            let t = 0.1_f64;
+            let mut ctrl_vals: Vec<f64> = 
+                Vec::with_capacity(nu as usize);
+            for (i, (qpos_idx, _)) 
+            in actuator_joint_indices.iter().enumerate() {
+                let q_target = qpos[*qpos_idx] + target_vel_vals[i] * t;
+                ctrl_vals.push(q_target);
             }
             return Tensor::from_slice(&ctrl_vals);
         }
@@ -296,12 +328,8 @@ impl Simulator for MjSimulator {
 
         let t = 0.1_f64;
         let mut qacc_des: Vec<f64> = vec![0.0_f64; nv as usize];
-        for (qpos_idx, dof_idx) in actuator_joint_indices.iter() {
-            let target_v = if target_vel_is_nq {
-                target_vel_vals[*qpos_idx]
-            } else {
-                target_vel_vals[*dof_idx]
-            };
+        for (i, (_, dof_idx)) in actuator_joint_indices.iter().enumerate() {
+            let target_v = target_vel_vals[i];
             let v_curr = qvel[*dof_idx];
             qacc_des[*dof_idx] = (target_v - v_curr) / t;
         }

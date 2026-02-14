@@ -14,7 +14,7 @@ export interface WorkflowNodeInputAnchor {
   id: string;
   label: string;
 }
-
+                                                                  
 export interface WorkflowNodeOutputAnchor {
   id: string;
   label: string;
@@ -166,5 +166,69 @@ export const TrainingGraphEdges: WorkflowEdge[] = [
     targetNodeId: "training-method",
     sourceOutputAnchor: { id: "reward-function-output", label: "RewardFunctionOutput" },
     targetInputAnchor: { id: "reward_function", label: "RewardFunction" },
+  },
+];
+
+export const SimulationParametersNode: WorkflowNode = {
+  id: "simulation-parameters",
+  label: "Simulation Parameters",
+  nodeType: "SimulationParameters",
+  position: { x: 80, y: 120 },
+  inputs: 1,
+  outputs: 1,
+  inputAnchors: [{ id: "control_model", label: "ControlModel" }],
+  outputAnchors: [{ id: "simulation-parameters-output", label: "SimulationParametersOutput" }],
+  settings: [
+    {
+      key: "policy_id",
+      label: "policy_id",
+      value: "default-policy",
+      inputType: "select",
+      options: [{ label: "default-policy", value: "default-policy" }],
+    },
+    { key: "num_timesteps", label: "num_timesteps", value: 1000, min: 1, step: 1 },
+  ],
+};
+
+export const TestingControlModelNode: WorkflowNode = {
+  id: "testing-control-model",
+  label: "ControlModel",
+  nodeType: "ControlModel",
+  position: { x: 520, y: 120 },
+  inputs: 1,
+  outputs: 1,
+  outputAnchors: [
+    { id: "testing-control-model-output", label: "ControlModelOutput" },
+  ],
+  settings: [
+    {
+      key: "type",
+      label: "type",
+      value: "FFN",
+      inputType: "select",
+      options: [{ label: "FFN", value: "FFN" }],
+    },
+    { key: "num_hidden_layers", label: "num_hidden_layers", value: 3, min: 1, step: 1 },
+    { key: "hidden_layer_dim", label: "hidden_layer_dim", value: 128, min: 1, step: 1 },
+    { key: "output_dim", label: "output_dim", value: 58, min: 1, step: 1 },
+    { key: "input_dim", label: "input_dim", value: 58, min: 1, step: 1 },
+  ],
+};
+
+export const TestingGraphNodes: WorkflowNode[] = [
+  SimulationParametersNode,
+  TestingControlModelNode,
+];
+
+export const TestingGraphEdges: WorkflowEdge[] = [
+  {
+    id: "testing-control-model-to-simulation-parameters",
+    sourceNodeId: "testing-control-model",
+    targetNodeId: "simulation-parameters",
+    sourceOutputAnchor: {
+      id: "testing-control-model-output",
+      label: "ControlModelOutput",
+    },
+    targetInputAnchor: { id: "control_model", label: "ControlModel" },
   },
 ];
