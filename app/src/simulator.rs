@@ -308,16 +308,14 @@ pub unsafe fn create_model(
             children_by_body.entry(parent_id).or_default().push(i);
         }
 
-        let root_body_ids = 
-            children_by_body.get(&0).cloned().unwrap_or_default();
-        let bodies = root_body_ids
-            .iter()
-            .map(|&body_id| 
-                build_body_recursive(
-                    m, d, body_id, 
-                    &geoms_by_body, 
-                    &children_by_body))
-            .collect();
+        let world_root = build_body_recursive(
+            m,
+            d,
+            0,
+            &geoms_by_body,
+            &children_by_body,
+        );
+        let bodies = vec![world_root];
 
         Some(WorldBody { bodies })
     }

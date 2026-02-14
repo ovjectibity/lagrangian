@@ -80,11 +80,14 @@ impl PPOTrainedModel for ArmModel {
             value_store: val_estimator_store,
             nq: nq,
             bq: 7,
-            start_center_xy: (0.0, 0.0),
-            target_center_xy: (1.0, 0.0),
-            start_radius: 0.1,
-            target_radius: 0.1,
-            plane_z: 0.0,
+            // Scene-tuned defaults for the vx300 setup:
+            // left_box:  (0.35,  0.22), right_box: (0.35, -0.22)
+            // target_cube sits on left_box at z ~ 0.125 (top ~ 0.15)
+            start_center_xy: (0.35, -0.22),
+            target_center_xy: (0.35, 0.22),
+            start_radius: 0.09,
+            target_radius: 0.04,
+            plane_z: 0.15,
             w_dist: 1.0,
             w_prog: 1.0,
             w_success: 5.0,
@@ -92,9 +95,9 @@ impl PPOTrainedModel for ArmModel {
         }
     }
 
-    fn get_nq(&self) -> i64 {
-        self.nq
-    }
+    // fn get_nq(&self) -> i64 {
+    //     self.nq
+    // }
 
     //TODO: Add contact bonus here
     fn get_reward(

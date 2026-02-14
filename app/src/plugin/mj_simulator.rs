@@ -17,7 +17,7 @@ impl MjSimulator {
     pub fn new(model_path: String) -> Result<Self, String> {
         unsafe {
             if let Some((model, data)) = 
-            simulator::load_model(model_path) {
+                simulator::load_model(model_path) {
                 mujoco::mj_forward(model, data);
                 Ok(MjSimulator { model, data })
             } else {
@@ -26,23 +26,12 @@ impl MjSimulator {
         }
     }
 
-    pub fn nq(&self) -> usize {
-        unsafe { (*self.model).nq as usize }
-    }
-
-    pub fn nv(&self) -> usize {
-        unsafe { (*self.model).nv as usize }
-    }
-
-    pub fn nu(&self) -> usize {
-        unsafe { (*self.model).nu as usize }
-    }
-
     pub fn qpos(&self) -> Vec<f64> {
         let nq = self.nq();
         unsafe {
             let qpos_ptr = (*self.data).qpos;
-            std::slice::from_raw_parts(qpos_ptr, nq).to_vec()
+            std::slice::from_raw_parts(qpos_ptr, 
+                nq as usize).to_vec()
         }
     }
 
@@ -50,7 +39,8 @@ impl MjSimulator {
         let nv = self.nv();
         unsafe {
             let qvel_ptr = (*self.data).qvel;
-            std::slice::from_raw_parts(qvel_ptr, nv).to_vec()
+            std::slice::from_raw_parts(qvel_ptr, 
+                nv as usize).to_vec()
         }
     }
 
@@ -61,10 +51,59 @@ impl MjSimulator {
         }
         unsafe {
             let biastype = 
-                (*self.model).actuator_biastype.
-                add(0).read();
+                (*self.model).actuator_biastype.add(0).read();
             biastype == mujoco::mjtBias__mjBIAS_NONE as i32
         }
+    }
+
+    // Returns (qpos_index, dof_index) per actuator in actuator order.
+    fn get_actuator_joint_indices(&self) -> Vec<(usize, usize)> {
+        let nu = self.nu() as usize;
+        let nq = self.nq() as usize;
+        let nv = self.nv() as usize;
+        let mut indices: Vec<(usize, usize)> = Vec::with_capacity(nu);
+        unsafe {
+            let actuator_trnid_ptr = (*self.model).actuator_trnid;
+            let jnt_qposadr_ptr = (*self.model).jnt_qposadr;
+            let jnt_dofadr_ptr = (*self.model).jnt_dofadr;
+            assert!(!actuator_trnid_ptr.is_null());
+            assert!(!jnt_qposadr_ptr.is_null());
+            assert!(!jnt_dofadr_ptr.is_null());
+            for actuator_idx in 0..nu {
+                // actuator_trnid is a 2-int tuple per actuator.
+                let joint_id = actuator_trnid_ptr.
+                    add(actuator_idx * 2).read();
+                if joint_id < 0 {
+                    panic!(
+                        "Actuator {} is not attached to a valid joint (joint_id={})",
+                        actuator_idx,
+                        joint_id
+                    );
+                }
+                let qpos_adr = jnt_qposadr_ptr.
+                    add(joint_id as usize).read();
+                let dof_adr = jnt_dofadr_ptr.
+                    add(joint_id as usize).read();
+                if qpos_adr < 0 || qpos_adr as usize >= nq {
+                    panic!(
+                        "Invalid qpos address {} for actuator {} (nq={})",
+                        qpos_adr,
+                        actuator_idx,
+                        nq
+                    );
+                }
+                if dof_adr < 0 || dof_adr as usize >= nv {
+                    panic!(
+                        "Invalid dof address {} for actuator {} (nv={})",
+                        dof_adr,
+                        actuator_idx,
+                        nv
+                    );
+                }
+                indices.push((qpos_adr as usize, dof_adr as usize));
+            }
+        }
+        indices
     }
 }
 
@@ -85,13 +124,25 @@ impl Simulator for MjSimulator {
         }
     }
 
+    fn nq(&self) -> i64 {
+        unsafe { (*self.model).nq as i64 }
+    }
+
+    fn nv(&self) -> i64 {
+        unsafe { (*self.model).nv as i64 }
+    }
+
+    fn nu(&self) -> i64 {
+        unsafe { (*self.model).nu as i64 }
+    }
+
     fn forward_dyn(&self, controls: &Tensor) {
         let controls = controls.to_kind(Kind::Double);
-        let ctrl_vals: Vec<f64> = 
-            Vec::<f64>::try_from(controls)
-            .expect("Expected controls to be a 1D f64 tensor");
+        let ctrl_vals: Vec<f64> =
+            Vec::<f64>::try_from(controls).
+            expect("Expected controls to be a 1D f64 tensor");
         let nu = self.nu();
-        if ctrl_vals.len() != nu {
+        if ctrl_vals.len() != nu as usize {
             panic!(
                 "Control dimension mismatch. Expected {}, got {}",
                 nu,
@@ -100,7 +151,8 @@ impl Simulator for MjSimulator {
         }
         unsafe {
             let ctrl_ptr = (*self.data).ctrl;
-            for (i, val) in ctrl_vals.iter().enumerate() {
+            for (i, val) in 
+                ctrl_vals.iter().enumerate() {
                 ctrl_ptr.add(i).write(*val);
             }
             simulator::run_dynamics_step(self.model, self.data);
@@ -109,11 +161,11 @@ impl Simulator for MjSimulator {
 
     fn inverse_dyn(&self, acc: &Tensor) -> Tensor {
         let acc = acc.to_kind(Kind::Double);
-        let acc_vals: Vec<f64> = 
-            Vec::<f64>::try_from(acc)
-            .expect("Expected acc to be a 1D f64 tensor");
+        let acc_vals: Vec<f64> =
+            Vec::<f64>::try_from(acc).
+            expect("Expected acc to be a 1D f64 tensor");
         let nv = self.nv();
-        if acc_vals.len() != nv {
+        if acc_vals.len() != nv as usize {
             panic!(
                 "Acceleration dimension mismatch. Expected {}, got {}",
                 nv,
@@ -122,71 +174,45 @@ impl Simulator for MjSimulator {
         }
         unsafe {
             let qacc_ptr = (*self.data).qacc;
-            for (i, val) in acc_vals.iter().enumerate() {
+            for (i, val) in 
+                acc_vals.iter().enumerate() {
                 qacc_ptr.add(i).write(*val);
             }
             mujoco::mj_inverse(self.model, self.data);
             let qfrc_ptr = (*self.data).qfrc_inverse;
-            let qfrc = 
-                std::slice::from_raw_parts(
-                    qfrc_ptr, nv).to_vec();
+            let qfrc = std::slice::from_raw_parts(
+                qfrc_ptr, nv as usize).to_vec();
             Tensor::from_slice(&qfrc)
         }
-    } 
+    }
 
     fn get_model_state(&self) -> Tensor {
         let nq = self.nq();
         unsafe {
             let qpos_ptr = (*self.data).qpos;
+            let qvel_ptr = (*self.data).qvel;
             assert!(!qpos_ptr.is_null());
+            assert!(!qvel_ptr.is_null());
             assert!(nq > 0);
-            let qpos = 
-                std::slice::from_raw_parts(
-                    qpos_ptr, nq).to_vec();
-            Tensor::from_slice(&qpos)
-
-            // match Tensor::f_from_slice(&qpos) {
-            //     Ok(qpos_tensor) => qpos_tensor,
-            //     Err(e) => {
-            //         let qpos_preview: Vec<f64> = 
-            //             qpos.iter().copied().take(4).collect();
-            //         eprintln!("get_model_state f_from_slice failed: {:?}", e);
-            //         eprintln!(
-            //             "get_model_state context nq={}, qpos_ptr={:p}, qpos_len={}, qpos_preview={:?}, has_mps={}",
-            //             nq,
-            //             qpos_ptr,
-            //             qpos.len(),
-            //             qpos_preview,
-            //             tch::utils::has_mps()
-            //         );
-            //         let fallback = Tensor::zeros(
-            //             [nq as i64],
-            //             (Kind::Double, tch::Device::Cpu)
-            //         );
-            //         eprintln!(
-            //             "get_model_state fallback kind={:?}, device={:?}",
-            //             fallback.kind(),
-            //             fallback.device()
-            //         );
-            //         fallback
-            //     }
-            // }
+            let mut qposvel = std::slice::from_raw_parts(
+                qpos_ptr, nq as usize).to_vec();
+            qposvel.extend(std::slice::from_raw_parts(
+                qvel_ptr, nq as usize).to_vec());
+            Tensor::from_slice(&qposvel)
         }
     }
 
     fn get_target_controls_from_target_positions(
-        &self,
-        target_pos_diff: &Tensor,
-    ) -> Tensor {
+        &self, target_pos_diff: &Tensor) -> Tensor {
         let nu = self.nu();
         let nq = self.nq();
         let nv = self.nv();
-        let target_pos_diff = 
-            target_pos_diff.to_kind(Kind::Double);
-        let target_diff_vals: Vec<f64> = 
-            Vec::<f64>::try_from(target_pos_diff)
+        let target_pos_diff = target_pos_diff.
+            to_kind(Kind::Double);
+        let target_diff_vals: Vec<f64> = Vec::<f64>::try_from(
+            target_pos_diff)
             .expect("Expected target_pos_diff to be a 1D f64 tensor");
-        if target_diff_vals.len() != nq {
+        if target_diff_vals.len() != nq as usize {
             panic!(
                 "Target position diff dimension mismatch. Expected {}, got {}",
                 nq,
@@ -200,32 +226,110 @@ impl Simulator for MjSimulator {
             .zip(target_diff_vals.iter())
             .map(|(q, dq)| q + dq)
             .collect();
+        let actuator_joint_indices = self.get_actuator_joint_indices();
 
         if !self.is_torque_actuator() {
-            let ctrl_vals: Vec<f64> = 
-                target_pos.into_iter().take(nu).collect();
+            let mut ctrl_vals: Vec<f64> = 
+                Vec::with_capacity(nu as usize);
+            for (qpos_idx, _) in actuator_joint_indices.iter() {
+                ctrl_vals.push(target_pos[*qpos_idx]);
+            }
             return Tensor::from_slice(&ctrl_vals);
         }
 
         let t = 0.1_f64;
         let qvel = self.qvel();
-        if qvel.len() != nv {
+        if qvel.len() != nv as usize {
             panic!(
                 "Velocity dimension mismatch. Expected {}, got {}",
                 nv,
                 qvel.len()
             );
         }
-        let qacc_des: Vec<f64> = target_diff_vals
-            .iter()
-            .zip(qvel.iter())
-            .map(|(dq, v)| ((dq / t) - v) / t)
-            .collect();
+        let mut qacc_des: Vec<f64> = vec![0.0_f64; nv as usize];
+        for (qpos_idx, dof_idx) in actuator_joint_indices.iter() {
+            let dq = target_diff_vals[*qpos_idx];
+            let v = qvel[*dof_idx];
+            qacc_des[*dof_idx] = ((dq / t) - v) / t;
+        }
         let qacc_tensor = Tensor::from_slice(&qacc_des);
         let qfrc = self.inverse_dyn(&qacc_tensor);
-        let qfrc_vals: Vec<f64> = Vec::<f64>::try_from(qfrc)
-            .expect("Expected qfrc to be a 1D f64 tensor");
-        let ctrl_vals: Vec<f64> = qfrc_vals.into_iter().take(nu).collect();
+        let qfrc_vals: Vec<f64> =
+            Vec::<f64>::try_from(qfrc).
+            expect("Expected qfrc to be a 1D f64 tensor");
+        let mut ctrl_vals: Vec<f64> = 
+            Vec::with_capacity(nu as usize);
+        for (_, dof_idx) in actuator_joint_indices.iter() {
+            ctrl_vals.push(qfrc_vals[*dof_idx]);
+        }
+        Tensor::from_slice(&ctrl_vals)
+    }
+
+    fn get_target_controls_from_target_velocities(
+        &self, target_vel: &Tensor) -> Tensor {
+        let nu = self.nu();
+        let nq = self.nq();
+        let nv = self.nv();
+        let target_vel = target_vel.to_kind(Kind::Double);
+        let target_vel_vals: Vec<f64> =
+            Vec::<f64>::try_from(target_vel).
+            expect("Expected target_vel to be a 1D f64 tensor");
+        let target_vel_is_nq = target_vel_vals.len() == nq as usize;
+        let target_vel_is_nv = target_vel_vals.len() == nv as usize;
+        if !target_vel_is_nq && !target_vel_is_nv {
+            panic!(
+                "Target velocity dimension mismatch. Expected {} or {}, got {}",
+                nq,
+                nv,
+                target_vel_vals.len()
+            );
+        }
+        let actuator_joint_indices = self.get_actuator_joint_indices();
+
+        if !self.is_torque_actuator() {
+            let mut ctrl_vals: Vec<f64> = 
+                Vec::with_capacity(nu as usize);
+            for (qpos_idx, dof_idx) in actuator_joint_indices.iter() {
+                let target_v = if target_vel_is_nq {
+                    target_vel_vals[*qpos_idx]
+                } else {
+                    target_vel_vals[*dof_idx]
+                };
+                ctrl_vals.push(target_v);
+            }
+            return Tensor::from_slice(&ctrl_vals);
+        }
+
+        let qvel = self.qvel();
+        if qvel.len() != nv as usize {
+            panic!(
+                "Velocity dimension mismatch. Expected {}, got {}",
+                nv,
+                qvel.len()
+            );
+        }
+
+        let t = 0.1_f64;
+        let mut qacc_des: Vec<f64> = vec![0.0_f64; nv as usize];
+        for (qpos_idx, dof_idx) in actuator_joint_indices.iter() {
+            let target_v = if target_vel_is_nq {
+                target_vel_vals[*qpos_idx]
+            } else {
+                target_vel_vals[*dof_idx]
+            };
+            let v_curr = qvel[*dof_idx];
+            qacc_des[*dof_idx] = (target_v - v_curr) / t;
+        }
+        let qacc_tensor = Tensor::from_slice(&qacc_des);
+        let qfrc = self.inverse_dyn(&qacc_tensor);
+        let qfrc_vals: Vec<f64> =
+            Vec::<f64>::try_from(qfrc).
+            expect("Expected qfrc to be a 1D f64 tensor");
+        let mut ctrl_vals: Vec<f64> = 
+            Vec::with_capacity(nu as usize);
+        for (_, dof_idx) in actuator_joint_indices.iter() {
+            ctrl_vals.push(qfrc_vals[*dof_idx]);
+        }
         Tensor::from_slice(&ctrl_vals)
     }
 }

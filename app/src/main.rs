@@ -53,8 +53,11 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                     let world_body;
                                     unsafe {
                                         world_body = 
+                                        // simulator::load_test_model(
+                                        //     "/Users/avi/Documents/manual/lagrangian/app/assets/universal_robots_ur10e/ur10e.xml".
+                                        //     to_string());
                                         simulator::load_test_model(
-                                            "/Users/avi/Documents/manual/lagrangian/app/assets/universal_robots_ur10e/ur10e.xml".
+                                            "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml".
                                             to_string());
                                     }
                                     if let Some(wb) = world_body {

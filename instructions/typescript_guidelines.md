@@ -132,6 +132,7 @@ export const Button = ({ label, onClick }: ButtonProps) => {
     * `npm run build`
     from the `client` directory before finalizing changes. Report failures clearly.
 6.  **Centralized CSS (Required):** Keep component styling in `client/src/app.css`. Do not add inline `<style>` blocks in Svelte components unless explicitly requested.
+7.  **Minimal Formatting Churn:** Do not collapse existing multi-line code into single-line statements or signatures just for style. Preserve existing wrapping/layout unless a formatting change is needed for correctness, linting, or the requested task.
 
 ---
 ### Appendix: Minimal `.prettierrc`
