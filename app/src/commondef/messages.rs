@@ -1,31 +1,32 @@
-use typeshare::typeshare;
 use serde;
+use typeshare::typeshare;
 
 use crate::commondef::model;
 use crate::commondef::testing::SimulationParams;
 use crate::commondef::training::{TrainingMethod, TrainingMetrics};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content="content")]
+#[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ServerMessage {
+    LoadModelMessage,
     StartTrainingMessage(StartTrainingMessage),
     StopTrainingMessage(StopTrainingMessage),
     StartSimulationMessage(StartSimulationMessage),
-    StopSimulationMessage(StopSimulationMessage)
+    StopSimulationMessage(StopSimulationMessage),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct StartTrainingMessage {
     pub id: String,
-    pub training_workflow: TrainingMethod
+    pub training_workflow: TrainingMethod,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct StopTrainingMessage {
-    pub id: String
+    pub id: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -38,47 +39,35 @@ pub struct StartSimulationMessage {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct StopSimulationMessage {
-    pub id: String
+    pub id: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content="content")]
+#[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ClientMessage {
     SetModelMessage(SetModelMessage),
     LoadModelMessage(LoadModelMessage),
     SimulUpdateMessage(SimulUpdateMessage),
     TrainingUpdatesMessage(TrainingUpdatesMessage),
-    StopTrainingMessage(StopTrainingMessage)
+    StopTrainingMessage(StopTrainingMessage),
+    StopSimulationMessage(StopSimulationMessage),
 }
 
 impl ClientMessage {
     pub fn new_set_model_message(wb: model::WorldBody) -> Self {
-        ClientMessage::SetModelMessage(
-            SetModelMessage {
-                set_model: wb 
-            }
-        )
+        ClientMessage::SetModelMessage(SetModelMessage { set_model: wb })
     }
 
-    pub fn new_load_model_message(id: String, 
-        wb: model::WorldBody) -> Self {
-        ClientMessage::LoadModelMessage(
-            LoadModelMessage {
-                id: id,
-                model: wb
-            }
-        )
+    pub fn new_load_model_message(id: String, wb: model::WorldBody) -> Self {
+        ClientMessage::LoadModelMessage(LoadModelMessage { id: id, model: wb })
     }
 
-    pub fn new_simul_update_message(id: String, 
-        updates: Vec<ModelForward>) -> Self {
-        ClientMessage::SimulUpdateMessage(
-            SimulUpdateMessage {
-                id: id,
-                updates: updates
-            }
-        )
+    pub fn new_simul_update_message(id: String, updates: Vec<ModelForward>) -> Self {
+        ClientMessage::SimulUpdateMessage(SimulUpdateMessage {
+            id: id,
+            updates: updates,
+        })
     }
 
     pub fn to_binary_simul_update(id: String, update: ModelForward) -> Vec<u8> {
@@ -109,27 +98,27 @@ impl ClientMessage {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct SetModelMessage {
-    pub set_model: model::WorldBody
+    pub set_model: model::WorldBody,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct LoadModelMessage {
     pub id: String,
-    pub model: model::WorldBody
+    pub model: model::WorldBody,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct SimulUpdateMessage {
     pub id: String,
-    pub updates: Vec<ModelForward>
+    pub updates: Vec<ModelForward>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct ModelForward {
-    pub xpos: Vec<f64>, //nbody x 3 
+    pub xpos: Vec<f64>,  //nbody x 3
     pub xquat: Vec<f64>, //nbody x 4
 }
 
@@ -138,5 +127,5 @@ pub struct ModelForward {
 pub struct TrainingUpdatesMessage {
     pub id: String,
     pub metrics: Vec<TrainingMetrics>,
-    pub logs: Vec<String>
+    pub logs: Vec<String>,
 }

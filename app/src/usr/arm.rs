@@ -1,6 +1,9 @@
-use tch::{Tensor, nn::{self, Module}};
+use tch::{
+    nn::{self, Module},
+    Tensor,
+};
 
-use crate::plugin::{ControlPolicyModel, ppo_trainer::PPOTrainedModel};
+use crate::plugin::{ppo_trainer::PPOTrainedModel, ControlPolicyModel};
 
 pub struct ArmModel {
     policy: nn::Sequential,
@@ -26,7 +29,8 @@ impl ArmModel {
         output_dimension: i64,
         hidden_layer_dimension: i64,
         num_layers: i64,
-        add_softmax: bool) -> (nn::Sequential, nn::VarStore) {
+        add_softmax: bool,
+    ) -> (nn::Sequential, nn::VarStore) {
         let vs = nn::VarStore::new(tch::Device::Cpu);
         let vs_p = vs.root();
         let mut y = nn::seq()
@@ -47,17 +51,17 @@ impl ArmModel {
                 ))
                 .add_fn(Tensor::relu);
         }
-        y = y
-            .add(nn::linear(
-                vs_p.clone(),
-                hidden_layer_dimension,
-                output_dimension,
-                Default::default(),
-            ));
-        //TODO: This needs to output the 
-        //mean & log(std-dev) n_q's for target positions: 
+        y = y.add(nn::linear(
+            vs_p.clone(),
+            hidden_layer_dimension,
+            output_dimension,
+            Default::default(),
+        ));
+        //TODO: This needs to output the
+        //mean & log(std-dev) n_q's for target positions:
         if add_softmax {
-            y = y.add_fn(Tensor::relu)
+            y = y
+                .add_fn(Tensor::relu)
                 .add_fn(|xs| xs.softmax(-1, xs.kind()));
         }
 
@@ -90,7 +94,7 @@ impl PPOTrainedModel for ArmModel {
         val_estimator: nn::Sequential,
         pol_store: nn::VarStore,
         val_estimator_store: nn::VarStore,
-        nq: i64
+        nq: i64,
     ) -> Self {
         ArmModel {
             policy: policy,
@@ -119,16 +123,11 @@ impl PPOTrainedModel for ArmModel {
     // }
 
     //TODO: Add contact bonus here
-    fn get_reward(
-        &self,
-        wstate: &Tensor,
-        wstatenext: Option<&Tensor>,
-        action: &Tensor,
-    ) -> f64 {
+    fn get_reward(&self, wstate: &Tensor, wstatenext: Option<&Tensor>, action: &Tensor) -> f64 {
         let curr = wstatenext.unwrap_or(wstate);
         let curr_pos = curr.narrow(0, 0, 3);
-        let curr_pos_v: Vec<f64> = Vec::<f64>::try_from(curr_pos)
-            .expect("Expected curr_pos to be a 1D f64 tensor");
+        let curr_pos_v: Vec<f64> =
+            Vec::<f64>::try_from(curr_pos).expect("Expected curr_pos to be a 1D f64 tensor");
         let dx = curr_pos_v[0] - self.target_center_xy.0;
         let dy = curr_pos_v[1] - self.target_center_xy.1;
         let curr_dist = (dx * dx + dy * dy).sqrt();
@@ -136,8 +135,8 @@ impl PPOTrainedModel for ArmModel {
 
         let r_prog = if let Some(next) = wstatenext {
             let prev_pos = wstate.narrow(0, 0, 3);
-            let prev_pos_v: Vec<f64> = Vec::<f64>::try_from(prev_pos)
-                .expect("Expected prev_pos to be a 1D f64 tensor");
+            let prev_pos_v: Vec<f64> =
+                Vec::<f64>::try_from(prev_pos).expect("Expected prev_pos to be a 1D f64 tensor");
             let prev_dx = prev_pos_v[0] - self.target_center_xy.0;
             let prev_dy = prev_pos_v[1] - self.target_center_xy.1;
             let prev_dist = (prev_dx * prev_dx + prev_dy * prev_dy).sqrt();
@@ -169,10 +168,11 @@ impl PPOTrainedModel for ArmModel {
         let state = state
             .to_device(self.value_store.device())
             .to_kind(self.value_store.kind());
-        Vec::<f64>::try_from(self.value.forward(&state)).
-            expect("Expected a 1-d tensor as value output").
-            get(0).expect("Expected 0 index of value output").
-            clone()
+        Vec::<f64>::try_from(self.value.forward(&state))
+            .expect("Expected a 1-d tensor as value output")
+            .get(0)
+            .expect("Expected 0 index of value output")
+            .clone()
     }
 
     fn get_policy(&self) -> &nn::Sequential {

@@ -49,7 +49,11 @@ where
             index % 8
         };
         let mask = 1 << bit_index;
-        if val { byte | mask } else { byte & !mask }
+        if val {
+            byte | mask
+        } else {
+            byte & !mask
+        }
     }
     #[inline]
     pub fn set_bit(&mut self, index: usize, val: bool) {
@@ -10518,7 +10522,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn mj_loadModel(filename: *const ::std::os::raw::c_char, vfs: *const mjVFS)
-    -> *mut mjModel;
+        -> *mut mjModel;
 }
 unsafe extern "C" {
     pub fn mj_loadModelBuffer(
@@ -12259,7 +12263,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn mjp_getResourceProviderAtSlot(slot: ::std::os::raw::c_int)
-    -> *const mjpResourceProvider;
+        -> *const mjpResourceProvider;
 }
 unsafe extern "C" {
     pub fn mjp_registerDecoder(decoder: *const mjpDecoder);

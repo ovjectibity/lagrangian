@@ -1,5 +1,5 @@
-use typeshare::typeshare;
 use serde;
+use typeshare::typeshare;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
@@ -22,7 +22,7 @@ pub struct Geom {
     pub geom_t: Option<GeomType>,
     pub size: Vec<f32>,
     pub mesh_obj: Option<String>,
-    pub group: Option<i32>
+    pub group: Option<i32>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

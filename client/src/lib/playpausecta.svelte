@@ -1,7 +1,14 @@
 <script lang="ts">
-  const { isRunning = false, onToggle } = $props<{
+  const {
+    isRunning = false,
+    onToggle,
+    startLabel = "Start training",
+    stopLabel = "Stop training",
+  } = $props<{
     isRunning?: boolean;
     onToggle?: () => void;
+    startLabel?: string;
+    stopLabel?: string;
   }>();
 </script>
 
@@ -9,8 +16,8 @@
   <button
     class="play-pause-cta-button"
     onclick={() => onToggle?.()}
-    title={isRunning ? "Stop training" : "Start training"}
-    aria-label={isRunning ? "Stop training" : "Start training"}
+    title={isRunning ? stopLabel : startLabel}
+    aria-label={isRunning ? stopLabel : startLabel}
   >
     {#if isRunning}
       <svg
@@ -33,7 +40,7 @@
       </svg>
     {/if}
     <span class="play-pause-cta-label">
-      {isRunning ? "Stop training" : "Start training"}
+      {isRunning ? stopLabel : startLabel}
     </span>
   </button>
 </div>

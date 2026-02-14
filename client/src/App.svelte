@@ -6,12 +6,14 @@
   import TabbedContainer from './lib/tabbedcontainer.svelte';
   import Logger from './lib/logger.svelte';
   import TrainingGraphEditor from './lib/traininggrapheditor.svelte';
+  import TestingGraphEditor from './lib/testinggrapheditor.svelte';
   import PlayPauseCta from './lib/playpausecta.svelte';
   import RewardEditor from './lib/rewardeditor.svelte';
   import TrainingRuntimeDashboard from './lib/trainingruntimedashboard.svelte';
   import { TrainingGraphNodes } from './commondef/workflowgraph';
   import type { TabbedTab } from './lib/tabbedcontainer.svelte';
   import type { WorldBody } from './commondef/model';
+  import type { SimulationParams } from './commondef/testing';
   import type {
     FFNModel,
     MetricsData,
@@ -26,14 +28,16 @@
 
   let websocket: WebSocket | null = null;
   const trainingTaskId = 'training-task-1';
+  const testingTaskId = 'testing-task-1';
   let worldBody: WorldBody | undefined = $state(undefined);
   let simulUpdateData: ModelForward | undefined = $state(undefined);
   let showModeMenu = $state(false);
   let selectedMode = $state('Training');
-  const modeOptions = ['Modeling', 'Training'];
+  const modeOptions = ['Modeling', 'Training', 'Testing'];
   const logTabChannels = ['Training logs'];
   let selectedLogTabChannel = $state('Training logs');
   let isTrainingRunning = $state(false);
+  let isTestingRunning = $state(false);
   let selectedEditorTabId = $state('model-editor');
   let trainingLogs = $state<string[]>([]);
   type TrainingMetricType = TrainingMetrics['type'];
@@ -104,27 +108,37 @@
         simulUpdateData
       }
     },
-    {
-      id: 'training-graph',
-      name: 'Training setup',
-      component: TrainingGraphEditor,
-      props: {
-        onOpenRewardEditor: openRewardEditor
-      }
-    },
-    {
-      id: 'reward-editor',
-      name: 'Reward editor',
-      component: RewardEditor
-    },
-    {
-      id: 'training-runtime-dashboard',
-      name: 'Training runtime dashboard',
-      component: TrainingRuntimeDashboard,
-      props: {
-        metricsByType: trainingMetricsByType
-      }
-    }
+    ...(selectedMode === 'Testing'
+      ? [
+          {
+            id: 'testing-graph',
+            name: 'Testing setup',
+            component: TestingGraphEditor
+          } satisfies TabbedTab
+        ]
+      : [
+          {
+            id: 'training-graph',
+            name: 'Training setup',
+            component: TrainingGraphEditor,
+            props: {
+              onOpenRewardEditor: openRewardEditor
+            }
+          } satisfies TabbedTab,
+          {
+            id: 'reward-editor',
+            name: 'Reward editor',
+            component: RewardEditor
+          } satisfies TabbedTab,
+          {
+            id: 'training-runtime-dashboard',
+            name: 'Training runtime dashboard',
+            component: TrainingRuntimeDashboard,
+            props: {
+              metricsByType: trainingMetricsByType
+            }
+          } satisfies TabbedTab
+        ])
   ]);
   let logTabs = $derived<TabbedTab[]>([
     {
@@ -148,6 +162,10 @@
     if (mode !== 'Training') {
       isTrainingRunning = false;
     }
+    if (mode !== 'Testing') {
+      isTestingRunning = false;
+    }
+    selectedEditorTabId = 'model-editor';
   };
 
   const getNodeSettingValue = (
@@ -222,6 +240,12 @@
     return true;
   };
 
+  const loadModelRuntime = () => {
+    sendServerMessage({
+      type: 'LoadModelMessage'
+    });
+  };
+
   const startTraining = () => {
     const wasSent = sendServerMessage({
       type: 'StartTrainingMessage',
@@ -253,6 +277,44 @@
       return;
     }
     startTraining();
+  };
+
+  const buildSimulationParams = (): SimulationParams => {
+    return {
+      policy_id: 'default-policy',
+      num_timesteps: 1000,
+    };
+  };
+
+  const startTesting = () => {
+    const wasSent = sendServerMessage({
+      type: 'StartSimulationMessage',
+      content: {
+        id: testingTaskId,
+        simulation_params: buildSimulationParams(),
+      },
+    });
+    if (wasSent) {
+      isTestingRunning = true;
+    }
+  };
+
+  const stopTesting = () => {
+    const wasSent = sendServerMessage({
+      type: 'StopSimulationMessage',
+      content: { id: testingTaskId },
+    });
+    if (wasSent) {
+      isTestingRunning = false;
+    }
+  };
+
+  const toggleTestingState = () => {
+    if (isTestingRunning) {
+      stopTesting();
+      return;
+    }
+    startTesting();
   };
 
   const handleGlobalClick = (event: MouseEvent) => {
@@ -307,6 +369,12 @@
           } else if (clientMessage.type === "LoadModelMessage") {
             worldBody = clientMessage.content.model;
             simulUpdateData = undefined; // Clear simulation data on new model load
+          } else if (clientMessage.type === "SimulUpdateMessage") {
+            const latestUpdate =
+              clientMessage.content.updates[clientMessage.content.updates.length - 1];
+            if (latestUpdate) {
+              simulUpdateData = latestUpdate;
+            }
           } else if (clientMessage.type === 'TrainingUpdatesMessage') {
             if (clientMessage.content.id === trainingTaskId) {
               appendTrainingMetrics(clientMessage.content.metrics);
@@ -314,6 +382,10 @@
             }
           } else if (clientMessage.type === 'StopTrainingMessage') {
             isTrainingRunning = false;
+          } else if (clientMessage.type === 'StopSimulationMessage') {
+            if (clientMessage.content.id === testingTaskId) {
+              isTestingRunning = false;
+            }
           }
         } catch (e) {
           console.error("Failed to parse WebSocket JSON message:", e);
@@ -358,6 +430,7 @@
     websocket.onclose = (event) => {
       console.log("WebSocket connection closed:", event);
       isTrainingRunning = false;
+      isTestingRunning = false;
       websocket = null;
     };
 
@@ -404,9 +477,21 @@
       />
     </div>
     {#if selectedMode === 'Training'}
-      <PlayPauseCta isRunning={isTrainingRunning} onToggle={toggleTrainingState} />
+      <PlayPauseCta
+        isRunning={isTrainingRunning}
+        onToggle={toggleTrainingState}
+        startLabel="Start training"
+        stopLabel="Stop training"
+      />
+    {:else if selectedMode === 'Testing'}
+      <PlayPauseCta
+        isRunning={isTestingRunning}
+        onToggle={toggleTestingState}
+        startLabel="Run simulation"
+        stopLabel="Stop simulation"
+      />
     {/if}
-    <MenuBar/>
+    <MenuBar onImport={loadModelRuntime} />
   </div>
   <!-- <div class="views-container"> -->
   <div class="editors-tabs-pane">

@@ -1,6 +1,6 @@
 use crate::commondef::messages::{
-    ModelForward, StartSimulationMessage, StopSimulationMessage, StopTrainingMessage,
-    TrainingUpdatesMessage,
+    ModelForward, SimulUpdateMessage, StartSimulationMessage, StopSimulationMessage,
+    StopTrainingMessage, TrainingUpdatesMessage,
 };
 use crate::commondef::model;
 
@@ -41,7 +41,9 @@ pub enum TrainingTaskMessage {
     StopTraining(StopTrainingMessage),
 }
 
+#[derive(Debug, Clone)]
 pub enum TestingTaskMessage {
     StartSimulation(StartSimulationMessage),
     StopSimulation(StopSimulationMessage),
+    SimulationUpdates(SimulUpdateMessage),
 }

@@ -3,6 +3,7 @@
 */
 
 import { type WorldBody } from "./model";
+import { type SimulationParams } from "./testing";
 import { type TrainingMethod, type TrainingMetrics } from "./training";
 
 export interface LoadModelMessage {
@@ -24,9 +25,18 @@ export interface SimulUpdateMessage {
 	updates: ModelForward[];
 }
 
+export interface StartSimulationMessage {
+	simulation_params: SimulationParams;
+	id: string;
+}
+
 export interface StartTrainingMessage {
 	id: string;
 	training_workflow: TrainingMethod;
+}
+
+export interface StopSimulationMessage {
+	id: string;
 }
 
 export interface StopTrainingMessage {
@@ -44,8 +54,12 @@ export type ClientMessage =
 	| { type: "LoadModelMessage", content: LoadModelMessage }
 	| { type: "SimulUpdateMessage", content: SimulUpdateMessage }
 	| { type: "TrainingUpdatesMessage", content: TrainingUpdatesMessage }
-	| { type: "StopTrainingMessage", content: StopTrainingMessage };
+	| { type: "StopTrainingMessage", content: StopTrainingMessage }
+	| { type: "StopSimulationMessage", content: StopSimulationMessage };
 
 export type ServerMessage = 
+	| { type: "LoadModelMessage", content?: undefined }
 	| { type: "StartTrainingMessage", content: StartTrainingMessage }
-	| { type: "StopTrainingMessage", content: StopTrainingMessage };
+	| { type: "StopTrainingMessage", content: StopTrainingMessage }
+	| { type: "StartSimulationMessage", content: StartSimulationMessage }
+	| { type: "StopSimulationMessage", content: StopSimulationMessage };

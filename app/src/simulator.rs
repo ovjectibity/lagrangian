@@ -4,9 +4,9 @@ use std::thread;
 
 use rocket::tokio::sync::mpsc;
 
-use crate::mujoco;
-use crate::commondef::{workermessages};
 use crate::commondef::model::{Body, Geom, GeomType, WorldBody};
+use crate::commondef::workermessages;
+use crate::mujoco;
 
 pub fn get_test_model() -> WorldBody {
     // A simple robot arm model
@@ -52,7 +52,7 @@ pub fn get_test_model() -> WorldBody {
                                             geom_t: Some(GeomType::Sphere),
                                             size: vec![0.15, 0.0, 0.0],
                                             mesh_obj: None,
-                                            group: None
+                                            group: None,
                                         }]),
                                     },
                                 ]),
@@ -64,7 +64,7 @@ pub fn get_test_model() -> WorldBody {
                                     geom_t: Some(GeomType::Box),
                                     size: vec![0.05, 0.25, 0.05],
                                     mesh_obj: None,
-                                    group: None
+                                    group: None,
                                 }]),
                             },
                         ]),
@@ -76,7 +76,7 @@ pub fn get_test_model() -> WorldBody {
                             geom_t: Some(GeomType::Box),
                             size: vec![0.05, 0.25, 0.05],
                             mesh_obj: None,
-                            group: None
+                            group: None,
                         }]),
                     },
                 ]),
@@ -88,55 +88,46 @@ pub fn get_test_model() -> WorldBody {
                     geom_t: Some(GeomType::Box),
                     size: vec![0.2, 0.2, 0.25],
                     mesh_obj: None,
-                    group: None
+                    group: None,
                 }]),
             },
         ],
     }
 }
 
-unsafe fn c_char_to_string(c_char_ptr: *const i8) -> 
-Option<String> {
+unsafe fn c_char_to_string(c_char_ptr: *const i8) -> Option<String> {
     unsafe {
         if c_char_ptr.is_null() {
             None
         } else {
-            Some(CStr::from_ptr(c_char_ptr).
-            to_string_lossy().into_owned())
+            Some(CStr::from_ptr(c_char_ptr).to_string_lossy().into_owned())
         }
     }
 }
 
-unsafe fn get_body_name(m: *const mujoco::mjModel, body_id: i32) -> 
-Option<String> {
+unsafe fn get_body_name(m: *const mujoco::mjModel, body_id: i32) -> Option<String> {
     unsafe {
-        let name_adr = (*m).name_bodyadr.
-            add(body_id as usize).read();
+        let name_adr = (*m).name_bodyadr.add(body_id as usize).read();
         if name_adr < 0 {
             return None;
         }
-        let name_ptr = 
-            (*m).names.add(name_adr as usize);
+        let name_ptr = (*m).names.add(name_adr as usize);
         c_char_to_string(name_ptr)
     }
 }
 
-unsafe fn get_geom_name(m: *const mujoco::mjModel, geom_id: i32) -> 
-Option<String> {
+unsafe fn get_geom_name(m: *const mujoco::mjModel, geom_id: i32) -> Option<String> {
     unsafe {
-        let name_adr = (*m).name_geomadr.
-            add(geom_id as usize).read();
+        let name_adr = (*m).name_geomadr.add(geom_id as usize).read();
         if name_adr < 0 {
             return None;
         }
-        let name_ptr = 
-            (*m).names.add(name_adr as usize);
+        let name_ptr = (*m).names.add(name_adr as usize);
         c_char_to_string(name_ptr)
     }
 }
 
-fn mujoco_geom_type_to_geom_type(mujoco_type: u32) -> 
-Option<GeomType> {
+fn mujoco_geom_type_to_geom_type(mujoco_type: u32) -> Option<GeomType> {
     match mujoco_type {
         mujoco::mjtGeom__mjGEOM_PLANE => Some(GeomType::Plane),
         mujoco::mjtGeom__mjGEOM_SPHERE => Some(GeomType::Sphere),
@@ -166,12 +157,7 @@ unsafe fn build_body_recursive(
             let children: Vec<Body> = child_ids
                 .iter()
                 .map(|&child_id| {
-                    build_body_recursive(
-                        m, 
-                        d, 
-                        child_id, 
-                        geoms_by_body, 
-                        children_by_body)
+                    build_body_recursive(m, d, child_id, geoms_by_body, children_by_body)
                 })
                 .collect();
             if !children.is_empty() {
@@ -179,8 +165,7 @@ unsafe fn build_body_recursive(
             }
         }
 
-        println!("Getting positions of body {:?}",
-            get_body_name(m, body_id));
+        println!("Getting positions of body {:?}", get_body_name(m, body_id));
         Body {
             name: get_body_name(m, body_id),
             body_id: Some(body_id),
@@ -203,9 +188,7 @@ unsafe fn build_body_recursive(
     }
 }
 
-unsafe fn extract_mesh_data_as_obj(
-    m: *const mujoco::mjModel, 
-    mesh_id: i32) -> Option<String> {
+unsafe fn extract_mesh_data_as_obj(m: *const mujoco::mjModel, mesh_id: i32) -> Option<String> {
     if mesh_id < 0 {
         return None;
     }
@@ -216,14 +199,10 @@ unsafe fn extract_mesh_data_as_obj(
         let mesh_faceadr = (*m).mesh_faceadr.add(mesh_id as usize).read() as usize;
         let mesh_facenum = (*m).mesh_facenum.add(mesh_id as usize).read() as usize;
 
-        let vertices = std::slice::from_raw_parts(
-            (*m).mesh_vert.add(mesh_vertadr * 3),
-            mesh_vertnum * 3,
-        );
-        let faces = std::slice::from_raw_parts(
-            (*m).mesh_face.add(mesh_faceadr * 3),
-            mesh_facenum * 3,
-        );
+        let vertices =
+            std::slice::from_raw_parts((*m).mesh_vert.add(mesh_vertadr * 3), mesh_vertnum * 3);
+        let faces =
+            std::slice::from_raw_parts((*m).mesh_face.add(mesh_faceadr * 3), mesh_facenum * 3);
 
         let mut obj_data = String::new();
         // Write vertices
@@ -247,7 +226,6 @@ unsafe fn extract_mesh_data_as_obj(
     }
 }
 
-
 /// # Safety
 ///
 /// This function is unsafe because it dereferences raw pointers.
@@ -256,7 +234,11 @@ pub unsafe fn create_model(
     d: *const mujoco::mjData,
 ) -> Option<WorldBody> {
     unsafe {
-        println!("Creating the requested model nv {:?} & nq: {:?}",(*m).nv,(*m).nq);
+        println!(
+            "Creating the requested model nv {:?} & nq: {:?}",
+            (*m).nv,
+            (*m).nq
+        );
 
         let mut geoms_by_body: HashMap<i32, Vec<Geom>> = HashMap::new();
         for i in 0..(*m).ngeom {
@@ -296,7 +278,7 @@ pub unsafe fn create_model(
                     .map(|&x| x as f32)
                     .collect(),
                 mesh_obj,
-                group: Some(geom_group_ptr.read())
+                group: Some(geom_group_ptr.read()),
             };
             geoms_by_body.entry(geom_bodyid).or_default().push(geom);
         }
@@ -308,13 +290,7 @@ pub unsafe fn create_model(
             children_by_body.entry(parent_id).or_default().push(i);
         }
 
-        let world_root = build_body_recursive(
-            m,
-            d,
-            0,
-            &geoms_by_body,
-            &children_by_body,
-        );
+        let world_root = build_body_recursive(m, d, 0, &geoms_by_body, &children_by_body);
         let bodies = vec![world_root];
 
         Some(WorldBody { bodies })
@@ -332,10 +308,9 @@ unsafe extern "C" fn controller(m: *const mujoco::mjModel, d: *mut mujoco::mjDat
     }
 }
 
-pub unsafe fn run_dynamics_step(
-    m: *const mujoco::mjModel, d: *mut mujoco::mjData) {
+pub unsafe fn run_dynamics_step(m: *const mujoco::mjModel, d: *mut mujoco::mjData) {
     unsafe {
-        println!("Running the simulation step for time {:?}",(*d).time);
+        println!("Running the simulation step for time {:?}", (*d).time);
         mujoco::mj_step(m, d);
     }
 }
@@ -352,8 +327,7 @@ pub unsafe fn load_model(
 ) -> Option<(*mut mujoco::mjModel, *mut mujoco::mjData)> {
     let mut error_buffer = [0i8; 1024];
     unsafe {
-        let c_model_file_name = CString::new(model_name).
-        expect("String contained null bytes");
+        let c_model_file_name = CString::new(model_name).expect("String contained null bytes");
         let model: *mut mujoco::mjModel = mujoco::mj_loadXML(
             c_model_file_name.as_ptr(),
             std::ptr::null_mut(),
@@ -361,8 +335,10 @@ pub unsafe fn load_model(
             1024,
         );
         if model.is_null() {
-            println!("Got null pointer while loading model {:?}", 
-                c_char_to_string(error_buffer.as_ptr()));
+            println!(
+                "Got null pointer while loading model {:?}",
+                c_char_to_string(error_buffer.as_ptr())
+            );
         } else {
             println!("Model seems to have successfully loaded {}", (*model).nq);
             let data = mujoco::mj_makeData(model);
@@ -380,19 +356,19 @@ pub unsafe fn load_model(
 
 pub fn spawn_simulator(
     model_name: String,
-    tx: mpsc::Sender<workermessages::SimulatorThreadMessage>) {
+    tx: mpsc::Sender<workermessages::SimulatorThreadMessage>,
+) {
     let dyn_th = thread::spawn(move || {
         unsafe {
-            if let Some((m, d)) = 
-            load_model(model_name.to_string()) {
-                //Run this to initialise the mjData struct 
+            if let Some((m, d)) = load_model(model_name.to_string()) {
+                //Run this to initialise the mjData struct
                 mujoco::mj_forward(m, d);
                 //Sending the base loaded model first
                 if let Some(b) = create_model(m, d) {
-                    if let Err(e) = 
-                        tx.blocking_send(workermessages::SimulatorThreadMessage::
-                            new_load_model_message(b)) {
-                        println!("Loading model for simul update failed {:?}",e);
+                    if let Err(e) = tx.blocking_send(
+                        workermessages::SimulatorThreadMessage::new_load_model_message(b),
+                    ) {
+                        println!("Loading model for simul update failed {:?}", e);
                     }
                 } else {
                     println!("Could not get the model from create_model");
@@ -401,14 +377,19 @@ pub fn spawn_simulator(
                 //Sending the simulation updates
                 while (*d).time < 100.0 {
                     run_dynamics_step(m, d);
-                    let xpos: Vec<f64> = std::slice::from_raw_parts(
-                        (*d).xpos, (*m).nbody as usize * 3).to_vec();
-                    let xquat: Vec<f64> = std::slice::from_raw_parts(
-                        (*d).xquat, (*m).nbody as usize * 4).to_vec();
-                    if let Err(e) = 
-                        tx.blocking_send(workermessages::SimulatorThreadMessage::
-                            new_simul_update_message(xpos, xquat)) {
-                        println!("Sending simul update failed from the simulator thread {:?}",e);
+                    let xpos: Vec<f64> =
+                        std::slice::from_raw_parts((*d).xpos, (*m).nbody as usize * 3).to_vec();
+                    let xquat: Vec<f64> =
+                        std::slice::from_raw_parts((*d).xquat, (*m).nbody as usize * 4).to_vec();
+                    if let Err(e) = tx.blocking_send(
+                        workermessages::SimulatorThreadMessage::new_simul_update_message(
+                            xpos, xquat,
+                        ),
+                    ) {
+                        println!(
+                            "Sending simul update failed from the simulator thread {:?}",
+                            e
+                        );
                     }
                 }
                 cleanup_model(m, d);
@@ -419,8 +400,8 @@ pub fn spawn_simulator(
 
 pub unsafe fn load_test_model(file_name: String) -> Option<WorldBody> {
     unsafe {
-        if let Some((m,d)) = load_model(file_name) {
-            //This is needed to load the mjData struct correctly: 
+        if let Some((m, d)) = load_model(file_name) {
+            //This is needed to load the mjData struct correctly:
             mujoco::mj_forward(m, d);
             let c_m = create_model(m, d);
             return c_m;

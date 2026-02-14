@@ -1,18 +1,18 @@
-use typeshare::typeshare;
 use serde;
+use typeshare::typeshare;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content="content")]
+#[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ControlModel {
-    FFN(FFNModel)
+    FFN(FFNModel),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content="content")]
+#[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ValueModel {
-    FFN(FFNModel)
+    FFN(FFNModel),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -21,14 +21,14 @@ pub struct FFNModel {
     pub num_hidden_layers: i32,
     pub hidden_layer_dim: i32,
     pub output_dim: i32,
-    pub input_dim: i32
+    pub input_dim: i32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content="content")]
+#[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum TrainingMethod {
-    PPO(PPOTrainingMethod)
+    PPO(PPOTrainingMethod),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -41,28 +41,28 @@ pub struct PPOTrainingMethod {
     pub lambda: f64,
     pub reward_function: RewardSystem,
     pub control_model: ControlModel,
-    pub value_model: ValueModel
+    pub value_model: ValueModel,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct RewardSystem {
-    pub reward_function_code: String
+    pub reward_function_code: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content="content")]
+#[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum TrainingMetrics {
     MeanReward(MetricsData),
     MeanPolicyLoss(MetricsData),
     ValueLoss(MetricsData),
-    MeanEntropy(MetricsData)
+    MeanEntropy(MetricsData),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct MetricsData {
     pub x_axis: Vec<f64>,
-    pub y_axis: Vec<f64>
+    pub y_axis: Vec<f64>,
 }

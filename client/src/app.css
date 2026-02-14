@@ -177,7 +177,7 @@ h1 {
   padding: 5px 10px;
   text-align: left;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .dropdown-item:hover {
@@ -212,7 +212,7 @@ h1 {
   margin: 1px;
   border: 1px solid #383838;
   border-radius: 1px;
-  width: 132px;
+  width: 150px;
   height: 30px;
   display: inline-flex;
   align-items: center;
@@ -244,7 +244,7 @@ h1 {
 }
 
 .play-pause-cta-label {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1;
   color: #ffffff;
 }
@@ -343,6 +343,12 @@ h1 {
 }
 
 .training-graph-editor {
+  width: 100%;
+  height: 100%;
+  text-align: left;
+}
+
+.testing-graph-editor {
   width: 100%;
   height: 100%;
   text-align: left;
