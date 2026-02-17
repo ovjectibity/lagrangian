@@ -44,7 +44,7 @@ export const TrainingMethodNode: WorkflowNode = {
   id: "training-method",
   label: "TrainingMethod",
   nodeType: "TrainingMethod",
-  position: { x: 80, y: 90 },
+  position: { x: 780, y: 360 },
   outputs: 1,
   outputAnchors: [{ id: "training-method-output", label: "TrainingMethodOutput" }],
   settings: [
@@ -72,7 +72,7 @@ export const ControlModelNode: WorkflowNode = {
   id: "control-model",
   label: "ControlModel",
   nodeType: "ControlModel",
-  position: { x: 520, y: 110 },
+  position: { x: 180, y: 90 },
   inputs: 1,
   outputs: 1,
   outputAnchors: [
@@ -97,7 +97,7 @@ export const ValueModelNode: WorkflowNode = {
   id: "value-model",
   label: "ValueModel",
   nodeType: "ValueModel",
-  position: { x: 520, y: 300 },
+  position: { x: 180, y: 360 },
   inputs: 1,
   outputs: 1,
   outputAnchors: [
@@ -122,7 +122,7 @@ export const RewardFunctionNode: WorkflowNode = {
   id: "reward-function",
   label: "RewardFunction",
   nodeType: "RewardFunction",
-  position: { x: 520, y: 480 },
+  position: { x: 180, y: 630 },
   inputs: 0,
   outputs: 1,
   outputAnchors: [
@@ -173,7 +173,7 @@ export const SimulationParametersNode: WorkflowNode = {
   id: "simulation-parameters",
   label: "Simulation Parameters",
   nodeType: "SimulationParameters",
-  position: { x: 80, y: 120 },
+  position: { x: 780, y: 240 },
   inputs: 1,
   outputs: 1,
   inputAnchors: [{ id: "control_model", label: "ControlModel" }],
@@ -186,7 +186,7 @@ export const SimulationParametersNode: WorkflowNode = {
       inputType: "select",
       options: [{ label: "default-policy", value: "default-policy" }],
     },
-    { key: "num_timesteps", label: "num_timesteps", value: 1000, min: 1, step: 1 },
+    { key: "num_timesteps", label: "num_timesteps", value: 100, min: 1, step: 1 },
   ],
 };
 
@@ -194,7 +194,7 @@ export const TestingControlModelNode: WorkflowNode = {
   id: "testing-control-model",
   label: "ControlModel",
   nodeType: "ControlModel",
-  position: { x: 520, y: 120 },
+  position: { x: 180, y: 240 },
   inputs: 1,
   outputs: 1,
   outputAnchors: [

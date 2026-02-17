@@ -18,7 +18,17 @@
   let camera: three.PerspectiveCamera;
   let cameraController: OrbitControls;
   let renderer: three.WebGLRenderer;
+  let viewportEl: HTMLDivElement;
   let bodyObjectMap: Map<number, three.Object3D> = new Map();
+
+  const resizeRenderer = () => {
+    if (!renderer || !camera || !viewportEl) return;
+    const nextWidth = viewportEl.clientWidth || width;
+    const nextHeight = height;
+    renderer.setSize(nextWidth, nextHeight, false);
+    camera.aspect = nextWidth / nextHeight;
+    camera.updateProjectionMatrix();
+  };
 
   const renderBodyAbsolute = (body: Body, parent: three.Object3D) => {
     const group = new three.Group();
@@ -202,9 +212,13 @@
     camera.up.set(0, 0, 1);
     renderer = new three.WebGLRenderer({ canvas: canvas, antialias: true });
     cameraController = new OrbitControls(camera,canvas);
-    renderer.setSize(width, height);
+    resizeRenderer();
     camera.position.z = 5;
     cameraController.update();
+    const resizeObserver = new ResizeObserver(() => {
+      resizeRenderer();
+    });
+    resizeObserver.observe(viewportEl);
 
     function animate() {
       requestAnimationFrame(animate);
@@ -213,6 +227,12 @@
     }
 
     animate();
+
+    return () => {
+      resizeObserver.disconnect();
+      cameraController.dispose();
+      renderer.dispose();
+    };
   });
 
   $effect(() => {
@@ -229,11 +249,13 @@
   
 </script>
 
-<div class="viewport" style="width: {width}px; height: {height}px;">
+<div
+  class="viewport"
+  bind:this={viewportEl}
+  style="width: 100%; height: {height}px;"
+>
     <canvas 
         bind:this={canvas} 
-        width={width} 
-        height={height} 
-        style="touch-action: none;"
+        style="width: 100%; height: 100%; touch-action: none;"
     ></canvas>
 </div>

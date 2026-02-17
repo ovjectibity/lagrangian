@@ -148,7 +148,12 @@
 </script>
 
 <div class="graph-editor">
-  <Svelvet minimap theme="dark" zoom={0.75}>
+  <Svelvet
+    minimap
+    theme="dark"
+    zoom={0.75}
+    fitView="resize"
+  >
     {#each nodes as node}
       <Node
         id={node.id}
