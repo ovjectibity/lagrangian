@@ -5,7 +5,7 @@ use tch::{
     Kind, Tensor,
 };
 
-use crate::plugin::{ControlModelOutput, Simulator};
+use crate::plugin::{ControlPolicyOutputMode, Simulator};
 
 pub struct Trajectory {
     //Shape of indv element: [nq*2]
@@ -53,9 +53,7 @@ pub struct PPOTrainer {
     simulator: Arc<Mutex<dyn Simulator + Send>>,
     model: Arc<Mutex<dyn PPOTrainedModel + Send>>,
     policy_opt: nn::Optimizer,
-    value_opt: nn::Optimizer,
-    //TODO: Provide richer context here for setting up simulator
-    output_mode: ControlModelOutput,
+    value_opt: nn::Optimizer
 }
 
 pub trait PPOTrainedModel {
@@ -64,8 +62,7 @@ pub trait PPOTrainedModel {
         policy: nn::Sequential,
         val_estimator: nn::Sequential,
         pol_store: nn::VarStore,
-        val_estimator_store: nn::VarStore,
-        nq: i64,
+        val_estimator_store: nn::VarStore
     ) -> Self
     where
         Self: Sized;
@@ -85,6 +82,7 @@ pub trait PPOTrainedModel {
     fn get_policy_store_mut(&mut self) -> &mut nn::VarStore;
     fn get_value_store(&self) -> &nn::VarStore;
     fn get_value_store_mut(&mut self) -> &mut nn::VarStore;
+    fn get_control_policy_output_mode(&self) -> ControlPolicyOutputMode;
 }
 
 //TODO: Optimising with aggregating all
@@ -103,8 +101,7 @@ impl PPOTrainer {
         num_trajs: i32,
         traj_depth: i32,
         num_updates: i32,
-        epsilon: f64,
-        output_mode: ControlModelOutput,
+        epsilon: f64
     ) -> Result<Self, tch::TchError> {
         let policy_opt = {
             let m = model.lock().expect("Model mutex poisoned");
@@ -123,8 +120,7 @@ impl PPOTrainer {
             simulator: simulator,
             model: model,
             policy_opt: policy_opt,
-            value_opt: value_opt,
-            output_mode: output_mode,
+            value_opt: value_opt
         })
     }
 
@@ -170,19 +166,25 @@ impl PPOTrainer {
                 let eps =
                     Tensor::randn([action_output_size], (tch::Kind::Double, tch::Device::Cpu));
                 let sampled_action = action_gaussian_mean + &eps * &action_gaussian_stdev;
-                let controls = match &self.output_mode {
-                    ControlModelOutput::TargetTorques => sampled_action.shallow_clone(),
-                    ControlModelOutput::TargetPositions => self
+                // println!("DEBUG: Sampled action for traj rollout as follows: ");
+                // sampled_action.print();
+                let controls = 
+                match &self.model.lock().expect("Couldn't lock model during ppo traj gen").
+                get_control_policy_output_mode() {
+                    ControlPolicyOutputMode::TargetTorques => sampled_action.shallow_clone(),
+                    ControlPolicyOutputMode::TargetPositions => self
                         .simulator
                         .lock()
                         .expect("Simulator mutex poisoned")
                         .get_target_controls_from_target_positions(&sampled_action),
-                    ControlModelOutput::TargetVelocities => self
+                    ControlPolicyOutputMode::TargetVelocities => self
                         .simulator
                         .lock()
                         .expect("Simulator mutex poisoned")
                         .get_target_controls_from_target_velocities(&sampled_action),
                 };
+                // println!("DEBUG: Controls for the same sampled action as follows: ");
+                // controls.print();
                 self.simulator
                     .lock()
                     .expect("Simulator mutex poisoned")

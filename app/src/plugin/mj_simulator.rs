@@ -17,7 +17,7 @@ impl MjSimulator {
     pub fn new(model_path: String) -> Result<Self, String> {
         unsafe {
             if let Some((model, data)) = 
-                simulator::load_model(model_path) {
+                simulator::load_model(model_path,false) {
                 mujoco::mj_forward(model, data);
                 Ok(MjSimulator { model, data })
             } else {
@@ -94,6 +94,41 @@ impl MjSimulator {
         }
         indices
     }
+
+    fn clamp_controls_to_actuator_range(
+        &self,
+        controls: &[f64],
+    ) -> Vec<f64> {
+        let nu = self.nu() as usize;
+        if controls.len() != nu {
+            panic!(
+                "Control dimension mismatch. Expected {}, got {}",
+                nu,
+                controls.len()
+            );
+        }
+        let mut clamped: Vec<f64> = Vec::with_capacity(nu);
+        unsafe {
+            let ctrllimited_ptr = (*self.model).actuator_ctrllimited;
+            let ctrlrange_ptr = (*self.model).actuator_ctrlrange;
+            assert!(!ctrlrange_ptr.is_null());
+            for (i, val) in controls.iter().enumerate() {
+                let is_limited = if ctrllimited_ptr.is_null() {
+                    true
+                } else {
+                    ctrllimited_ptr.add(i).read() != 0
+                };
+                if !is_limited {
+                    clamped.push(*val);
+                    continue;
+                }
+                let min = ctrlrange_ptr.add(i * 2).read();
+                let max = ctrlrange_ptr.add(i * 2 + 1).read();
+                clamped.push(val.clamp(min, max));
+            }
+        }
+        clamped
+    }
 }
 
 impl Drop for MjSimulator {
@@ -138,6 +173,7 @@ impl Simulator for MjSimulator {
             );
         }
         unsafe {
+            println!("DEBUG: Applying these controls: {:?}",ctrl_vals);
             let ctrl_ptr = (*self.data).ctrl;
             for (i, val) in ctrl_vals.iter().enumerate() {
                 ctrl_ptr.add(i).write(*val);
@@ -179,8 +215,10 @@ impl Simulator for MjSimulator {
             assert!(!qpos_ptr.is_null());
             assert!(!qvel_ptr.is_null());
             assert!(nq > 0);
-            let mut qposvel = std::slice::from_raw_parts(qpos_ptr, nq as usize).to_vec();
-            qposvel.extend(std::slice::from_raw_parts(qvel_ptr, nv as usize).to_vec());
+            let mut qposvel = std::slice::from_raw_parts(
+                qpos_ptr, nq as usize).to_vec();
+            qposvel.extend(std::slice::from_raw_parts(
+                qvel_ptr, nv as usize).to_vec());
             Tensor::from_slice(&qposvel)
         }
     }
@@ -245,14 +283,19 @@ impl Simulator for MjSimulator {
         }
 
         if !self.is_torque_actuator() {
+            println!("DEBUG: Treating as a position actuator");
             let qpos = self.qpos();
             let mut ctrl_vals: Vec<f64> = Vec::with_capacity(nu as usize);
             for (i, (qpos_idx, _)) in 
             actuator_joint_indices.iter().enumerate() {
                 ctrl_vals.push(qpos[*qpos_idx] + target_diff_vals[i]);
             }
+            let ctrl_vals = 
+                self.clamp_controls_to_actuator_range(
+                    &ctrl_vals);
             return Tensor::from_slice(&ctrl_vals);
         }
+        println!("DEBUG: Treating as a torque actuator");
 
         let t = 0.1_f64;
         let qvel = self.qvel();
@@ -278,10 +321,14 @@ impl Simulator for MjSimulator {
         for (_, dof_idx) in actuator_joint_indices.iter() {
             ctrl_vals.push(qfrc_vals[*dof_idx]);
         }
+        let ctrl_vals = 
+            self.clamp_controls_to_actuator_range(
+                &ctrl_vals);
         Tensor::from_slice(&ctrl_vals)
     }
 
-    fn get_target_controls_from_target_velocities(&self, target_vel: &Tensor) -> Tensor {
+    fn get_target_controls_from_target_velocities(
+        &self, target_vel: &Tensor) -> Tensor {
         let nu = self.nu();
         let nv = self.nv();
         let target_vel = target_vel.to_kind(Kind::Double);

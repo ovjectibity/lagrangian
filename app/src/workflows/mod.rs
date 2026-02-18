@@ -25,8 +25,10 @@ pub struct WorkflowRuntime {
 impl WorkflowRuntime {
     pub fn load(model_path: String) -> Result<Self, String> {
         let simulator = MjSimulator::new(model_path)?;
+        let nu = simulator.nu();
+        let nv = simulator.nv();
         let nq = simulator.nq();
-        let model = Self::build_default_model(nq);
+        let model = Self::build_default_model(nq,nv,nu);
         Ok(WorkflowRuntime {
             simulator: Arc::new(Mutex::new(simulator)),
             model: Arc::new(Mutex::new(model)),
@@ -34,9 +36,9 @@ impl WorkflowRuntime {
         })
     }
 
-    fn build_default_model(nq: i64) -> ArmModel {
-        let input_dim = nq * 2;
-        let policy_output_dim = nq * 2;
+    fn build_default_model(nq: i64, nv: i64, nu: i64) -> ArmModel {
+        let input_dim = nq + nv;
+        let policy_output_dim = nu * 2;
         let hidden_dim = 64;
         let num_hidden_layers = 2;
         let (policy, policy_store) = ArmModel::init_policy(
@@ -45,30 +47,34 @@ impl WorkflowRuntime {
             hidden_dim,
             num_hidden_layers,
             false,
+            true,
         );
         let (value, value_store) =
-            ArmModel::init_policy(input_dim, 1, hidden_dim, num_hidden_layers, false);
-        ArmModel::init_ppo_trained_model(policy, value, policy_store, value_store, nq)
+            ArmModel::init_policy(
+                input_dim, 1, 
+                hidden_dim, 
+                num_hidden_layers, false, false,
+            );
+        ArmModel::init_ppo_trained_model(
+            policy, value, policy_store,
+             value_store)
     }
 
-    pub fn configure_model_for_training(&self, params: &PPOTrainingMethod) -> Result<(), String> {
+    pub fn configure_model_for_training(&self, params: &PPOTrainingMethod) -> 
+    Result<(), String> {
         let control_params = match &params.control_model {
             ControlModel::FFN(m) => m,
         };
         let value_params = match &params.value_model {
             ValueModel::FFN(m) => m,
         };
-        let nq = self
-            .simulator
-            .lock()
-            .map_err(|_| "Simulator mutex poisoned".to_string())?
-            .nq();
         let (policy, policy_store) = ArmModel::init_policy(
             control_params.input_dim as i64,
             control_params.output_dim as i64,
             control_params.hidden_layer_dim as i64,
             control_params.num_hidden_layers as i64,
             false,
+            true,
         );
         let (value, value_store) = ArmModel::init_policy(
             value_params.input_dim as i64,
@@ -76,9 +82,12 @@ impl WorkflowRuntime {
             value_params.hidden_layer_dim as i64,
             value_params.num_hidden_layers as i64,
             false,
+            false,
         );
         let next_model =
-            ArmModel::init_ppo_trained_model(policy, value, policy_store, value_store, nq);
+            ArmModel::init_ppo_trained_model(
+                policy, value, policy_store, 
+                value_store);
         let mut model = self
             .model
             .lock()

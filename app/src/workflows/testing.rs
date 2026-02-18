@@ -4,17 +4,22 @@ use rocket::tokio::sync::mpsc;
 use tch::{Device, Kind, Tensor};
 
 use crate::commondef::{
-    messages::{ModelForward, SimulUpdateMessage, StopSimulationMessage},
+    messages::{
+        ModelForward, 
+        SimulUpdateMessage, 
+        StopSimulationMessage
+    },
     testing::SimulationParams,
     workermessages::TestingTaskMessage,
 };
 use crate::plugin::{ControlPolicyModel, Simulator};
+use crate::plugin::ControlPolicyOutputMode;
 
 pub struct TestingWorkflow {
     id: String,
     simulator: Arc<Mutex<dyn Simulator + Send>>,
     model: Arc<Mutex<dyn ControlPolicyModel + Send>>,
-    params: SimulationParams,
+    params: SimulationParams
 }
 
 impl TestingWorkflow {
@@ -28,7 +33,7 @@ impl TestingWorkflow {
             id: id,
             simulator: simulator,
             model: model,
-            params: params,
+            params: params
         }
     }
 
@@ -45,48 +50,77 @@ impl TestingWorkflow {
         xpos: Vec<f64>,
         xquat: Vec<f64>,
     ) {
-        let _ =
-            tx_test_t.blocking_send(TestingTaskMessage::SimulationUpdates(SimulUpdateMessage {
-                id: id,
-                updates: vec![ModelForward {
-                    xpos: xpos,
-                    xquat: xquat,
-                }],
-            }));
+        let _ = tx_test_t.blocking_send(
+                TestingTaskMessage::SimulationUpdates(
+                    SimulUpdateMessage {
+                        id: id,
+                        updates: vec![ModelForward {
+                            xpos: xpos,
+                            xquat: xquat,
+                        }],
+                    }));
     }
 
     pub fn run_test(&mut self, tx_test_t: mpsc::Sender<TestingTaskMessage>) {
-        if let Ok(simulator) = self.simulator.lock() {
+        if let Ok(simulator) = 
+            self.simulator.lock() && 
+        let Ok(model) = 
+            self.model.lock() {
             simulator.reset_state();
+            let action_output_size = simulator.nu();
+            for _ in 0..self.params.num_timesteps {
+                let wstate = simulator.get_model_state();
+                let action_gaussian_params = 
+                    model.get_policy_output(&wstate);
+                let s_action_gaussian_params = 
+                    action_gaussian_params.split_with_sizes(
+                        [action_output_size, action_output_size],
+                        0,
+                    );
+                let action_gaussian_mean = 
+                s_action_gaussian_params
+                    .get(0)
+                    .expect(
+                        "Couldn't extract action_gaussian_mean"
+                    );
+                let action_gaussian_stdev = 
+                    s_action_gaussian_params
+                        .get(1)
+                        .expect(
+                            "Couldn't extract action_gaussian_stddev"
+                        )
+                        .exp();
+                let eps = Tensor::randn(
+                    [action_output_size],
+                    (Kind::Double, Device::Cpu),
+                );
+                let sampled_action = 
+                    action_gaussian_mean + &eps * &action_gaussian_stdev;
+                let mut controls = match model.get_output_mode() {
+                    ControlPolicyOutputMode::TargetTorques => {
+                        sampled_action.shallow_clone()
+                    }
+                    ControlPolicyOutputMode::TargetPositions => {
+                        simulator
+                            .get_target_controls_from_target_positions(
+                                &sampled_action
+                            )
+                    }
+                    ControlPolicyOutputMode::TargetVelocities => {
+                        simulator
+                            .get_target_controls_from_target_velocities(
+                                &sampled_action
+                            )
+                    }
+                };
+                simulator.forward_dyn(&controls);
+                let (xpos, xquat) = simulator.get_simul_update();
+                Self::send_simul_update(&tx_test_t, self.id.clone(), xpos, xquat);
+            }
         } else {
-            eprintln!("run_test: failed to lock simulator for reset");
+            eprintln!("run_test: failed to lock simulator or model during test run");
             Self::send_stop(&tx_test_t, self.id.clone());
             return;
-        }
-
-        for _ in 0..self.params.num_timesteps {
-            let controls = {
-                if let Ok(simulator) = self.simulator.lock() {
-                    let nu = simulator.nu();
-                    Tensor::zeros([nu], (Kind::Double, Device::Cpu))
-                } else {
-                    eprintln!("run_test: failed to lock simulator for controls");
-                    Self::send_stop(&tx_test_t, self.id.clone());
-                    return;
-                }
-            };
-
-            {
-                if let Ok(simulator) = self.simulator.lock() {
-                    simulator.forward_dyn(&controls);
-                    let (xpos, xquat) = simulator.get_simul_update();
-                    Self::send_simul_update(&tx_test_t, self.id.clone(), xpos, xquat);
-                } else {
-                    eprintln!("run_test: failed to lock simulator for step");
-                    Self::send_stop(&tx_test_t, self.id.clone());
-                    return;
-                }
-            }
         }
         Self::send_stop(&tx_test_t, self.id.clone());
     }

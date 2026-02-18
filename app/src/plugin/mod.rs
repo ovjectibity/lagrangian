@@ -28,6 +28,7 @@ pub trait ControlPolicyModel {
     fn get_policy(&self) -> &nn::Sequential;
     fn get_policy_store(&self) -> &nn::VarStore;
     fn get_policy_store_mut(&mut self) -> &mut nn::VarStore;
+    fn get_output_mode(&self) -> ControlPolicyOutputMode;
 }
 
 pub struct ControlModelInput {
@@ -39,7 +40,8 @@ pub struct ControlModelInput {
     // generalised_model_positions: Vec<f64>,
 }
 
-pub enum ControlModelOutput {
+#[derive(Debug, Clone)]
+pub enum ControlPolicyOutputMode {
     TargetPositions,
     TargetVelocities,
     TargetTorques,

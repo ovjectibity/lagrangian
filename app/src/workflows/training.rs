@@ -13,7 +13,7 @@ use crate::plugin::ppo_trainer::{
     PPOTrainedModel, PPOTrainer
 };
 use crate::plugin::{
-    ControlModelOutput, Simulator
+    ControlPolicyOutputMode, Simulator
 };
 
 pub struct TrainingWorkflow {
@@ -50,12 +50,11 @@ impl TrainingWorkflow {
         let trainer = PPOTrainer::new(
             simulator.clone(),
             model.clone(),
-            30,
             100,
+            10000,
             30,
             // params.num_trajs,
-            params.epsilon,
-            ControlModelOutput::TargetPositions,
+            params.epsilon
         );
 
         if let Ok(t) = trainer {

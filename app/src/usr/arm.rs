@@ -3,14 +3,14 @@ use tch::{
     Tensor,
 };
 
-use crate::plugin::{ppo_trainer::PPOTrainedModel, ControlPolicyModel};
+use crate::plugin::{ControlPolicyOutputMode, ControlPolicyModel, ppo_trainer::PPOTrainedModel};
 
 pub struct ArmModel {
+    control_output_mode: ControlPolicyOutputMode,
     policy: nn::Sequential,
     value: nn::Sequential,
     policy_store: nn::VarStore,
     value_store: nn::VarStore,
-    nq: i64,
     bq: i64,
     target_cube_body_index: usize,
     start_center_xy: (f64, f64),
@@ -31,6 +31,7 @@ impl ArmModel {
         hidden_layer_dimension: i64,
         num_layers: i64,
         add_softmax: bool,
+        control_policy: bool,
     ) -> (nn::Sequential, nn::VarStore) {
         let vs = nn::VarStore::new(tch::Device::Cpu);
         let vs_p = vs.root();
@@ -58,6 +59,31 @@ impl ArmModel {
             output_dimension,
             Default::default(),
         ));
+        if control_policy {
+            if output_dimension % 2 != 0 {
+                panic!(
+                    "Control policy output dim must be even, got {}",
+                    output_dimension
+                );
+            }
+            let action_dim = output_dimension / 2;
+            y = y.add_fn(move |xs| {
+                let parts = xs.split_with_sizes(
+                    [action_dim, action_dim],
+                    -1,
+                );
+                let mean = parts
+                    .get(0)
+                    .expect("missing mean head")
+                    .tanh()
+                    * 0.05;
+                let log_std = parts
+                    .get(1)
+                    .expect("missing log_std head")
+                    .clamp(-5.5, -3.0);
+                Tensor::concat(&[mean, log_std], -1)
+            });
+        }
         //TODO: This needs to output the
         //mean & log(std-dev) n_q's for target positions:
         if add_softmax {
@@ -94,15 +120,15 @@ impl PPOTrainedModel for ArmModel {
         policy: nn::Sequential,
         val_estimator: nn::Sequential,
         pol_store: nn::VarStore,
-        val_estimator_store: nn::VarStore,
-        nq: i64,
+        val_estimator_store: nn::VarStore
     ) -> Self {
         ArmModel {
+            control_output_mode: 
+                ControlPolicyOutputMode::TargetPositions,
             policy: policy,
             value: val_estimator,
             policy_store: pol_store,
             value_store: val_estimator_store,
-            nq: nq,
             bq: 7,
             // vx300 worldbody order assumption:
             // 0=world, 1=left_box_body, 2=right_box_body, 3=target_cube_body
@@ -225,6 +251,10 @@ impl PPOTrainedModel for ArmModel {
     fn get_value_store_mut(&mut self) -> &mut nn::VarStore {
         &mut self.value_store
     }
+
+    fn get_control_policy_output_mode(&self) -> ControlPolicyOutputMode {
+        self.control_output_mode.clone()
+    }
 }
 
 impl ControlPolicyModel for ArmModel {
@@ -242,5 +272,9 @@ impl ControlPolicyModel for ArmModel {
 
     fn get_policy_store_mut(&mut self) -> &mut nn::VarStore {
         self.get_policy_store_mut_impl()
+    }
+
+    fn get_output_mode(&self) -> ControlPolicyOutputMode {
+        self.control_output_mode.clone()
     }
 }
