@@ -52,7 +52,7 @@ impl TrainingWorkflow {
             model.clone(),
             100,
             10000,
-            30,
+            20,
             // params.num_trajs,
             params.epsilon
         );

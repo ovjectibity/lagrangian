@@ -71,7 +71,7 @@ pub trait PPOTrainedModel {
     fn get_reward(
         &self,
         cstate: &Tensor,
-        cstate_next: Option<&Tensor>,
+        cstate_next: &Tensor,
         action: &Tensor,
     ) -> f64;
     fn get_policy_output(&self, state: &Tensor) -> Tensor;
@@ -205,7 +205,7 @@ impl PPOTrainer {
                     .expect("Model mutex poisoned")
                     .get_reward(
                         &cstate,
-                        Some(&cstate_next),
+                        &cstate_next,
                         &sampled_action,
                     );
                 rewards.push(reward);
