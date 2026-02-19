@@ -176,7 +176,12 @@ impl PPOTrainer {
                         .simulator
                         .lock()
                         .expect("Simulator mutex poisoned")
-                        .get_target_controls_from_target_positions(&sampled_action),
+                        .modify_target_position(&sampled_action),
+                    // ControlPolicyOutputMode::TargetPositions => self
+                    //     .simulator
+                    //     .lock()
+                    //     .expect("Simulator mutex poisoned")
+                    //     .get_target_controls_from_target_positions(&sampled_action),
                     ControlPolicyOutputMode::TargetVelocities => self
                         .simulator
                         .lock()

@@ -62,7 +62,7 @@ impl TestingWorkflow {
     }
 
     pub fn run_test(&mut self, tx_test_t: mpsc::Sender<TestingTaskMessage>) {
-        if let Ok(simulator) = 
+        if let Ok(mut simulator) = 
             self.simulator.lock() && 
         let Ok(model) = 
             self.model.lock() {
@@ -102,10 +102,16 @@ impl TestingWorkflow {
                     }
                     ControlPolicyOutputMode::TargetPositions => {
                         simulator
-                            .get_target_controls_from_target_positions(
+                            .modify_target_position(
                                 &sampled_action
                             )
                     }
+                    // ControlPolicyOutputMode::TargetPositions => {
+                    //     simulator
+                    //         .get_target_controls_from_target_positions(
+                    //             &sampled_action
+                    //         )
+                    // }
                     ControlPolicyOutputMode::TargetVelocities => {
                         simulator
                             .get_target_controls_from_target_velocities(

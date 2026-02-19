@@ -6,7 +6,7 @@ pub mod mj_simulator;
 pub mod ppo_trainer;
 
 pub trait Simulator {
-    fn reset_state(&self);
+    fn reset_state(&mut self);
     fn nq(&self) -> i64;
     fn nu(&self) -> i64;
     fn nv(&self) -> i64;
@@ -19,8 +19,9 @@ pub trait Simulator {
     fn get_model_cartesian_state(&self) -> Tensor;
     fn get_world_body(&self) -> Option<WorldBody>;
     fn get_simul_update(&self) -> (Vec<f64>, Vec<f64>);
-    fn get_target_controls_from_target_positions(&self, target_pos: &Tensor) -> Tensor;
-    fn get_target_controls_from_target_velocities(&self, target_vel: &Tensor) -> Tensor;
+    fn modify_target_position(&mut self, target_pos_diff: &Tensor) -> Tensor;
+    fn get_target_controls_from_target_positions(&self, target_pos_diff: &Tensor) -> Tensor;
+    fn get_target_controls_from_target_velocities(&self, target_vel_diff: &Tensor) -> Tensor;
 }
 
 pub trait ControlPolicyModel {

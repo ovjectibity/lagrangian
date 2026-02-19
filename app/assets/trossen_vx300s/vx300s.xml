@@ -2,6 +2,7 @@
   <compiler angle="radian" meshdir="assets" texturedir="assets" autolimits="true"/>
   <option timestep="0.02"/>
   <option cone="elliptic" impratio="10"/>
+  <!-- <option gravity="0 0 0"/> -->
 
   <asset>
     <texture type="2d" file="interbotix_black.png"/>
@@ -23,13 +24,21 @@
     <default class="vx300s">
       <joint axis="0 1 0"/>
       <position forcerange="-35 35"/>
-      <default class="waist">
+      <!-- <default class="waist">
         <joint axis="0 0 1" range="-3.14158 3.14158" damping="2.86"/>
         <position ctrlrange="-3.14158 3.14158" kp="25"/>
+      </default> -->
+      <default class="waist">
+        <joint axis="0 0 1" range="-1.14158 1.14158" damping="2.86"/>
+        <position ctrlrange="-1.14158 1.14158" kp="25"/>
       </default>
-      <default class="shoulder">
+      <!-- <default class="shoulder">
         <joint range="-1.85005 1.25664" armature="0.004" frictionloss="0.06" damping="6.25"/>
         <position ctrlrange="-1.85005 1.25664" kp="76" forcerange="-57 57"/>
+      </default> -->
+      <default class="shoulder">
+        <joint range="0 1.25664" armature="0.004" frictionloss="0.06" damping="6.25"/>
+        <position ctrlrange="0 1.25664" kp="76" forcerange="-57 57"/>
       </default>
       <default class="elbow">
         <joint range="-1.76278 1.6057" armature="0.072" frictionloss="1.74" damping="8.15"/>

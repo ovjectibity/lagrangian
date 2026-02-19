@@ -5,6 +5,7 @@ use crate::plugin::Simulator;
 use crate::simulator;
 
 pub struct MjSimulator {
+    target_position: Vec<f64>,
     model: *mut mujoco::mjModel,
     data: *mut mujoco::mjData,
 }
@@ -17,9 +18,18 @@ impl MjSimulator {
     pub fn new(model_path: String) -> Result<Self, String> {
         unsafe {
             if let Some((model, data)) = 
-                simulator::load_model(model_path,false) {
+                simulator::load_model(
+                    model_path,
+                    false) {
                 mujoco::mj_forward(model, data);
-                Ok(MjSimulator { model, data })
+                let mut simulator = MjSimulator {
+                    target_position: Vec::new(),
+                    model,
+                    data,
+                };
+                simulator.target_position =
+                    simulator.get_actuated_qpos_targets();
+                Ok(simulator)
             } else {
                 Err("Failed to load MuJoCo model".to_string())
             }
@@ -129,6 +139,24 @@ impl MjSimulator {
         }
         clamped
     }
+
+    fn get_actuated_qpos_targets(&self) -> Vec<f64> {
+        let nu = self.nu() as usize;
+        let qpos = self.qpos();
+        let actuator_joint_indices = self.get_actuator_joint_indices();
+        if actuator_joint_indices.len() != nu {
+            panic!(
+                "Actuator index mapping mismatch. Expected {}, got {}",
+                nu,
+                actuator_joint_indices.len()
+            );
+        }
+        let mut targets: Vec<f64> = Vec::with_capacity(nu);
+        for (qpos_idx, _) in actuator_joint_indices.iter() {
+            targets.push(qpos[*qpos_idx]);
+        }
+        self.clamp_controls_to_actuator_range(&targets)
+    }
 }
 
 impl Drop for MjSimulator {
@@ -141,10 +169,42 @@ impl Drop for MjSimulator {
 }
 
 impl Simulator for MjSimulator {
-    fn reset_state(&self) {
+    fn modify_target_position(&mut self, target_pos_diff: &Tensor) -> Tensor {
+        let nu = self.nu() as usize;
+        let target_pos_diff = target_pos_diff.to_kind(Kind::Double);
+        let target_diff_vals: Vec<f64> = Vec::<f64>::try_from(
+            target_pos_diff)
+            .expect("Expected target_pos_diff 1D f64 tensor");
+        if target_diff_vals.len() != nu {
+            panic!(
+                "Target position diff dimension mismatch. Expected {}, got {}",
+                nu,
+                target_diff_vals.len()
+            );
+        }
+        if self.target_position.len() != nu {
+            self.target_position = self.get_actuated_qpos_targets();
+        }
+        let updated_targets: Vec<f64> = self
+            .target_position
+            .iter()
+            .zip(target_diff_vals.iter())
+            .map(|(target, diff)| target + diff)
+            .collect();
+        self.target_position =
+            self.clamp_controls_to_actuator_range(
+                &updated_targets
+            );
+        Tensor::from_slice(&self.target_position)
+    }
+
+    fn reset_state(&mut self) {
         unsafe {
             mujoco::mj_resetData(self.model, self.data);
             mujoco::mj_forward(self.model, self.data);
+            //Reset target_position here: 
+            self.target_position =
+                self.get_actuated_qpos_targets();
         }
     }
 
@@ -207,20 +267,9 @@ impl Simulator for MjSimulator {
     }
 
     fn get_model_state(&self) -> Tensor {
-        let nq = self.nq();
-        let nv = self.nv();
-        unsafe {
-            let qpos_ptr = (*self.data).qpos;
-            let qvel_ptr = (*self.data).qvel;
-            assert!(!qpos_ptr.is_null());
-            assert!(!qvel_ptr.is_null());
-            assert!(nq > 0);
-            let mut qposvel = std::slice::from_raw_parts(
-                qpos_ptr, nq as usize).to_vec();
-            qposvel.extend(std::slice::from_raw_parts(
-                qvel_ptr, nv as usize).to_vec());
-            Tensor::from_slice(&qposvel)
-        }
+        let mut qposvel = self.qpos();
+        qposvel.extend(self.qvel());
+        Tensor::from_slice(&qposvel)
     }
 
     fn get_model_cartesian_state(&self) -> Tensor {
