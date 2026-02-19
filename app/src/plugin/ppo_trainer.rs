@@ -116,7 +116,7 @@ impl PPOTrainer {
             traj_depth: traj_depth,
             num_updates: num_updates,
             epsilon: epsilon,
-            gamma_lambda: (0.1, 0.1),
+            gamma_lambda: (0.99, 0.95),
             simulator: simulator,
             model: model,
             policy_opt: policy_opt,
@@ -403,8 +403,15 @@ impl PPOTrainer {
     }
 
     pub fn train_an_epoch(&mut self, trajs: &[Trajectory]) -> PPOTrainerRuntimeInfo {
-        let gae_v: Vec<Tensor> = trajs.iter().map(|traj| self.compute_gae(traj)).collect();
+        let gae_v: Vec<Tensor> =
+            trajs
+                .iter()
+                .map(|traj| self.compute_gae(traj))
+                .collect();
         let gaes = Tensor::stack(&gae_v, 0).detach();
+        let gae_mean = gaes.mean(Kind::Double);
+        let gae_std = gaes.std(true);
+        let gaes = (gaes - &gae_mean) / (&gae_std + 1e-8);
         let mut mean_policy_loss: Vec<f64> = Vec::new();
         let mut mean_value_loss: Vec<f64> = Vec::new();
         //TODO: Expose iterations as param here
