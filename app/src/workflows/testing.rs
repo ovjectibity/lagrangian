@@ -68,7 +68,8 @@ impl TestingWorkflow {
             self.model.lock() {
             simulator.reset_state();
             let action_output_size = simulator.nu();
-            for _ in 0..self.params.num_timesteps {
+            println!("Running test for {:?} timesteps",self.params.num_timesteps);
+            for i in 0..self.params.num_timesteps {
                 let wstate = simulator.get_model_state();
                 let action_gaussian_params = 
                     model.get_policy_output(&wstate);
@@ -119,7 +120,11 @@ impl TestingWorkflow {
                             )
                     }
                 };
+                let cstate = simulator.get_model_cartesian_state();
                 simulator.forward_dyn(&controls);
+                let cstate_next = simulator.get_model_cartesian_state();
+                let reward = model.get_reward(&cstate, &cstate_next, &sampled_action);
+                println!("Got reward at run_test {:?} {:?}",i,reward);
                 let (xpos, xquat) = simulator.get_simul_update();
                 Self::send_simul_update(&tx_test_t, self.id.clone(), xpos, xquat);
             }

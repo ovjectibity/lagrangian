@@ -39,8 +39,8 @@ impl WorkflowRuntime {
     fn build_default_model(nq: i64, nv: i64, nu: i64) -> ArmModel {
         let input_dim = nq + nv;
         let policy_output_dim = nu * 2;
-        let hidden_dim = 64;
-        let num_hidden_layers = 2;
+        let hidden_dim = 256;
+        let num_hidden_layers = 3;
         let (policy, policy_store) = ArmModel::init_policy(
             input_dim,
             policy_output_dim,

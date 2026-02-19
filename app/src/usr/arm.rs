@@ -144,6 +144,37 @@ impl ArmModel {
         )
     }
 
+    fn get_body_quat(
+        &self,
+        state: &Tensor,
+        body_index: usize,
+    ) -> (f64, f64, f64, f64) {
+        let state = state.to_kind(tch::Kind::Double);
+        let state_vals: Vec<f64> = Vec::<f64>::try_from(state)
+            .expect("Expected cartesian state to be a 1D f64 tensor");
+        if state_vals.len() % 7 != 0 {
+            panic!(
+                "Expected cartesian state len to be 7*nbody, got {}",
+                state_vals.len()
+            );
+        }
+        let nbody = state_vals.len() / 7;
+        if body_index >= nbody {
+            panic!(
+                "Body index {} out of bounds for nbody {}",
+                body_index,
+                nbody
+            );
+        }
+        let quat_offset = nbody * 3 + body_index * 4;
+        (
+            state_vals[quat_offset],
+            state_vals[quat_offset + 1],
+            state_vals[quat_offset + 2],
+            state_vals[quat_offset + 3],
+        )
+    }
+
     fn get_reward_1(
         &self,
         cstate: &Tensor,
@@ -201,15 +232,16 @@ impl ArmModel {
         let left_box_body_index = 1usize;
         let right_box_body_index = 2usize;
         let gripper_body_index = 10usize;
-        let left_box_start = (0.35_f64, 0.22_f64, 0.05_f64);
-        let right_box_start = (0.35_f64, -0.22_f64, 0.05_f64);
+        let left_box_start = (0.35_f64, 0.22_f64, 0.0_f64);
+        let right_box_start = (0.35_f64, -0.22_f64, 0.0_f64);
         let w_prog = 10.0_f64;
         let w_gripper_above = 2.0_f64;
         let w_gripper_below = 4.0_f64;
-        let w_box_move = 80.0_f64;
-        let w_cube_drop = 80.0_f64;
+        let w_gripper_down = 1.5_f64;
+        let w_box_move = 8.0_f64;
+        let w_cube_drop = 8.0_f64;
         let cube_drop_z_threshold = 0.10_f64;
-        let gripper_xy_reward_radius = 0.06_f64;
+        let gripper_xy_reward_radius = 0.125_f64;
 
         //Target cube xy position reward
         let (next_cx, next_cy, next_cz) =
@@ -255,11 +287,20 @@ impl ArmModel {
         let r_above_z = w_gripper_above
             * (1.0 - (-z_sat_k * z_above).exp());
         let p_below_z = -w_gripper_below * z_below;
-        let r_gripper_above = if gripper_xy_dist <= gripper_xy_reward_radius {
+        let r_gripper_above = 
+        // r_above_z + p_below_z;
+        if gripper_xy_dist <= gripper_xy_reward_radius {
             r_above_z + p_below_z
         } else {
             0.0
         };
+        let (gripper_qw, gripper_qx, gripper_qy, gripper_qz) =
+            self.get_body_quat(cstate_next, gripper_body_index);
+        // local +X axis of gripper_link, rotated to world frame
+        let gripper_x_world_z =
+            2.0 * (gripper_qx * gripper_qz - gripper_qw * gripper_qy);
+        let down_alignment = (-gripper_x_world_z).clamp(0.0, 1.0);
+        let r_gripper_down = w_gripper_down * down_alignment;
 
         //Boxes moved -ve reward
         let (left_x, left_y, left_z) =
@@ -268,16 +309,20 @@ impl ArmModel {
             self.get_body_pos(cstate_next, right_box_body_index);
         let left_disp = (
             (left_x - left_box_start.0).powi(2) +
-            (left_y - left_box_start.1).powi(2) +
-            (left_z - left_box_start.2).powi(2)
+            (left_y - left_box_start.1).powi(2)
+            // (left_z - left_box_start.2).powi(2)
         )
         .sqrt();
         let right_disp = (
             (right_x - right_box_start.0).powi(2) +
-            (right_y - right_box_start.1).powi(2) +
-            (right_z - right_box_start.2).powi(2)
+            (right_y - right_box_start.1).powi(2)
+            // (right_z - right_box_start.2).powi(2)
         )
         .sqrt();
+        // println!("DEBUG: Getting this box displacement: {:?} {:?} {:?}",
+        //     left_disp,
+        //     right_disp,
+        //     left_disp + right_disp);
         let r_box_moved = -w_box_move * (left_disp + right_disp);
 
         //Cube drop -ve reward
@@ -287,8 +332,19 @@ impl ArmModel {
             0.0
         };
 
+        println!("Returning this reward: r_gripper_above: {:?} r_gripper_down: {:?} gripper_xy: {:?} r_box_moved: {:?} p_cube_drop: {:?}",
+            r_gripper_above,
+            r_gripper_down,
+            gripper_xy,
+            r_box_moved,
+            p_cube_drop);
+
         // r_progress + r_gripper_above + gripper_xy + r_box_moved + p_cube_drop
-        r_gripper_above + gripper_xy + r_box_moved + p_cube_drop
+        r_gripper_above
+            + r_gripper_down
+            + gripper_xy
+            + r_box_moved
+            + p_cube_drop
     }
 }
 
@@ -397,5 +453,13 @@ impl ControlPolicyModel for ArmModel {
 
     fn get_output_mode(&self) -> ControlPolicyOutputMode {
         self.control_output_mode.clone()
+    }
+
+    fn get_reward(&self, 
+        cstate: &Tensor, 
+        cstate_next: &Tensor, 
+        action: &Tensor) -> f64 {
+        let _ = action;
+        self.get_reward_2(cstate, cstate_next)
     }
 }

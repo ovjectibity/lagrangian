@@ -233,7 +233,7 @@ impl Simulator for MjSimulator {
             );
         }
         unsafe {
-            println!("DEBUG: Applying these controls: {:?}",ctrl_vals);
+            // println!("DEBUG: Applying these controls: {:?}",ctrl_vals);
             let ctrl_ptr = (*self.data).ctrl;
             for (i, val) in ctrl_vals.iter().enumerate() {
                 ctrl_ptr.add(i).write(*val);

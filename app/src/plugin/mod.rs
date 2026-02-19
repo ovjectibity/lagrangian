@@ -30,6 +30,12 @@ pub trait ControlPolicyModel {
     fn get_policy_store(&self) -> &nn::VarStore;
     fn get_policy_store_mut(&mut self) -> &mut nn::VarStore;
     fn get_output_mode(&self) -> ControlPolicyOutputMode;
+    fn get_reward(
+        &self,
+        cstate: &Tensor,
+        cstate_next: &Tensor,
+        action: &Tensor,
+    ) -> f64;
 }
 
 pub struct ControlModelInput {

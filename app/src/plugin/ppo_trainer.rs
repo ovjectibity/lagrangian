@@ -208,6 +208,7 @@ impl PPOTrainer {
                         &cstate_next,
                         &sampled_action,
                     );
+                println!("Got reward during gen_traj as: {:?}",reward);
                 rewards.push(reward);
                 wstates.push(wstate);
                 model_outputs.push(action_gaussian_params);

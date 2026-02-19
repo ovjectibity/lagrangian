@@ -10,7 +10,7 @@
   import PlayPauseCta from './lib/playpausecta.svelte';
   import RewardEditor from './lib/rewardeditor.svelte';
   import TrainingRuntimeDashboard from './lib/trainingruntimedashboard.svelte';
-  import { TrainingGraphNodes } from './commondef/workflowgraph';
+  import { SimulationParametersNode, TrainingGraphNodes } from './commondef/workflowgraph';
   import type { TabbedTab } from './lib/tabbedcontainer.svelte';
   import type { WorldBody } from './commondef/model';
   import type { SimulationParams } from './commondef/testing';
@@ -283,9 +283,12 @@
   };
 
   const buildSimulationParams = (): SimulationParams => {
+    
     return {
       policy_id: 'default-policy',
-      num_timesteps: 1000,
+      num_timesteps: 
+        SimulationParametersNode.settings?.find(
+          (node) => node.key === "num_timesteps")?.value as number,
       control_model: {
         type: 'FFN',
         content: {
