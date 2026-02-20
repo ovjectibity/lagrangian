@@ -29,20 +29,28 @@
         <position ctrlrange="-3.14158 3.14158" kp="25"/>
       </default> -->
       <default class="waist">
-        <joint axis="0 0 1" range="-1.14158 1.14158" damping="2.86"/>
-        <position ctrlrange="-1.14158 1.14158" kp="25"/>
+        <joint axis="0 0 1" range="-0.6 0.6" damping="2.86"/>
+        <position ctrlrange="-0.6 0.6" kp="25"/>
       </default>
       <!-- <default class="shoulder">
         <joint range="-1.85005 1.25664" armature="0.004" frictionloss="0.06" damping="6.25"/>
         <position ctrlrange="-1.85005 1.25664" kp="76" forcerange="-57 57"/>
       </default> -->
-      <default class="shoulder">
+      <!-- <default class="shoulder">
         <joint range="0 1.25664" armature="0.004" frictionloss="0.06" damping="6.25"/>
         <position ctrlrange="0 1.25664" kp="76" forcerange="-57 57"/>
+      </default> -->
+      <default class="shoulder">
+        <joint range="0 0.5" armature="0.004" frictionloss="0.06" damping="6.25"/>
+        <position ctrlrange="0 0.5" kp="76" forcerange="-57 57"/>
       </default>
-      <default class="elbow">
+      <!-- <default class="elbow">
         <joint range="-1.76278 1.6057" armature="0.072" frictionloss="1.74" damping="8.15"/>
         <position ctrlrange="-1.76278 1.6057" kp="106" forcerange="-25 25"/>
+      </default> -->
+      <default class="elbow">
+        <joint range="-0.3 0.9" armature="0.072" frictionloss="1.74" damping="8.15"/>
+        <position ctrlrange="-0.3 0.9" kp="106" forcerange="-25 25"/>
       </default>
       <default class="forearm_roll">
         <joint axis="1 0 0" range="-3.14158 3.14158" armature="0.060" damping="3.07"/>

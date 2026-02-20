@@ -42,5 +42,7 @@ export type TrainingMetrics =
 	| { type: "MeanReward", content: MetricsData }
 	| { type: "MeanPolicyLoss", content: MetricsData }
 	| { type: "ValueLoss", content: MetricsData }
-	| { type: "MeanEntropy", content: MetricsData };
+	| { type: "MeanEntropy", content: MetricsData }
+	| { type: "PolicyGradientNorm", content: MetricsData }
+	| { type: "ValueGradientNorm", content: MetricsData };
 

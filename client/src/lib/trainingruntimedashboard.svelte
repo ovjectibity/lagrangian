@@ -12,6 +12,8 @@
     "MeanEntropy",
     "ValueLoss",
     "MeanPolicyLoss",
+    "PolicyGradientNorm",
+    "ValueGradientNorm",
   ];
 
   const EMPTY_METRICS: TrainingMetricsByType = {
@@ -19,6 +21,8 @@
     MeanPolicyLoss: { x_axis: [], y_axis: [] },
     ValueLoss: { x_axis: [], y_axis: [] },
     MeanEntropy: { x_axis: [], y_axis: [] },
+    PolicyGradientNorm: { x_axis: [], y_axis: [] },
+    ValueGradientNorm: { x_axis: [], y_axis: [] },
   };
 
   const { metricsByType = EMPTY_METRICS } = $props<{

@@ -52,7 +52,7 @@ impl TrainingWorkflow {
             model.clone(),
             100,
             10000,
-            20,
+            10,
             // params.num_trajs,
             params.epsilon
         );
@@ -111,8 +111,18 @@ impl TrainingWorkflow {
             });
             let mean_value_loss_m = 
             TrainingMetrics::ValueLoss(MetricsData {
-                x_axis: update_steps,
+                x_axis: update_steps.clone(),
                 y_axis: runtime_info.mean_value_loss().to_vec(),
+            });
+            let policy_grad_norm_m =
+            TrainingMetrics::PolicyGradientNorm(MetricsData {
+                x_axis: update_steps.clone(),
+                y_axis: runtime_info.policy_gradient_norm().to_vec(),
+            });
+            let value_grad_norm_m =
+            TrainingMetrics::ValueGradientNorm(MetricsData {
+                x_axis: update_steps,
+                y_axis: runtime_info.value_gradient_norm().to_vec(),
             });
             let update = 
             TrainingTaskMessage::TrainingUpdates(
@@ -123,6 +133,8 @@ impl TrainingWorkflow {
                         mean_reward_m,
                         mean_policy_loss_m,
                         mean_value_loss_m,
+                        policy_grad_norm_m,
+                        value_grad_norm_m,
                     ],
                     logs: vec![],
                 });

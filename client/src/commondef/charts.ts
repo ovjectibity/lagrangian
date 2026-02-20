@@ -2,7 +2,9 @@ export type TrainingMetricsChart =
   | AvgRewardChart
   | MeanPolicyLossChart
   | ValueLossChart
-  | MeanEntropyChart;
+  | MeanEntropyChart
+  | PolicyGradientNormChart
+  | ValueGradientNormChart;
 
 export interface AvgRewardChart {
   metric_name: "Mean reward";
@@ -32,6 +34,20 @@ export interface MeanEntropyChart {
   type: "LineChart";
 }
 
+export interface PolicyGradientNormChart {
+  metric_name: "Policy gradient norm";
+  y_axis: "Policy gradient norm";
+  x_axis: "Update step";
+  type: "LineChart";
+}
+
+export interface ValueGradientNormChart {
+  metric_name: "Value gradient norm";
+  y_axis: "Value gradient norm";
+  x_axis: "Update step";
+  type: "LineChart";
+}
+
 export const TRAINING_METRICS_CHARTS: TrainingMetricsChart[] = [
   {
     metric_name: "Mean reward",
@@ -54,6 +70,18 @@ export const TRAINING_METRICS_CHARTS: TrainingMetricsChart[] = [
   {
     metric_name: "Mean policy loss",
     y_axis: "Mean policy loss",
+    x_axis: "Update step",
+    type: "LineChart",
+  },
+  {
+    metric_name: "Policy gradient norm",
+    y_axis: "Policy gradient norm",
+    x_axis: "Update step",
+    type: "LineChart",
+  },
+  {
+    metric_name: "Value gradient norm",
+    y_axis: "Value gradient norm",
     x_axis: "Update step",
     type: "LineChart",
   },

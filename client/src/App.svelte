@@ -56,6 +56,8 @@
     MeanPolicyLoss: createEmptyMetricsData(),
     ValueLoss: createEmptyMetricsData(),
     MeanEntropy: createEmptyMetricsData(),
+    PolicyGradientNorm: createEmptyMetricsData(),
+    ValueGradientNorm: createEmptyMetricsData(),
   });
 
   let trainingMetricsByType = $state<TrainingMetricsByType>(
@@ -79,6 +81,30 @@
       MeanEntropy: {
         x_axis: [...trainingMetricsByType.MeanEntropy.x_axis],
         y_axis: [...trainingMetricsByType.MeanEntropy.y_axis],
+      },
+      PolicyGradientNorm: {
+        x_axis: [
+          ...trainingMetricsByType
+            .PolicyGradientNorm
+            .x_axis
+        ],
+        y_axis: [
+          ...trainingMetricsByType
+            .PolicyGradientNorm
+            .y_axis
+        ],
+      },
+      ValueGradientNorm: {
+        x_axis: [
+          ...trainingMetricsByType
+            .ValueGradientNorm
+            .x_axis
+        ],
+        y_axis: [
+          ...trainingMetricsByType
+            .ValueGradientNorm
+            .y_axis
+        ],
       },
     };
     for (const metric of metrics) {

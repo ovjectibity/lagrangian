@@ -24,13 +24,22 @@ pub struct Trajectory {
 pub struct PPOTrainerRuntimeInfo {
     mean_policy_loss: Vec<f64>,
     mean_value_loss: Vec<f64>,
+    policy_gradient_norm: Vec<f64>,
+    value_gradient_norm: Vec<f64>,
 }
 
 impl PPOTrainerRuntimeInfo {
-    pub fn new(mean_policy_loss: Vec<f64>, mean_value_loss: Vec<f64>) -> Self {
+    pub fn new(
+        mean_policy_loss: Vec<f64>,
+        mean_value_loss: Vec<f64>,
+        policy_gradient_norm: Vec<f64>,
+        value_gradient_norm: Vec<f64>,
+    ) -> Self {
         PPOTrainerRuntimeInfo {
             mean_policy_loss: mean_policy_loss,
             mean_value_loss: mean_value_loss,
+            policy_gradient_norm: policy_gradient_norm,
+            value_gradient_norm: value_gradient_norm,
         }
     }
 
@@ -40,6 +49,14 @@ impl PPOTrainerRuntimeInfo {
 
     pub fn mean_value_loss(&self) -> &[f64] {
         &self.mean_value_loss
+    }
+
+    pub fn policy_gradient_norm(&self) -> &[f64] {
+        &self.policy_gradient_norm
+    }
+
+    pub fn value_gradient_norm(&self) -> &[f64] {
+        &self.value_gradient_norm
     }
 }
 
@@ -53,7 +70,7 @@ pub struct PPOTrainer {
     simulator: Arc<Mutex<dyn Simulator + Send>>,
     model: Arc<Mutex<dyn PPOTrainedModel + Send>>,
     policy_opt: nn::Optimizer,
-    value_opt: nn::Optimizer
+    value_opt: nn::Optimizer,
 }
 
 pub trait PPOTrainedModel {
@@ -73,6 +90,7 @@ pub trait PPOTrainedModel {
         cstate: &Tensor,
         cstate_next: &Tensor,
         action: &Tensor,
+        contact_pairs: Option<&[(usize, usize)]>,
     ) -> f64;
     fn get_policy_output(&self, state: &Tensor) -> Tensor;
     fn get_value_output(&self, state: &Tensor) -> f64;
@@ -120,7 +138,7 @@ impl PPOTrainer {
             simulator: simulator,
             model: model,
             policy_opt: policy_opt,
-            value_opt: value_opt
+            value_opt: value_opt,
         })
     }
 
@@ -194,11 +212,16 @@ impl PPOTrainer {
                     .lock()
                     .expect("Simulator mutex poisoned")
                     .forward_dyn(&controls);
-                let cstate_next = self
-                    .simulator
-                    .lock()
-                    .expect("Simulator mutex poisoned")
-                    .get_model_cartesian_state();
+                let (cstate_next, contact_pairs) = {
+                    let simulator = self
+                        .simulator
+                        .lock()
+                        .expect("Simulator mutex poisoned");
+                    (
+                        simulator.get_model_cartesian_state(),
+                        simulator.get_contact_body_index_pairs(),
+                    )
+                };
                 let reward = self
                     .model
                     .lock()
@@ -207,6 +230,7 @@ impl PPOTrainer {
                         &cstate,
                         &cstate_next,
                         &sampled_action,
+                        Some(&contact_pairs),
                     );
                 println!("Got reward during gen_traj as: {:?}",reward);
                 rewards.push(reward);
@@ -415,6 +439,8 @@ impl PPOTrainer {
         let gaes = (gaes - &gae_mean) / (&gae_std + 1e-8);
         let mut mean_policy_loss: Vec<f64> = Vec::new();
         let mut mean_value_loss: Vec<f64> = Vec::new();
+        let mut policy_gradient_norm: Vec<f64> = Vec::new();
+        let mut value_gradient_norm: Vec<f64> = Vec::new();
         //TODO: Expose iterations as param here
         for i in 0..self.num_updates {
             println!("Running epoch's update iteration {:?}", i);
@@ -422,14 +448,52 @@ impl PPOTrainer {
             let policy_loss_v = f64::try_from(policy_loss.detach())
                 .expect("Policy loss should be a scalar f64 tensor");
             mean_policy_loss.push(policy_loss_v);
-            self.policy_opt.backward_step(&policy_loss);
+            self.policy_opt.zero_grad();
+            policy_loss.backward();
+            let pol_variables = self
+                .model
+                .lock()
+                .expect("Model mutex poisoned")
+                .get_policy_store()
+                .trainable_variables();
+            policy_gradient_norm
+                .push(Self::get_gradient_norm(pol_variables));
+            self.policy_opt.step();
+
             let value_loss = self.get_mean_value_loss(&trajs);
             let value_loss_v = f64::try_from(value_loss.detach())
                 .expect("Value loss should be a scalar f64 tensor");
             mean_value_loss.push(value_loss_v);
-            self.value_opt.backward_step(&value_loss);
+            self.value_opt.zero_grad();
+            value_loss.backward();
+            let val_variables = self
+                .model
+                .lock()
+                .expect("Model mutex poisoned")
+                .get_value_store()
+                .trainable_variables();
+            value_gradient_norm
+                .push(Self::get_gradient_norm(val_variables));
+            self.value_opt.step();
         }
-        PPOTrainerRuntimeInfo::new(mean_policy_loss, mean_value_loss)
+        PPOTrainerRuntimeInfo::new(mean_policy_loss, mean_value_loss,
+            policy_gradient_norm, value_gradient_norm)
+    }
+
+    pub fn get_gradient_norm(variables: Vec<Tensor>) -> f64 {
+        let mut total_norm_sq = 0.0;
+        for tensor in variables {
+            let grad = tensor.grad();
+            if grad.defined() {
+                let grad_sq = grad
+                    .pow_tensor_scalar(2.0)
+                    .sum(Kind::Double);
+                let grad_sq_v = f64::try_from(grad_sq)
+                    .expect("Gradient norm should be scalar f64");
+                total_norm_sq += grad_sq_v;
+            }
+        }
+        total_norm_sq.sqrt()
     }
 
     pub fn get_rollout_mean_entropy(&self, trajs: &[Trajectory]) -> f64 {

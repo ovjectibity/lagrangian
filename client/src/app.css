@@ -364,7 +364,7 @@ h1 {
   height: 100%;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
   gap: 6px;
   padding: 6px;
   box-sizing: border-box;

@@ -305,6 +305,34 @@ impl Simulator for MjSimulator {
         }
     }
 
+    fn get_contact_body_index_pairs(&self) -> Vec<(usize, usize)> {
+        unsafe {
+            let ncon = (*self.data).ncon as usize;
+            let contact_ptr = (*self.data).contact;
+            let geom_bodyid_ptr = (*self.model).geom_bodyid;
+            if contact_ptr.is_null() || geom_bodyid_ptr.is_null() {
+                return Vec::new();
+            }
+            let mut contact_pairs: Vec<(usize, usize)> =
+                Vec::with_capacity(ncon);
+            for i in 0..ncon {
+                let contact = &*contact_ptr.add(i);
+                if contact.geom1 < 0 || contact.geom2 < 0 {
+                    continue;
+                }
+                let body1 =
+                    geom_bodyid_ptr.add(contact.geom1 as usize).read();
+                let body2 =
+                    geom_bodyid_ptr.add(contact.geom2 as usize).read();
+                if body1 < 0 || body2 < 0 {
+                    continue;
+                }
+                contact_pairs.push((body1 as usize, body2 as usize));
+            }
+            contact_pairs
+        }
+    }
+
     fn get_target_controls_from_target_positions(
         &self, target_pos_diff: &Tensor) -> Tensor {
         let nu = self.nu();

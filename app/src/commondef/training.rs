@@ -58,6 +58,8 @@ pub enum TrainingMetrics {
     MeanPolicyLoss(MetricsData),
     ValueLoss(MetricsData),
     MeanEntropy(MetricsData),
+    PolicyGradientNorm(MetricsData),
+    ValueGradientNorm(MetricsData)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

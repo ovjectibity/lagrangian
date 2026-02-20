@@ -19,6 +19,7 @@ pub trait Simulator {
     fn get_model_cartesian_state(&self) -> Tensor;
     fn get_world_body(&self) -> Option<WorldBody>;
     fn get_simul_update(&self) -> (Vec<f64>, Vec<f64>);
+    fn get_contact_body_index_pairs(&self) -> Vec<(usize, usize)>;
     fn modify_target_position(&mut self, target_pos_diff: &Tensor) -> Tensor;
     fn get_target_controls_from_target_positions(&self, target_pos_diff: &Tensor) -> Tensor;
     fn get_target_controls_from_target_velocities(&self, target_vel_diff: &Tensor) -> Tensor;
@@ -35,6 +36,7 @@ pub trait ControlPolicyModel {
         cstate: &Tensor,
         cstate_next: &Tensor,
         action: &Tensor,
+        contact_pairs: Option<&[(usize, usize)]>,
     ) -> f64;
 }
 

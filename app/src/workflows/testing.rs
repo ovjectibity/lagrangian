@@ -97,7 +97,7 @@ impl TestingWorkflow {
                 );
                 let sampled_action = 
                     action_gaussian_mean + &eps * &action_gaussian_stdev;
-                let mut controls = match model.get_output_mode() {
+                let controls = match model.get_output_mode() {
                     ControlPolicyOutputMode::TargetTorques => {
                         sampled_action.shallow_clone()
                     }
@@ -123,7 +123,14 @@ impl TestingWorkflow {
                 let cstate = simulator.get_model_cartesian_state();
                 simulator.forward_dyn(&controls);
                 let cstate_next = simulator.get_model_cartesian_state();
-                let reward = model.get_reward(&cstate, &cstate_next, &sampled_action);
+                let contact_pairs =
+                    simulator.get_contact_body_index_pairs();
+                let reward = model.get_reward(
+                    &cstate,
+                    &cstate_next,
+                    &sampled_action,
+                    Some(&contact_pairs),
+                );
                 println!("Got reward at run_test {:?} {:?}",i,reward);
                 let (xpos, xquat) = simulator.get_simul_update();
                 Self::send_simul_update(&tx_test_t, self.id.clone(), xpos, xquat);
