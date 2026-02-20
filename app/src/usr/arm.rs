@@ -193,8 +193,8 @@ impl ArmModel {
         let w_gripper_down = 1.5_f64;
         let w_box_move = 20.0_f64;
         let w_cube_drop = 20.0_f64;
-        let w_grip_contact = 6.0_f64;
-        let w_cube_contact_clean = 8.0_f64;
+        let w_grip_contact = 10.0_f64;
+        let w_cube_contact_clean = 20.0_f64;
         let cube_drop_z_threshold = 0.10_f64;
         let gripper_xy_reward_radius = 0.035_f64;
 
@@ -327,7 +327,7 @@ impl ArmModel {
 
         //Cube drop -ve reward
         let p_cube_drop = if next_cz < cube_drop_z_threshold {
-            -w_cube_drop * (cube_drop_z_threshold - next_cz)
+            -w_cube_drop //* (cube_drop_z_threshold - next_cz)
         } else {
             0.0
         };
