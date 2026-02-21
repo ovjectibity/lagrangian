@@ -195,8 +195,8 @@ impl ArmModel {
         let w_gripper_down = 1.5_f64;
         let w_box_move = 20.0_f64;
         let w_cube_drop = 20.0_f64;
-        let w_grip_contact = 10.0_f64;
-        let w_cube_contact_clean = 20.0_f64;
+        let w_grip_contact = 20.0_f64;
+        let w_cube_contact_clean = 70.0_f64;
         let cube_drop_z_threshold = 0.10_f64;
         let gripper_xy_reward_radius = 0.035_f64;
 
