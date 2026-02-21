@@ -72,11 +72,13 @@ impl ArmModel {
                     .get(0)
                     .expect("missing mean head")
                     .tanh()
-                    * 0.1;
+                    // * 0.1;
+                    * 0.01;
                 let log_std = parts
                     .get(1)
                     .expect("missing log_std head")
-                    .clamp(-4.0, -2.0);
+                    // .clamp(-4.0, -2.0);
+                    .clamp(-5.2, -4.2);
                 Tensor::concat(&[mean, log_std], -1)
             });
         }
@@ -235,17 +237,28 @@ impl ArmModel {
         // let (gripper_prev_x, gripper_prev_y, gripper_prev_z) =
         //     self.get_body_pos(cstate, gripper_body_index);
         let z_clearance = 0.03_f64;
-        let z_sat_k = 12.0_f64;
+        // let z_sat_k = 12.0_f64;
+        let z_sat_k = 4.0_f64;
         let z_gap = gripper_next_z - next_cz;
-        let z_above = (z_gap - z_clearance).max(0.0);
-        let z_below = (z_clearance - z_gap).max(0.0);
+        // let z_above = (z_gap - z_clearance).max(0.0);
+        let z_above = z_gap.max(0.0);
+        // let z_below = (z_clearance - z_gap).max(0.0);
+        let z_below = 
+            if z_gap < 0.0 && 
+            (z_gap.abs() - z_clearance) > 0.0 {
+                z_gap.abs() - z_clearance
+        } else {
+            0.0
+        };
+        // let r_above_z = w_gripper_above
+        //     * (1.0 - (-z_sat_k * z_above).exp());
         let r_above_z = w_gripper_above
-            * (1.0 - (-z_sat_k * z_above).exp());
+            * (-z_sat_k * z_above).exp();
         let p_below_z = -w_gripper_below * z_below;
-        let r_gripper_above = 
-        // r_above_z + p_below_z;
+        //Below -ve reward regardless of distance
+        let r_gripper_above = p_below_z +
         if gripper_xy_dist <= gripper_xy_reward_radius {
-            r_above_z + p_below_z
+            r_above_z 
         } else {
             0.0
         };
