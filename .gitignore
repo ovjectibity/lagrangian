@@ -9,3 +9,5 @@
 /app/lib
 .env
 .envrc
+worker/trainer/trainer-py/.venv
+worker/trainer/trainer-py/__pycache__/

@@ -1,0 +1,4 @@
+jax[cuda13]
+jax
+websockets
+mujoco-mjx
