@@ -1,14 +1,13 @@
 use serde;
 use typeshare::typeshare;
 
-use crate::commondef::model;
 use crate::commondef::training::{TrainingMethod, TrainingMetrics};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum TrainingRemoteWorkerServerMessage {
-    LoadModelMessage,
+    LoadModelMessage(LoadModelMessage),
     StartTrainingMessage(StartTrainingMessage),
     StopTrainingMessage(StopTrainingMessage)
 }
@@ -38,7 +37,7 @@ pub enum TrainingRemoteWorkerClientMessage {
 #[typeshare]
 pub struct LoadModelMessage {
     pub id: String,
-    pub model: model::WorldBody,
+    pub mjcf: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

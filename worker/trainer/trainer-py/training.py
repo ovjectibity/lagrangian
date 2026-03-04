@@ -44,11 +44,11 @@ class CallbackTrainingTaskSink(TrainingTaskSink):
 
     def send_training_updates(self, message: TrainingUpdatesMessage) -> None:
         wrapped = TrainingRemoteWorkerClientMessageTrainingUpdatesMessage(content=message)
-        self._send_message(wrapped.model_dump(by_alias=True))
+        self._send_message(wrapped.model_dump(mode="json", by_alias=True))
 
     def send_stop_training(self, message: StopTrainingMessage) -> None:
         wrapped = TrainingRemoteWorkerClientMessageStopTrainingMessage(content=message)
-        self._send_message(wrapped.model_dump(by_alias=True))
+        self._send_message(wrapped.model_dump(mode="json", by_alias=True))
 
 
 class TrainingWorkflow:
@@ -88,8 +88,14 @@ class TrainingWorkflow:
             )
         )
 
-    def run_training_blocking(self, tx: TrainingTaskSink) -> None:
+    def run_training_blocking(
+        self,
+        tx: TrainingTaskSink,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> None:
         for i in range(self.params.num_epochs):
+            if should_stop is not None and should_stop():
+                break
             self.log_and_send_blocking(
                 tx,
                 self.id,

@@ -84,12 +84,21 @@ class Simulator(ABC):
 
 
 class MjxSimulator(Simulator):
-    def __init__(self, model_path: str) -> None:
+    def __init__(
+        self,
+        model_path: str | None = None,
+        mjcf: str | None = None,
+    ) -> None:
         if mujoco is None or mjx is None:
             raise ModuleNotFoundError(
                 "mujoco/mjx is not installed. Install dependencies from requirements.txt."
             )
-        self._model = mujoco.MjModel.from_xml_path(model_path)
+        if (model_path is None and mjcf is None) or (model_path is not None and mjcf is not None):
+            raise ValueError("Provide exactly one of model_path or mjcf")
+        if mjcf is not None:
+            self._model = mujoco.MjModel.from_xml_string(mjcf)
+        else:
+            self._model = mujoco.MjModel.from_xml_path(model_path)
         self._data = mujoco.MjData(self._model)
         mujoco.mj_forward(self._model, self._data)
         self._mjx_model = mjx.put_model(self._model)

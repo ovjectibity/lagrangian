@@ -5,19 +5,14 @@ from __future__ import annotations
 
 from enum import Enum
 from pydantic import BaseModel
-from typing import Any, List, Literal, Union
+from typing import List, Literal, Union
 
 from commondef.training import TrainingMethod, TrainingMetrics
-
-try:
-    from commondef.model import WorldBody
-except ModuleNotFoundError:
-    WorldBody = Any
 
 
 class LoadModelMessage(BaseModel):
     id: str
-    model: WorldBody
+    mjcf: str
 
 class StartTrainingMessage(BaseModel):
     id: str
@@ -51,6 +46,7 @@ class TrainingRemoteWorkerServerMessageTypes(str, Enum):
 
 class TrainingRemoteWorkerServerMessageLoadModelMessage(BaseModel):
     type: Literal[TrainingRemoteWorkerServerMessageTypes.LOAD_MODEL_MESSAGE] = TrainingRemoteWorkerServerMessageTypes.LOAD_MODEL_MESSAGE
+    content: LoadModelMessage
 
 class TrainingRemoteWorkerServerMessageStartTrainingMessage(BaseModel):
     type: Literal[TrainingRemoteWorkerServerMessageTypes.START_TRAINING_MESSAGE] = TrainingRemoteWorkerServerMessageTypes.START_TRAINING_MESSAGE
