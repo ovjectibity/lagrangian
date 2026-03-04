@@ -9,6 +9,8 @@ import jax
 import jax.numpy as jnp
 from jax import random
 
+from simulator import Simulator
+
 
 Array = jax.Array
 Params = Any
@@ -54,67 +56,6 @@ class ControlPolicyOutputMode(Enum):
     TargetPositions = "TargetPositions"
     TargetVelocities = "TargetVelocities"
     TargetTorques = "TargetTorques"
-
-
-class Simulator(ABC):
-    @abstractmethod
-    def reset_state(self) -> None:
-        pass
-
-    @abstractmethod
-    def nq(self) -> int:
-        pass
-
-    @abstractmethod
-    def nu(self) -> int:
-        pass
-
-    @abstractmethod
-    def nv(self) -> int:
-        pass
-
-    @abstractmethod
-    def forward_dyn(self, controls: Array) -> None:
-        pass
-
-    @abstractmethod
-    def inverse_dyn(self, acc: Array) -> Array:
-        pass
-
-    @abstractmethod
-    def get_model_state(self) -> Array:
-        pass
-
-    @abstractmethod
-    def get_model_cartesian_state(self) -> Array:
-        pass
-
-    @abstractmethod
-    def get_world_body(self) -> Any | None:
-        pass
-
-    @abstractmethod
-    def get_simul_update(self) -> tuple[list[float], list[float]]:
-        pass
-
-    @abstractmethod
-    def get_contact_body_index_pairs(self) -> list[tuple[int, int]]:
-        pass
-
-    @abstractmethod
-    def modify_target_position(self, target_pos_diff: Array) -> Array:
-        pass
-
-    @abstractmethod
-    def get_target_controls_from_target_positions(
-        self,
-        target_pos_diff: Array,
-    ) -> Array:
-        pass
-
-    @abstractmethod
-    def get_target_controls_from_target_velocities(self, target_vel_diff: Array) -> Array:
-        pass
 
 
 class PPOTrainedModel(ABC):
