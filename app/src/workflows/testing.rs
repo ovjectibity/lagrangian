@@ -4,7 +4,7 @@ use rocket::tokio::sync::mpsc;
 use tch::{Device, Kind, Tensor};
 
 use crate::commondef::{
-    messages::{
+    clientmessages::{
         ModelForward, 
         SimulUpdateMessage, 
         StopSimulationMessage

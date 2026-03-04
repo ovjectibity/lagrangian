@@ -9,7 +9,7 @@ use rocket::tokio;
 use rocket::tokio::sync::mpsc;
 use rocket_ws as ws;
 
-use crate::commondef::{messages, workermessages};
+use crate::commondef::{clientmessages, workermessages};
 use crate::workflows::testing::TestingWorkflow;
 use crate::workflows::training::TrainingWorkflow;
 use crate::workflows::{WorkflowMode, WorkflowRuntime};
@@ -49,7 +49,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                     let world_body =
                                         simulator::get_test_model();
                                     let response_message =
-                                        messages::ClientMessage::new_set_model_message(world_body);
+                                        clientmessages::ClientMessage::new_set_model_message(world_body);
                                     let json_response =
                                         serde_json::to_string(&response_message)
                                         .unwrap_or_else(|_| "{}".to_string());
@@ -68,7 +68,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                     }
                                     if let Some(wb) = world_body {
                                         let response_message =
-                                            messages::ClientMessage::new_set_model_message(wb);
+                                            clientmessages::ClientMessage::new_set_model_message(wb);
                                         let json_response =
                                             serde_json::to_string(&response_message)
                                             .unwrap_or_else(|_| "{}".to_string());
@@ -94,10 +94,10 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                         .to_string(),
                                         tx_simul.clone());
                                 } else {
-                                    match serde_json::from_str::<messages::ServerMessage>(&text) {
+                                    match serde_json::from_str::<clientmessages::ServerMessage>(&text) {
                                         Ok(m) => {
                                             match m {
-                                                messages::ServerMessage::LoadModelMessage => {
+                                                clientmessages::ServerMessage::LoadModelMessage => {
                                                     let model_path = "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml"
                                                         .to_string();
                                                     match WorkflowRuntime::load(model_path) {
@@ -105,7 +105,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                             println!("Loaded shared workflow runtime");
                                                             match runtime.world_body() {
                                                                 Ok(world_body) => {
-                                                                    let response_message = messages::ClientMessage::new_load_model_message(
+                                                                    let response_message = clientmessages::ClientMessage::new_load_model_message(
                                                                         "1".to_string(),
                                                                         world_body,
                                                                     );
@@ -137,7 +137,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                         }
                                                     }
                                                 },
-                                                messages::ServerMessage::StartTrainingMessage(t) => {
+                                                clientmessages::ServerMessage::StartTrainingMessage(t) => {
                                                     println!("Start training ask from client {:?}",t);
                                                     if workflow_runtime.is_none() {
                                                         println!("LoadModelMessage must be sent before StartTrainingMessage");
@@ -171,14 +171,14 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                     });
                                                     training_tasks.insert(t.id.clone(),h);
                                                 },
-                                                messages::ServerMessage::StopTrainingMessage(t) => {
+                                                clientmessages::ServerMessage::StopTrainingMessage(t) => {
                                                      println!("Stopping training as asked by client {:?}",t);
                                                     training_tasks.remove(&t.id.clone());
                                                     if let Some(runtime) = workflow_runtime.as_mut() {
                                                         runtime.set_mode(WorkflowMode::Idle);
                                                     }
                                                 },
-                                                messages::ServerMessage::StartSimulationMessage(t) => {
+                                                clientmessages::ServerMessage::StartSimulationMessage(t) => {
                                                     println!("Start simulation ask from client {:?}",t.id);
                                                     if workflow_runtime.is_none() {
                                                         println!("LoadModelMessage must be sent before StartSimulationMessage");
@@ -204,7 +204,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                     });
                                                     testing_tasks.insert(t.id, h);
                                                 },
-                                                messages::ServerMessage::StopSimulationMessage(t) => {
+                                                clientmessages::ServerMessage::StopSimulationMessage(t) => {
                                                     println!("Stop simulation ask from client {:?}",t.id);
                                                     testing_tasks.remove(&t.id.clone());
                                                     if let Some(runtime) = workflow_runtime.as_mut() {
@@ -238,14 +238,14 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                         match msg {
                             workermessages::SimulatorThreadMessage::LoadModel(m) => {
                                 let response_message =
-                                    messages::ClientMessage::new_load_model_message(
+                                    clientmessages::ClientMessage::new_load_model_message(
                                     "1".to_string(), m.model);
                                 let json_response = serde_json::to_string(&response_message)
                                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e));
                                 let _ = stream.send(ws::Message::Text(json_response)).await;
                             },
                             workermessages::SimulatorThreadMessage::SimulUpdate(m) => {
-                                let binary_data = messages::ClientMessage::to_binary_simul_update(
+                                let binary_data = clientmessages::ClientMessage::to_binary_simul_update(
                                     "1".to_string(), m.update
                                 );
                                 let _ = stream.send(ws::Message::Binary(binary_data)).await;
@@ -258,7 +258,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                         match msg {
                             workermessages::TrainingTaskMessage::TrainingUpdates(m) => {
                                 let response_message =
-                                    messages::ClientMessage::TrainingUpdatesMessage(m);
+                                    clientmessages::ClientMessage::TrainingUpdatesMessage(m);
                                 let json_response = serde_json::to_string(&response_message)
                                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e));
                                 let _ = stream.send(ws::Message::Text(json_response)).await;
@@ -269,7 +269,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                     runtime.set_mode(WorkflowMode::Idle);
                                 }
                                 let response_message =
-                                    messages::ClientMessage::StopTrainingMessage(m);
+                                    clientmessages::ClientMessage::StopTrainingMessage(m);
                                 let json_response = serde_json::to_string(&response_message)
                                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e));
                                 let _ = stream.send(ws::Message::Text(json_response)).await;
@@ -287,14 +287,14 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                     runtime.set_mode(WorkflowMode::Idle);
                                 }
                                 let response_message =
-                                    messages::ClientMessage::StopSimulationMessage(m);
+                                    clientmessages::ClientMessage::StopSimulationMessage(m);
                                 let json_response = serde_json::to_string(&response_message)
                                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e));
                                 let _ = stream.send(ws::Message::Text(json_response)).await;
                             },
                             workermessages::TestingTaskMessage::SimulationUpdates(m) => {
                                 let response_message =
-                                    messages::ClientMessage::SimulUpdateMessage(m);
+                                    clientmessages::ClientMessage::SimulUpdateMessage(m);
                                 let json_response = serde_json::to_string(&response_message)
                                     .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e));
                                 let _ = stream.send(ws::Message::Text(json_response)).await;

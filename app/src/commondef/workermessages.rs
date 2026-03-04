@@ -1,4 +1,4 @@
-use crate::commondef::messages::{
+use crate::commondef::clientmessages::{
     ModelForward, SimulUpdateMessage, StartSimulationMessage, StopSimulationMessage,
     StopTrainingMessage, TrainingUpdatesMessage,
 };

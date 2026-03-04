@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use rocket::tokio::sync::mpsc;
 
-use crate::commondef::messages::{
+use crate::commondef::clientmessages::{
     StopTrainingMessage, TrainingUpdatesMessage
 };
 use crate::commondef::training::{
