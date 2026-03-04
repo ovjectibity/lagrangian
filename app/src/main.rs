@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::fs;
 
 #[macro_use]
@@ -22,6 +23,77 @@ pub mod simulator;
 pub mod usr;
 pub mod workflows;
 
+fn build_remote_training_worker_config()
+-> Result<remote_workflows::training_controller::TrainingWorkerControllerConfig, String> {
+    let mut cfg = remote_workflows::training_controller::TrainingWorkerControllerConfig::default();
+
+    if let Ok(region) = env::var("TRAINING_WORKER_AWS_REGION") {
+        if !region.is_empty() {
+            cfg.aws_region = region;
+        }
+    }
+    cfg.ami_id = env::var("TRAINING_WORKER_AMI_ID")
+        .map_err(|_| "Missing required env var TRAINING_WORKER_AMI_ID".to_string())?;
+    cfg.worker_image_uri = env::var("TRAINING_WORKER_IMAGE_URI")
+        .map_err(|_| "Missing required env var TRAINING_WORKER_IMAGE_URI".to_string())?;
+    cfg.worker_shared_secret = env::var("TRAINING_WORKER_SHARED_SECRET")
+        .map_err(|_| "Missing required env var TRAINING_WORKER_SHARED_SECRET".to_string())?;
+
+    if let Ok(v) = env::var("TRAINING_WORKER_SUBNET_ID") {
+        if !v.is_empty() {
+            cfg.subnet_id = Some(v);
+        }
+    }
+    if let Ok(v) = env::var("TRAINING_WORKER_SECURITY_GROUP_IDS") {
+        let values: Vec<String> = v
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string)
+            .collect();
+        if !values.is_empty() {
+            cfg.security_group_ids = values;
+        }
+    }
+    if let Ok(v) = env::var("TRAINING_WORKER_KEY_NAME") {
+        if !v.is_empty() {
+            cfg.key_name = Some(v);
+        }
+    }
+    if let Ok(v) = env::var("TRAINING_WORKER_IAM_INSTANCE_PROFILE_ARN") {
+        if !v.is_empty() {
+            cfg.iam_instance_profile_arn = Some(v);
+        }
+    }
+    if let Ok(v) = env::var("TRAINING_WORKER_INSTANCE_NAME_TAG") {
+        if !v.is_empty() {
+            cfg.instance_name_tag = v;
+        }
+    }
+    if let Ok(v) = env::var("TRAINING_WORKER_SPOT_MAX_PRICE_USD") {
+        if !v.is_empty() {
+            cfg.spot_max_price_usd = Some(v);
+        }
+    }
+    if let Ok(v) = env::var("TRAINING_WORKER_CONTAINER_NAME") {
+        if !v.is_empty() {
+            cfg.worker_container_name = v;
+        }
+    }
+    if let Ok(v) = env::var("TRAINING_WORKER_PORT") {
+        if let Ok(port) = v.parse::<u16>() {
+            cfg.worker_port = port;
+        }
+    }
+    if let Ok(v) = env::var("TRAINING_WORKER_WS_PATH") {
+        if !v.is_empty() {
+            cfg.worker_ws_path = v;
+        }
+    }
+
+    Ok(cfg)
+}
+
 // --- API Routes ---
 #[get("/hello")]
 fn api_hello() -> &'static str {
@@ -36,6 +108,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
     let mut training_tasks = HashMap::new();
     let mut testing_tasks = HashMap::new();
     let mut workflow_runtime: Option<WorkflowRuntime> = None;
+    let mut loaded_model_path: Option<String> = None;
     ws.channel(move |mut stream| {
         Box::pin(async move {
             loop {
@@ -98,7 +171,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                 clientmessages::ServerMessage::LoadModelMessage => {
                                                     let model_path = "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml"
                                                         .to_string();
-                                                    match WorkflowRuntime::load(model_path) {
+                                                    match WorkflowRuntime::load(model_path.clone()) {
                                                         Ok(runtime) => {
                                                             println!("Loaded shared workflow runtime");
                                                             match runtime.world_body() {
@@ -129,6 +202,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                                 }
                                                             }
                                                             workflow_runtime = Some(runtime);
+                                                            loaded_model_path = Some(model_path);
                                                         },
                                                         Err(e) => {
                                                             println!("Couldn't load shared workflow runtime {:?}",e);
@@ -137,37 +211,118 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                 },
                                                 clientmessages::ServerMessage::StartTrainingMessage(t) => {
                                                     println!("Start training ask from client {:?}",t);
-                                                    if workflow_runtime.is_none() {
-                                                        println!("LoadModelMessage must be sent before StartTrainingMessage");
-                                                        continue;
-                                                    }
-                                                    let commondef::training::TrainingMethod::PPO(ppomethod) =
-                                                        t.training_controller.training_method;
-                                                    let runtime = workflow_runtime
-                                                        .as_mut()
-                                                        .expect("Runtime should be available");
-                                                    if let Err(e) = runtime
-                                                        .configure_model_for_training(&ppomethod) {
-                                                        println!("Couldn't configure shared model for training {:?}",e);
-                                                        continue;
-                                                    }
-                                                    runtime.set_mode(WorkflowMode::Training);
-                                                    let simulator_h = runtime.simulator_handle();
-                                                    let model_h = runtime.ppo_model_handle();
-                                                    let tx_tc = tx_train.clone();
-                                                    let id_c = t.id.clone();
-                                                    let h = tokio::task::spawn_blocking(move || {
-                                                        let workflow_r = TrainingWorkflow::new(
-                                                            id_c,
-                                                            ppomethod,
-                                                            simulator_h,
-                                                            model_h,
-                                                        );
-                                                        if let Ok(mut workflow) = workflow_r {
-                                                            workflow.run_training_blocking(tx_tc);
+                                                    let training_id = t.id.clone();
+                                                    let training_controller = t.training_controller;
+                                                    match (
+                                                        training_controller.acceleration_mode,
+                                                        training_controller.training_method,
+                                                    ) {
+                                                        (
+                                                            commondef::training::TrainingAccelerationMode::AllOnServer,
+                                                            commondef::training::TrainingMethod::PPO(ppomethod),
+                                                        ) => {
+                                                            if workflow_runtime.is_none() {
+                                                                println!("LoadModelMessage must be sent before StartTrainingMessage");
+                                                                continue;
+                                                            }
+                                                            let runtime = workflow_runtime
+                                                                .as_mut()
+                                                                .expect("Runtime should be available");
+                                                            if let Err(e) = runtime
+                                                                .configure_model_for_training(&ppomethod) {
+                                                                println!("Couldn't configure shared model for training {:?}",e);
+                                                                continue;
+                                                            }
+                                                            runtime.set_mode(WorkflowMode::Training);
+                                                            let simulator_h = runtime.simulator_handle();
+                                                            let model_h = runtime.ppo_model_handle();
+                                                            let tx_tc = tx_train.clone();
+                                                            let id_c = training_id.clone();
+                                                            let h = tokio::task::spawn_blocking(move || {
+                                                                let workflow_r = TrainingWorkflow::new(
+                                                                    id_c,
+                                                                    ppomethod,
+                                                                    simulator_h,
+                                                                    model_h,
+                                                                );
+                                                                if let Ok(mut workflow) = workflow_r {
+                                                                    workflow.run_training_blocking(tx_tc);
+                                                                }
+                                                            });
+                                                            training_tasks.insert(training_id, h);
                                                         }
-                                                    });
-                                                    training_tasks.insert(t.id.clone(),h);
+                                                        (_, training_method) => {
+                                                            let model_path = match loaded_model_path.clone() {
+                                                                Some(path) => path,
+                                                                None => {
+                                                                    println!("LoadModelMessage must be sent before StartTrainingMessage");
+                                                                    continue;
+                                                                }
+                                                            };
+                                                            let mjcf = match fs::read_to_string(&model_path) {
+                                                                Ok(content) => content,
+                                                                Err(e) => {
+                                                                    println!("Couldn't read model MJCF from path {:?}: {:?}", model_path, e);
+                                                                    continue;
+                                                                }
+                                                            };
+                                                            let remote_cfg = match build_remote_training_worker_config() {
+                                                                Ok(cfg) => cfg,
+                                                                Err(e) => {
+                                                                    println!("Couldn't build remote training worker config: {:?}", e);
+                                                                    continue;
+                                                                }
+                                                            };
+
+                                                            if let Some(runtime) = workflow_runtime.as_mut() {
+                                                                runtime.set_mode(WorkflowMode::Training);
+                                                            }
+                                                            let tx_tc = tx_train.clone();
+                                                            let id_c = training_id.clone();
+                                                            let h = tokio::spawn(async move {
+                                                                let mut worker = match remote_workflows::training_controller::TrainingWorkerController::initialize(remote_cfg).await {
+                                                                    Ok(w) => w,
+                                                                    Err(e) => {
+                                                                        println!("Couldn't initialize remote training worker: {:?}", e);
+                                                                        let _ = tx_tc.send(workermessages::TrainingTaskMessage::StopTraining(
+                                                                            clientmessages::StopTrainingMessage { id: id_c.clone() },
+                                                                        )).await;
+                                                                        return;
+                                                                    }
+                                                                };
+                                                                let tx_updates = tx_tc.clone();
+                                                                let result = worker
+                                                                    .run_training_job(
+                                                                        id_c.clone(),
+                                                                        training_method,
+                                                                        mjcf,
+                                                                        move |update| {
+                                                                            let _ = tx_updates.try_send(
+                                                                                workermessages::TrainingTaskMessage::TrainingUpdates(
+                                                                                    clientmessages::TrainingUpdatesMessage {
+                                                                                        id: update.id.clone(),
+                                                                                        metrics: update.metrics.clone(),
+                                                                                        logs: update.logs.clone(),
+                                                                                    },
+                                                                                ),
+                                                                            );
+                                                                        },
+                                                                    )
+                                                                    .await;
+                                                                if let Err(e) = result {
+                                                                    println!("Remote training execution failed: {:?}", e);
+                                                                }
+                                                                let _ = tx_tc
+                                                                    .send(workermessages::TrainingTaskMessage::StopTraining(
+                                                                        clientmessages::StopTrainingMessage {
+                                                                            id: id_c.clone(),
+                                                                        },
+                                                                    ))
+                                                                    .await;
+                                                            });
+                                                            training_tasks.insert(training_id, h);
+                                                        }
+                                                    }
                                                 },
                                                 clientmessages::ServerMessage::StopTrainingMessage(t) => {
                                                      println!("Stopping training as asked by client {:?}",t);

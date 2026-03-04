@@ -1,1 +1,1 @@
-pub mod training_worker_controller;
+pub mod training_controller;
