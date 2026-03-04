@@ -61,7 +61,7 @@ pub enum TrainingMetrics {
     ValueLoss(MetricsData),
     MeanEntropy(MetricsData),
     PolicyGradientNorm(MetricsData),
-    ValueGradientNorm(MetricsData)
+    ValueGradientNorm(MetricsData),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -77,13 +77,13 @@ pub enum TrainingAccelerationMode {
     MLGPUSimulationCPU,
     MLGPUSimulationGPU,
     MLCPUSimulationGPU,
-    AllOnServer
+    AllOnServer,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub enum ComputeInstance {
-    AWSG4dn
+    AWSG4dn,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -91,5 +91,5 @@ pub enum ComputeInstance {
 pub struct TrainingJobController {
     pub training_method: TrainingMethod,
     pub acceleration_mode: TrainingAccelerationMode,
-    pub compute_instance: ComputeInstance
+    pub compute_instance: ComputeInstance,
 }

@@ -29,12 +29,9 @@ fn api_hello() -> &'static str {
 
 #[get("/viewport")]
 fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
-    let (tx_simul, mut rx_simul) = 
-        mpsc::channel::<workermessages::SimulatorThreadMessage>(32);
-    let (tx_test, mut rx_test) = 
-        mpsc::channel::<workermessages::TestingTaskMessage>(32);
-    let (tx_train, mut rx_train) = 
-        mpsc::channel::<workermessages::TrainingTaskMessage>(32);
+    let (tx_simul, mut rx_simul) = mpsc::channel::<workermessages::SimulatorThreadMessage>(32);
+    let (tx_test, mut rx_test) = mpsc::channel::<workermessages::TestingTaskMessage>(32);
+    let (tx_train, mut rx_train) = mpsc::channel::<workermessages::TrainingTaskMessage>(32);
     let mut training_tasks = HashMap::new();
     let mut testing_tasks = HashMap::new();
     let mut workflow_runtime: Option<WorkflowRuntime> = None;

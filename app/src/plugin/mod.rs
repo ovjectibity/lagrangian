@@ -1,4 +1,4 @@
-use tch::{nn, Tensor};
+use tch::{Tensor, nn};
 
 use crate::commondef::model::WorldBody;
 

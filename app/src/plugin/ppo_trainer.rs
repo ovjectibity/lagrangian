@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use tch::{
-    nn::{self, Module, OptimizerConfig},
     Kind, Tensor,
+    nn::{self, Module, OptimizerConfig},
 };
 
 use crate::plugin::{ControlPolicyOutputMode, Simulator};
@@ -79,7 +79,7 @@ pub trait PPOTrainedModel {
         policy: nn::Sequential,
         val_estimator: nn::Sequential,
         pol_store: nn::VarStore,
-        val_estimator_store: nn::VarStore
+        val_estimator_store: nn::VarStore,
     ) -> Self
     where
         Self: Sized;
@@ -156,10 +156,7 @@ impl PPOTrainer {
                 .reset_state();
             for i in 0..self.traj_depth {
                 let (wstate, cstate): (Tensor, Tensor) = {
-                    let simulator = self
-                        .simulator
-                        .lock()
-                        .expect("Simulator mutex poisoned");
+                    let simulator = self.simulator.lock().expect("Simulator mutex poisoned");
                     (
                         simulator.get_model_state(),
                         simulator.get_model_cartesian_state(),
@@ -187,9 +184,12 @@ impl PPOTrainer {
                 let sampled_action = action_gaussian_mean + &eps * &action_gaussian_stdev;
                 // println!("DEBUG: Sampled action for traj rollout as follows: ");
                 // sampled_action.print();
-                let controls = 
-                match &self.model.lock().expect("Couldn't lock model during ppo traj gen").
-                get_control_policy_output_mode() {
+                let controls = match &self
+                    .model
+                    .lock()
+                    .expect("Couldn't lock model during ppo traj gen")
+                    .get_control_policy_output_mode()
+                {
                     ControlPolicyOutputMode::TargetTorques => sampled_action.shallow_clone(),
                     ControlPolicyOutputMode::TargetPositions => self
                         .simulator
@@ -214,26 +214,19 @@ impl PPOTrainer {
                     .expect("Simulator mutex poisoned")
                     .forward_dyn(&controls);
                 let (cstate_next, contact_pairs) = {
-                    let simulator = self
-                        .simulator
-                        .lock()
-                        .expect("Simulator mutex poisoned");
+                    let simulator = self.simulator.lock().expect("Simulator mutex poisoned");
                     (
                         simulator.get_model_cartesian_state(),
                         simulator.get_contact_body_index_pairs(),
                     )
                 };
-                let reward = self
-                    .model
-                    .lock()
-                    .expect("Model mutex poisoned")
-                    .get_reward(
-                        &cstate,
-                        &cstate_next,
-                        &sampled_action,
-                        Some(&contact_pairs),
-                    );
-                println!("Got reward during gen_traj as: {:?}",reward);
+                let reward = self.model.lock().expect("Model mutex poisoned").get_reward(
+                    &cstate,
+                    &cstate_next,
+                    &sampled_action,
+                    Some(&contact_pairs),
+                );
+                println!("Got reward during gen_traj as: {:?}", reward);
                 rewards.push(reward);
                 wstates.push(wstate);
                 model_outputs.push(action_gaussian_params);
@@ -429,11 +422,7 @@ impl PPOTrainer {
     }
 
     pub fn train_an_epoch(&mut self, trajs: &[Trajectory]) -> PPOTrainerRuntimeInfo {
-        let gae_v: Vec<Tensor> =
-            trajs
-                .iter()
-                .map(|traj| self.compute_gae(traj))
-                .collect();
+        let gae_v: Vec<Tensor> = trajs.iter().map(|traj| self.compute_gae(traj)).collect();
         let gaes = Tensor::stack(&gae_v, 0).detach();
         let gae_mean = gaes.mean(Kind::Double);
         let gae_std = gaes.std(true);
@@ -457,8 +446,7 @@ impl PPOTrainer {
                 .expect("Model mutex poisoned")
                 .get_policy_store()
                 .trainable_variables();
-            policy_gradient_norm
-                .push(Self::get_gradient_norm(pol_variables));
+            policy_gradient_norm.push(Self::get_gradient_norm(pol_variables));
             self.policy_opt.step();
 
             let value_loss = self.get_mean_value_loss(&trajs);
@@ -473,12 +461,15 @@ impl PPOTrainer {
                 .expect("Model mutex poisoned")
                 .get_value_store()
                 .trainable_variables();
-            value_gradient_norm
-                .push(Self::get_gradient_norm(val_variables));
+            value_gradient_norm.push(Self::get_gradient_norm(val_variables));
             self.value_opt.step();
         }
-        PPOTrainerRuntimeInfo::new(mean_policy_loss, mean_value_loss,
-            policy_gradient_norm, value_gradient_norm)
+        PPOTrainerRuntimeInfo::new(
+            mean_policy_loss,
+            mean_value_loss,
+            policy_gradient_norm,
+            value_gradient_norm,
+        )
     }
 
     pub fn get_gradient_norm(variables: Vec<Tensor>) -> f64 {
@@ -486,11 +477,8 @@ impl PPOTrainer {
         for tensor in variables {
             let grad = tensor.grad();
             if grad.defined() {
-                let grad_sq = grad
-                    .pow_tensor_scalar(2.0)
-                    .sum(Kind::Double);
-                let grad_sq_v = f64::try_from(grad_sq)
-                    .expect("Gradient norm should be scalar f64");
+                let grad_sq = grad.pow_tensor_scalar(2.0).sum(Kind::Double);
+                let grad_sq_v = f64::try_from(grad_sq).expect("Gradient norm should be scalar f64");
                 total_norm_sq += grad_sq_v;
             }
         }

@@ -9,7 +9,7 @@ use crate::commondef::training::{TrainingMethod, TrainingMetrics};
 pub enum TrainingRemoteWorkerServerMessage {
     LoadModelMessage(LoadModelMessage),
     StartTrainingMessage(StartTrainingMessage),
-    StopTrainingMessage(StopTrainingMessage)
+    StopTrainingMessage(StopTrainingMessage),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -28,7 +28,7 @@ impl WorkflowRuntime {
         let nu = simulator.nu();
         let nv = simulator.nv();
         let nq = simulator.nq();
-        let model = Self::build_default_model(nq,nv,nu);
+        let model = Self::build_default_model(nq, nv, nu);
         Ok(WorkflowRuntime {
             simulator: Arc::new(Mutex::new(simulator)),
             model: Arc::new(Mutex::new(model)),
@@ -50,18 +50,11 @@ impl WorkflowRuntime {
             true,
         );
         let (value, value_store) =
-            ArmModel::init_policy(
-                input_dim, 1, 
-                hidden_dim, 
-                num_hidden_layers, false, false,
-            );
-        ArmModel::init_ppo_trained_model(
-            policy, value, policy_store,
-             value_store)
+            ArmModel::init_policy(input_dim, 1, hidden_dim, num_hidden_layers, false, false);
+        ArmModel::init_ppo_trained_model(policy, value, policy_store, value_store)
     }
 
-    pub fn configure_model_for_training(&self, params: &PPOTrainingMethod) -> 
-    Result<(), String> {
+    pub fn configure_model_for_training(&self, params: &PPOTrainingMethod) -> Result<(), String> {
         let control_params = match &params.control_model {
             ControlModel::FFN(m) => m,
         };
@@ -84,10 +77,7 @@ impl WorkflowRuntime {
             false,
             false,
         );
-        let next_model =
-            ArmModel::init_ppo_trained_model(
-                policy, value, policy_store, 
-                value_store);
+        let next_model = ArmModel::init_ppo_trained_model(policy, value, policy_store, value_store);
         let mut model = self
             .model
             .lock()

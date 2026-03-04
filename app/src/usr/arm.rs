@@ -1,9 +1,9 @@
 use tch::{
-    nn::{self, Module},
     Tensor,
+    nn::{self, Module},
 };
 
-use crate::plugin::{ControlPolicyOutputMode, ControlPolicyModel, ppo_trainer::PPOTrainedModel};
+use crate::plugin::{ControlPolicyModel, ControlPolicyOutputMode, ppo_trainer::PPOTrainedModel};
 
 pub struct ArmModel {
     control_output_mode: ControlPolicyOutputMode,
@@ -17,7 +17,7 @@ pub struct ArmModel {
     target_center_xy: (f64, f64),
     start_radius: f64,
     target_radius: f64,
-    plane_z: f64
+    plane_z: f64,
 }
 
 impl ArmModel {
@@ -64,10 +64,7 @@ impl ArmModel {
             }
             let action_dim = output_dimension / 2;
             y = y.add_fn(move |xs| {
-                let parts = xs.split_with_sizes(
-                    [action_dim, action_dim],
-                    -1,
-                );
+                let parts = xs.split_with_sizes([action_dim, action_dim], -1);
                 let mean = parts
                     .get(0)
                     .expect("missing mean head")
@@ -112,14 +109,10 @@ impl ArmModel {
         &mut self.policy_store
     }
 
-    fn get_body_pos(
-        &self,
-        state: &Tensor,
-        body_index: usize,
-    ) -> (f64, f64, f64) {
+    fn get_body_pos(&self, state: &Tensor, body_index: usize) -> (f64, f64, f64) {
         let state = state.to_kind(tch::Kind::Double);
-        let state_vals: Vec<f64> = Vec::<f64>::try_from(state)
-            .expect("Expected cartesian state to be a 1D f64 tensor");
+        let state_vals: Vec<f64> =
+            Vec::<f64>::try_from(state).expect("Expected cartesian state to be a 1D f64 tensor");
         if state_vals.len() % 7 != 0 {
             panic!(
                 "Expected cartesian state len to be 7*nbody, got {}",
@@ -130,8 +123,7 @@ impl ArmModel {
         if body_index >= nbody {
             panic!(
                 "Body index {} out of bounds for nbody {}",
-                body_index,
-                nbody
+                body_index, nbody
             );
         }
         let pos_offset = body_index * 3;
@@ -142,14 +134,10 @@ impl ArmModel {
         )
     }
 
-    fn get_body_quat(
-        &self,
-        state: &Tensor,
-        body_index: usize,
-    ) -> (f64, f64, f64, f64) {
+    fn get_body_quat(&self, state: &Tensor, body_index: usize) -> (f64, f64, f64, f64) {
         let state = state.to_kind(tch::Kind::Double);
-        let state_vals: Vec<f64> = Vec::<f64>::try_from(state)
-            .expect("Expected cartesian state to be a 1D f64 tensor");
+        let state_vals: Vec<f64> =
+            Vec::<f64>::try_from(state).expect("Expected cartesian state to be a 1D f64 tensor");
         if state_vals.len() % 7 != 0 {
             panic!(
                 "Expected cartesian state len to be 7*nbody, got {}",
@@ -160,8 +148,7 @@ impl ArmModel {
         if body_index >= nbody {
             panic!(
                 "Body index {} out of bounds for nbody {}",
-                body_index,
-                nbody
+                body_index, nbody
             );
         }
         let quat_offset = nbody * 3 + body_index * 4;
@@ -209,28 +196,27 @@ impl ArmModel {
         //Using the box position instead of plan_z
         let next_cube_dz = next_cz - 0.025;
         let next_cube_dist = (
-            next_cube_dx * next_cube_dx + 
-            next_cube_dy * next_cube_dy 
+            next_cube_dx * next_cube_dx + next_cube_dy * next_cube_dy
             // next_cube_dz * next_cube_dz
         )
-        .sqrt();
+            .sqrt();
 
-        let (prev_cx, prev_cy, prev_cz) =
-            self.get_body_pos(cstate, self.target_cube_body_index);
+        let (prev_cx, prev_cy, prev_cz) = self.get_body_pos(cstate, self.target_cube_body_index);
         let prev_cube_dx = prev_cx - self.target_center_xy.0;
         let prev_cube_dy = prev_cy - self.target_center_xy.1;
         let prev_cube_dz = prev_cz - 0.025;
         let prev_cube_dist = (
             prev_cube_dx * prev_cube_dx + prev_cube_dy * prev_cube_dy
             // + prev_cube_dz * prev_cube_dz
-        ).sqrt();
+        )
+            .sqrt();
         let r_progress = (prev_cube_dist - next_cube_dist) * w_prog;
 
-        //Gripper movement towards cube: 
+        //Gripper movement towards cube:
         let (gripper_next_x, gripper_next_y, gripper_next_z) =
             self.get_body_pos(cstate_next, gripper_body_index);
-        let gripper_xy_dist = ((gripper_next_x - next_cx).powi(2) + 
-            (gripper_next_y - next_cy).powi(2)).sqrt();
+        let gripper_xy_dist =
+            ((gripper_next_x - next_cx).powi(2) + (gripper_next_y - next_cy).powi(2)).sqrt();
         let gripper_xy = -w_gripper_above * gripper_xy_dist;
 
         //Gripper above the target cube reward
@@ -243,92 +229,77 @@ impl ArmModel {
         // let z_above = (z_gap - z_clearance).max(0.0);
         let z_above = z_gap.max(0.0);
         // let z_below = (z_clearance - z_gap).max(0.0);
-        let z_below = 
-            if z_gap < 0.0 && 
-            (z_gap.abs() - z_clearance) > 0.0 {
-                z_gap.abs() - z_clearance
+        let z_below = if z_gap < 0.0 && (z_gap.abs() - z_clearance) > 0.0 {
+            z_gap.abs() - z_clearance
         } else {
             0.0
         };
         // let r_above_z = w_gripper_above
         //     * (1.0 - (-z_sat_k * z_above).exp());
-        let r_above_z = w_gripper_above
-            * (-z_sat_k * z_above).exp();
+        let r_above_z = w_gripper_above * (-z_sat_k * z_above).exp();
         let p_below_z = -w_gripper_below * z_below;
         //Below -ve reward regardless of distance
-        let r_gripper_above = p_below_z +
-        if gripper_xy_dist <= gripper_xy_reward_radius {
-            r_above_z 
-        } else {
-            0.0
-        };
+        let r_gripper_above = p_below_z
+            + if gripper_xy_dist <= gripper_xy_reward_radius {
+                r_above_z
+            } else {
+                0.0
+            };
         let (gripper_qw, gripper_qx, gripper_qy, gripper_qz) =
             self.get_body_quat(cstate_next, gripper_body_index);
         // local +X axis of gripper_link, rotated to world frame
-        let gripper_x_world_z =
-            2.0 * (gripper_qx * gripper_qz - gripper_qw * gripper_qy);
+        let gripper_x_world_z = 2.0 * (gripper_qx * gripper_qz - gripper_qw * gripper_qy);
         let down_alignment = (-gripper_x_world_z).clamp(0.0, 1.0);
         let r_gripper_down = w_gripper_down * down_alignment;
 
-        let (r_grip_contact, r_cube_contact_clean) =
-            if let Some(contact_pairs) = contact_pairs {
-                let mut left_contact = false;
-                let mut right_contact = false;
-                let mut prop_contact = false;
-                let mut has_disallowed_cube_contact = false;
-                for (body_a, body_b) in contact_pairs.iter() {
-                    let cube_other = if *body_a == self.target_cube_body_index {
-                        Some(*body_b)
-                    } else if *body_b == self.target_cube_body_index {
-                        Some(*body_a)
+        let (r_grip_contact, r_cube_contact_clean) = if let Some(contact_pairs) = contact_pairs {
+            let mut left_contact = false;
+            let mut right_contact = false;
+            let mut prop_contact = false;
+            let mut has_disallowed_cube_contact = false;
+            for (body_a, body_b) in contact_pairs.iter() {
+                let cube_other = if *body_a == self.target_cube_body_index {
+                    Some(*body_b)
+                } else if *body_b == self.target_cube_body_index {
+                    Some(*body_a)
+                } else {
+                    None
+                };
+                if let Some(other_body) = cube_other {
+                    if other_body == left_finger_body_index {
+                        left_contact = true;
+                    } else if other_body == right_finger_body_index {
+                        right_contact = true;
+                    } else if other_body == gripper_prop_body_index {
+                        prop_contact = true;
                     } else {
-                        None
-                    };
-                    if let Some(other_body) = cube_other {
-                        if other_body == left_finger_body_index {
-                            left_contact = true;
-                        } else if other_body == right_finger_body_index {
-                            right_contact = true;
-                        } else if other_body == gripper_prop_body_index {
-                            prop_contact = true;
-                        } else {
-                            has_disallowed_cube_contact = true;
-                        }
+                        has_disallowed_cube_contact = true;
                     }
                 }
-                let contact_count =
-                    left_contact as i32
-                    + right_contact as i32
-                    + prop_contact as i32;
-                let has_allowed_contact = contact_count > 0;
-                let r_grip_contact =
-                    w_grip_contact * contact_count as f64;
-                let r_cube_contact_clean =
-                    if has_allowed_contact
-                    && !has_disallowed_cube_contact {
-                        w_cube_contact_clean
-                    } else {
-                        0.0
-                    };
-                (r_grip_contact, r_cube_contact_clean)
+            }
+            let contact_count = left_contact as i32 + right_contact as i32 + prop_contact as i32;
+            let has_allowed_contact = contact_count > 0;
+            let r_grip_contact = w_grip_contact * contact_count as f64;
+            let r_cube_contact_clean = if has_allowed_contact && !has_disallowed_cube_contact {
+                w_cube_contact_clean
             } else {
-                (0.0, 0.0)
+                0.0
             };
+            (r_grip_contact, r_cube_contact_clean)
+        } else {
+            (0.0, 0.0)
+        };
 
         //Boxes moved -ve reward
-        let (left_x, left_y, left_z) =
-            self.get_body_pos(cstate_next, left_box_body_index);
-        let (right_x, right_y, right_z) =
-            self.get_body_pos(cstate_next, right_box_body_index);
+        let (left_x, left_y, left_z) = self.get_body_pos(cstate_next, left_box_body_index);
+        let (right_x, right_y, right_z) = self.get_body_pos(cstate_next, right_box_body_index);
         let left_disp = (
-            (left_x - left_box_start.0).powi(2) +
-            (left_y - left_box_start.1).powi(2)
+            (left_x - left_box_start.0).powi(2) + (left_y - left_box_start.1).powi(2)
             // (left_z - left_box_start.2).powi(2)
         )
         .sqrt();
         let right_disp = (
-            (right_x - right_box_start.0).powi(2) +
-            (right_y - right_box_start.1).powi(2)
+            (right_x - right_box_start.0).powi(2) + (right_y - right_box_start.1).powi(2)
             // (right_z - right_box_start.2).powi(2)
         )
         .sqrt();
@@ -345,14 +316,16 @@ impl ArmModel {
             0.0
         };
 
-        println!("Returning this reward: r_gripper_above: {:?} r_gripper_down: {:?} gripper_xy: {:?} r_box_moved: {:?} p_cube_drop: {:?} r_grip_contact: {:?} r_cube_contact_clean: {:?}",
+        println!(
+            "Returning this reward: r_gripper_above: {:?} r_gripper_down: {:?} gripper_xy: {:?} r_box_moved: {:?} p_cube_drop: {:?} r_grip_contact: {:?} r_cube_contact_clean: {:?}",
             r_gripper_above,
             r_gripper_down,
             gripper_xy,
             r_box_moved,
             p_cube_drop,
             r_grip_contact,
-            r_cube_contact_clean);
+            r_cube_contact_clean
+        );
 
         // r_progress + r_gripper_above + gripper_xy + r_box_moved + p_cube_drop
         r_gripper_above
@@ -370,11 +343,10 @@ impl PPOTrainedModel for ArmModel {
         policy: nn::Sequential,
         val_estimator: nn::Sequential,
         pol_store: nn::VarStore,
-        val_estimator_store: nn::VarStore
+        val_estimator_store: nn::VarStore,
     ) -> Self {
         ArmModel {
-            control_output_mode: 
-                ControlPolicyOutputMode::TargetPositions,
+            control_output_mode: ControlPolicyOutputMode::TargetPositions,
             policy: policy,
             value: val_estimator,
             policy_store: pol_store,
@@ -390,16 +362,18 @@ impl PPOTrainedModel for ArmModel {
             target_center_xy: (0.35, -0.22),
             start_radius: 0.09,
             target_radius: 0.04,
-            plane_z: 0.15
+            plane_z: 0.15,
         }
     }
 
     //TODO: Add contact bonus here
-    fn get_reward(&self, 
-        cstate: &Tensor, 
-        cstate_next: &Tensor, 
+    fn get_reward(
+        &self,
+        cstate: &Tensor,
+        cstate_next: &Tensor,
         action: &Tensor,
-        contact_pairs: Option<&[(usize, usize)]>) -> f64 {
+        contact_pairs: Option<&[(usize, usize)]>,
+    ) -> f64 {
         let _ = action;
         self.get_reward_2(cstate, cstate_next, contact_pairs)
     }
@@ -469,11 +443,13 @@ impl ControlPolicyModel for ArmModel {
         self.control_output_mode.clone()
     }
 
-    fn get_reward(&self, 
-        cstate: &Tensor, 
-        cstate_next: &Tensor, 
+    fn get_reward(
+        &self,
+        cstate: &Tensor,
+        cstate_next: &Tensor,
         action: &Tensor,
-        contact_pairs: Option<&[(usize, usize)]>) -> f64 {
+        contact_pairs: Option<&[(usize, usize)]>,
+    ) -> f64 {
         let _ = action;
         self.get_reward_2(cstate, cstate_next, contact_pairs)
     }

@@ -325,7 +325,7 @@ pub unsafe fn cleanup_model(m: *mut mujoco::mjModel, d: *mut mujoco::mjData) {
 
 pub unsafe fn load_model(
     model_name: String,
-    load_default_controller: bool
+    load_default_controller: bool,
 ) -> Option<(*mut mujoco::mjModel, *mut mujoco::mjData)> {
     let mut error_buffer = [0i8; 1024];
     unsafe {
@@ -364,8 +364,7 @@ pub fn spawn_simulator(
 ) {
     let dyn_th = thread::spawn(move || {
         unsafe {
-            if let Some((m, d)) = load_model(
-                model_name.to_string(),true) {
+            if let Some((m, d)) = load_model(model_name.to_string(), true) {
                 //Run this to initialise the mjData struct
                 mujoco::mj_forward(m, d);
                 //Sending the base loaded model first
@@ -405,8 +404,7 @@ pub fn spawn_simulator(
 
 pub unsafe fn load_test_model(file_name: String) -> Option<WorldBody> {
     unsafe {
-        if let Some((m, d)) = load_model(
-            file_name,true) {
+        if let Some((m, d)) = load_model(file_name, true) {
             //This is needed to load the mjData struct correctly:
             mujoco::mj_forward(m, d);
             let c_m = create_model(m, d);

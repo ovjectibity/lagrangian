@@ -8,5 +8,5 @@ use crate::commondef::training::ControlModel;
 pub struct SimulationParams {
     pub policy_id: String,
     pub num_timesteps: i32,
-    control_model: ControlModel
+    control_model: ControlModel,
 }

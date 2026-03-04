@@ -2,19 +2,11 @@ use std::sync::{Arc, Mutex};
 
 use rocket::tokio::sync::mpsc;
 
-use crate::commondef::clientmessages::{
-    StopTrainingMessage, TrainingUpdatesMessage
-};
-use crate::commondef::training::{
-    MetricsData, PPOTrainingMethod, TrainingMetrics
-};
+use crate::commondef::clientmessages::{StopTrainingMessage, TrainingUpdatesMessage};
+use crate::commondef::training::{MetricsData, PPOTrainingMethod, TrainingMetrics};
 use crate::commondef::workermessages::TrainingTaskMessage;
-use crate::plugin::ppo_trainer::{
-    PPOTrainedModel, PPOTrainer
-};
-use crate::plugin::{
-    Simulator
-};
+use crate::plugin::Simulator;
+use crate::plugin::ppo_trainer::{PPOTrainedModel, PPOTrainer};
 
 pub struct TrainingWorkflow {
     id: String,
@@ -31,13 +23,11 @@ impl TrainingWorkflow {
         msg: String,
     ) {
         println!("{msg}");
-        let log_update = 
-            TrainingTaskMessage::TrainingUpdates(
-                TrainingUpdatesMessage {
-                    id: training_id,
-                    metrics: vec![],
-                    logs: vec![msg],
-                });
+        let log_update = TrainingTaskMessage::TrainingUpdates(TrainingUpdatesMessage {
+            id: training_id,
+            metrics: vec![],
+            logs: vec![msg],
+        });
         let _ = tx.blocking_send(log_update);
     }
 
@@ -70,9 +60,7 @@ impl TrainingWorkflow {
         }
     }
 
-    pub fn run_training_blocking(
-        &mut self, 
-        tx: mpsc::Sender<TrainingTaskMessage>) {
+    pub fn run_training_blocking(&mut self, tx: mpsc::Sender<TrainingTaskMessage>) {
         let params = &self.params;
         for i in 0..params.num_epochs {
             Self::log_and_send_blocking(
@@ -80,21 +68,15 @@ impl TrainingWorkflow {
                 self.id.clone(),
                 format!("Running the training epoch {i}"),
             );
-            let trajs = 
-                self.trainer.gen_trajectories(params.num_trajs);
-            let runtime_info = 
-                self.trainer.train_an_epoch(&trajs);
-            let mean_entropy = 
-                self.trainer.get_rollout_mean_entropy(&trajs);
-            let mean_reward = 
-                self.trainer.get_rollout_mean_reward(&trajs);
-            let mean_entropy_m = 
-            TrainingMetrics::MeanEntropy(MetricsData {
+            let trajs = self.trainer.gen_trajectories(params.num_trajs);
+            let runtime_info = self.trainer.train_an_epoch(&trajs);
+            let mean_entropy = self.trainer.get_rollout_mean_entropy(&trajs);
+            let mean_reward = self.trainer.get_rollout_mean_reward(&trajs);
+            let mean_entropy_m = TrainingMetrics::MeanEntropy(MetricsData {
                 x_axis: vec![i as f64],
                 y_axis: vec![mean_entropy],
             });
-            let mean_reward_m = 
-            TrainingMetrics::MeanReward(MetricsData {
+            let mean_reward_m = TrainingMetrics::MeanReward(MetricsData {
                 x_axis: vec![i as f64],
                 y_axis: vec![mean_reward],
             });
@@ -103,46 +85,38 @@ impl TrainingWorkflow {
             let update_steps: Vec<f64> = (0..num_updates)
                 .map(|u| (base_update_step + u) as f64)
                 .collect();
-            let mean_policy_loss_m = 
-            TrainingMetrics::MeanPolicyLoss(MetricsData {
+            let mean_policy_loss_m = TrainingMetrics::MeanPolicyLoss(MetricsData {
                 x_axis: update_steps.clone(),
                 y_axis: runtime_info.mean_policy_loss().to_vec(),
             });
-            let mean_value_loss_m = 
-            TrainingMetrics::ValueLoss(MetricsData {
+            let mean_value_loss_m = TrainingMetrics::ValueLoss(MetricsData {
                 x_axis: update_steps.clone(),
                 y_axis: runtime_info.mean_value_loss().to_vec(),
             });
-            let policy_grad_norm_m =
-            TrainingMetrics::PolicyGradientNorm(MetricsData {
+            let policy_grad_norm_m = TrainingMetrics::PolicyGradientNorm(MetricsData {
                 x_axis: update_steps.clone(),
                 y_axis: runtime_info.policy_gradient_norm().to_vec(),
             });
-            let value_grad_norm_m =
-            TrainingMetrics::ValueGradientNorm(MetricsData {
+            let value_grad_norm_m = TrainingMetrics::ValueGradientNorm(MetricsData {
                 x_axis: update_steps,
                 y_axis: runtime_info.value_gradient_norm().to_vec(),
             });
-            let update = 
-            TrainingTaskMessage::TrainingUpdates(
-                TrainingUpdatesMessage {
-                    id: self.id.clone(),
-                    metrics: vec![
-                        mean_entropy_m,
-                        mean_reward_m,
-                        mean_policy_loss_m,
-                        mean_value_loss_m,
-                        policy_grad_norm_m,
-                        value_grad_norm_m,
-                    ],
-                    logs: vec![],
-                });
+            let update = TrainingTaskMessage::TrainingUpdates(TrainingUpdatesMessage {
+                id: self.id.clone(),
+                metrics: vec![
+                    mean_entropy_m,
+                    mean_reward_m,
+                    mean_policy_loss_m,
+                    mean_value_loss_m,
+                    policy_grad_norm_m,
+                    value_grad_norm_m,
+                ],
+                logs: vec![],
+            });
             let _ = tx.blocking_send(update);
         }
-        let _ = tx.blocking_send(
-            TrainingTaskMessage::StopTraining(
-                StopTrainingMessage {
-                    id: self.id.clone(),
-                }));
+        let _ = tx.blocking_send(TrainingTaskMessage::StopTraining(StopTrainingMessage {
+            id: self.id.clone(),
+        }));
     }
 }

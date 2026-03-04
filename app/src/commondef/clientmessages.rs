@@ -3,9 +3,7 @@ use typeshare::typeshare;
 
 use crate::commondef::model;
 use crate::commondef::testing::SimulationParams;
-use crate::commondef::training::{
-    TrainingJobController, TrainingMetrics
-};
+use crate::commondef::training::{TrainingJobController, TrainingMetrics};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
