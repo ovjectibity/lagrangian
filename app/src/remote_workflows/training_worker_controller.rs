@@ -1,16 +1,3 @@
-//! Remote training worker controller.
-//!
-//! This file intentionally contains the full controller implementation in one place.
-//! It is not yet wired into the app module tree.
-//!
-//! Required Cargo dependencies (add in `app/Cargo.toml` when integrating):
-//! - `aws-config`
-//! - `aws-sdk-ec2`
-//! - `base64`
-//! - `futures-util`
-//! - `tokio` (already present through Rocket, but ensure features include time/net/macros)
-//! - `tokio-tungstenite` (with rustls tls feature for WSS)
-//! - `http`
 //!
 //! Assumptions:
 //! - The worker image is already built from `worker/trainer` Dockerfile and published
@@ -295,7 +282,10 @@ impl TrainingWorkerController {
                 let is_running = inst
                     .state()
                     .and_then(|s| s.name())
-                    .is_some_and(|n| n == InstanceStateName::Running);
+                    .is_some_and(|n| match n {
+                        InstanceStateName::Running => true,
+                        _ => false,
+                    });
                 let public_dns = inst.public_dns_name().unwrap_or_default().to_string();
                 if is_running && !public_dns.is_empty() {
                     return Ok(public_dns);
@@ -347,7 +337,7 @@ impl TrainingWorkerController {
             .as_mut()
             .ok_or("Worker websocket is not connected")?;
         let payload = serde_json::to_string(message)?;
-        ws.send(Message::Text(payload)).await?;
+        ws.send(Message::Text(payload.into())).await?;
         Ok(())
     }
 

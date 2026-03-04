@@ -17,6 +17,7 @@ use crate::workflows::{WorkflowMode, WorkflowRuntime};
 pub mod commondef;
 pub mod mujoco;
 pub mod plugin;
+pub mod remote_workflows;
 pub mod simulator;
 pub mod usr;
 pub mod workflows;
