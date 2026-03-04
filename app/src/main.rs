@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::sync::{Arc, OnceLock};
 
 #[macro_use]
 extern crate rocket;
 use rocket::fs::FileServer;
 use rocket::futures::{SinkExt, StreamExt};
 use rocket::tokio;
+use rocket::tokio::sync::Mutex as AsyncMutex;
 use rocket::tokio::sync::mpsc;
 use rocket_ws as ws;
 
@@ -22,6 +24,33 @@ pub mod remote_workflows;
 pub mod simulator;
 pub mod usr;
 pub mod workflows;
+
+type RemoteWorkerSlot =
+    Arc<AsyncMutex<Option<remote_workflows::training_controller::TrainingWorkerController>>>;
+
+static REMOTE_WORKER_SLOT: OnceLock<RemoteWorkerSlot> = OnceLock::new();
+static REMOTE_WORKER_SHUTDOWN_TASK_STARTED: OnceLock<()> = OnceLock::new();
+
+fn remote_worker_slot() -> &'static RemoteWorkerSlot {
+    REMOTE_WORKER_SLOT.get_or_init(|| Arc::new(AsyncMutex::new(None)))
+}
+
+fn ensure_remote_worker_shutdown_hook() {
+    if REMOTE_WORKER_SHUTDOWN_TASK_STARTED.set(()).is_err() {
+        return;
+    }
+
+    let slot = remote_worker_slot().clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            let mut guard = slot.lock().await;
+            if let Some(worker) = guard.as_mut() {
+                let _ = worker.terminate_instance().await;
+            }
+            *guard = None;
+        }
+    });
+}
 
 fn build_remote_training_worker_config()
 -> Result<remote_workflows::training_controller::TrainingWorkerControllerConfig, String> {
@@ -273,24 +302,34 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                                     continue;
                                                                 }
                                                             };
+                                                            ensure_remote_worker_shutdown_hook();
 
                                                             if let Some(runtime) = workflow_runtime.as_mut() {
                                                                 runtime.set_mode(WorkflowMode::Training);
                                                             }
                                                             let tx_tc = tx_train.clone();
                                                             let id_c = training_id.clone();
+                                                            let worker_slot = remote_worker_slot().clone();
                                                             let h = tokio::spawn(async move {
-                                                                let mut worker = match remote_workflows::training_controller::TrainingWorkerController::initialize(remote_cfg).await {
-                                                                    Ok(w) => w,
-                                                                    Err(e) => {
-                                                                        println!("Couldn't initialize remote training worker: {:?}", e);
-                                                                        let _ = tx_tc.send(workermessages::TrainingTaskMessage::StopTraining(
-                                                                            clientmessages::StopTrainingMessage { id: id_c.clone() },
-                                                                        )).await;
-                                                                        return;
-                                                                    }
-                                                                };
                                                                 let tx_updates = tx_tc.clone();
+                                                                let mut guard = worker_slot.lock().await;
+                                                                if guard.is_none() {
+                                                                    match remote_workflows::training_controller::TrainingWorkerController::initialize(remote_cfg).await {
+                                                                        Ok(worker) => {
+                                                                            *guard = Some(worker);
+                                                                        }
+                                                                        Err(e) => {
+                                                                            println!("Couldn't initialize remote training worker: {:?}", e);
+                                                                            let _ = tx_tc.send(workermessages::TrainingTaskMessage::StopTraining(
+                                                                                clientmessages::StopTrainingMessage { id: id_c.clone() },
+                                                                            )).await;
+                                                                            return;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                let worker = guard
+                                                                    .as_mut()
+                                                                    .expect("worker should be initialized");
                                                                 let result = worker
                                                                     .run_training_job(
                                                                         id_c.clone(),
@@ -309,6 +348,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                                         },
                                                                     )
                                                                     .await;
+                                                                drop(guard);
                                                                 if let Err(e) = result {
                                                                     println!("Remote training execution failed: {:?}", e);
                                                                 }

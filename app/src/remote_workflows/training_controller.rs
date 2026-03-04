@@ -6,6 +6,9 @@
 //! - The worker process inside the container starts `main.py`.
 //! - Worker websocket auth uses `Authorization: Bearer <secret>`.
 
+use std::env;
+use std::fs;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use aws_config::Region;
@@ -158,8 +161,6 @@ impl TrainingWorkerController {
 
         self.monitor_training_until_stop(&training_id, &mut on_update)
             .await?;
-
-        self.terminate_instance().await?;
         Ok(())
     }
 
@@ -192,7 +193,7 @@ impl TrainingWorkerController {
     }
 
     async fn launch_spot_instance(&self) -> Result<String> {
-        let user_data_plain = self.build_user_data_script();
+        let user_data_plain = self.build_user_data_script()?;
         let user_data_base64 = BASE64.encode(user_data_plain.as_bytes());
 
         let mut req = self
@@ -382,7 +383,7 @@ impl TrainingWorkerController {
         Err("Worker websocket stream ended before training completion".into())
     }
 
-    fn build_user_data_script(&self) -> String {
+    fn build_user_data_script(&self) -> Result<String> {
         let registry = self
             .config
             .worker_image_uri
@@ -401,7 +402,17 @@ impl TrainingWorkerController {
             "true".to_string()
         };
 
-        include_str!("scripts/bootstrap_training_worker.sh")
+        let scripts_root = env::var("LAGRANGIAN_SCRIPTS_ROOT")
+            .map_err(|_| "Missing required env var LAGRANGIAN_SCRIPTS_ROOT")?;
+        let script_path = PathBuf::from(scripts_root).join("bootstrap_training_worker.sh");
+        let script_template = fs::read_to_string(&script_path).map_err(|e| {
+            format!(
+                "Couldn't read bootstrap training worker script at {}: {e}",
+                script_path.display()
+            )
+        })?;
+
+        Ok(script_template
             .replace("__ECR_LOGIN__", &ecr_login)
             .replace("__IMAGE_URI__", &self.config.worker_image_uri)
             .replace("__CONTAINER_NAME__", &self.config.worker_container_name)
@@ -409,7 +420,7 @@ impl TrainingWorkerController {
             .replace(
                 "__WORKER_SHARED_SECRET__",
                 &self.config.worker_shared_secret,
-            )
+            ))
     }
 }
 
