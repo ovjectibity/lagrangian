@@ -13,7 +13,7 @@ use crate::plugin::ppo_trainer::{
     PPOTrainedModel, PPOTrainer
 };
 use crate::plugin::{
-    ControlPolicyOutputMode, Simulator
+    Simulator
 };
 
 pub struct TrainingWorkflow {
@@ -50,11 +50,11 @@ impl TrainingWorkflow {
         let trainer = PPOTrainer::new(
             simulator.clone(),
             model.clone(),
-            100,
-            10000,
-            10,
-            // params.num_trajs,
-            params.epsilon
+            params.num_trajs,
+            params.num_steps_per_traj,
+            params.num_updates,
+            params.epsilon,
+            (params.gamma, params.lambda),
         );
 
         if let Ok(t) = trainer {
@@ -80,9 +80,8 @@ impl TrainingWorkflow {
                 self.id.clone(),
                 format!("Running the training epoch {i}"),
             );
-            //TODO: Expose num trajs as a param
             let trajs = 
-                self.trainer.gen_trajectories(10);
+                self.trainer.gen_trajectories(params.num_trajs);
             let runtime_info = 
                 self.trainer.train_an_epoch(&trajs);
             let mean_entropy = 

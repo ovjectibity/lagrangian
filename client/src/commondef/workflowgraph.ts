@@ -55,6 +55,14 @@ export const TrainingMethodNode: WorkflowNode = {
       inputType: "select",
       options: [{ label: "PPO", value: "PPO" }],
     },
+    { key: "num_trajs", label: "num_trajs", value: 10, min: 1, step: 1 },
+    {
+      key: "num_steps_per_traj",
+      label: "num_steps_per_traj",
+      value: 10000,
+      min: 1,
+      step: 1,
+    },
     { key: "num_epochs", label: "num_epochs", value: 50, min: 1, step: 1 },
     { key: "num_updates", label: "num_updates", value: 10, min: 1, step: 1 },
     { key: "epsilon", label: "epsilon", value: 0.2, min: 0, max: 1, step: 0.01 },
@@ -138,10 +146,44 @@ export const RewardFunctionNode: WorkflowNode = {
   ],
 };
 
+export const TrainingJobControllerNode: WorkflowNode = {
+  id: "training-job-controller",
+  label: "TrainingJobController",
+  nodeType: "TrainingJobController",
+  position: { x: 1150, y: 360 },
+  inputs: 1,
+  outputs: 0,
+  inputAnchors: [
+    { id: "training_method", label: "TrainingMethod" },
+  ],
+  settings: [
+    {
+      key: "acceleration_mode",
+      label: "acceleration_mode",
+      value: "AllOnServer",
+      inputType: "select",
+      options: [
+        { label: "AllOnServer", value: "AllOnServer" },
+        { label: "MLGPUSimulationCPU", value: "MLGPUSimulationCPU" },
+        { label: "MLGPUSimulationGPU", value: "MLGPUSimulationGPU" },
+        { label: "MLCPUSimulationGPU", value: "MLCPUSimulationGPU" },
+      ],
+    },
+    {
+      key: "compute_instance",
+      label: "compute_instance",
+      value: "AWSG4dn",
+      inputType: "select",
+      options: [{ label: "AWSG4dn", value: "AWSG4dn" }],
+    },
+  ],
+};
+
 export const TrainingGraphNodes: WorkflowNode[] = [
   TrainingMethodNode,
   ControlModelNode,
   ValueModelNode,
+  TrainingJobControllerNode,
   RewardFunctionNode,
 ];
 
@@ -159,6 +201,16 @@ export const TrainingGraphEdges: WorkflowEdge[] = [
     targetNodeId: "training-method",
     sourceOutputAnchor: { id: "value-model-output", label: "ValueModelOutput" },
     targetInputAnchor: { id: "value_model", label: "ValueModel" },
+  },
+  {
+    id: "training-method-to-training-job-controller",
+    sourceNodeId: "training-method",
+    targetNodeId: "training-job-controller",
+    sourceOutputAnchor: {
+      id: "training-method-output",
+      label: "TrainingMethodOutput",
+    },
+    targetInputAnchor: { id: "training_method", label: "TrainingMethod" },
   },
   {
     id: "reward-function-to-training-method",

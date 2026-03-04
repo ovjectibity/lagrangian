@@ -144,7 +144,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                         continue;
                                                     }
                                                     let commondef::training::TrainingMethod::PPO(ppomethod) =
-                                                        t.training_workflow;
+                                                        t.training_controller.training_method;
                                                     let runtime = workflow_runtime
                                                         .as_mut()
                                                         .expect("Runtime should be available");

@@ -3,7 +3,9 @@ use typeshare::typeshare;
 
 use crate::commondef::model;
 use crate::commondef::testing::SimulationParams;
-use crate::commondef::training::{TrainingMethod, TrainingMetrics};
+use crate::commondef::training::{
+    TrainingJobController, TrainingMetrics
+};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
@@ -20,7 +22,7 @@ pub enum ServerMessage {
 #[typeshare]
 pub struct StartTrainingMessage {
     pub id: String,
-    pub training_workflow: TrainingMethod,
+    pub training_controller: TrainingJobController,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

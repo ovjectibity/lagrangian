@@ -6,9 +6,7 @@ from __future__ import annotations
 from enum import Enum
 from pydantic import BaseModel
 from typing import List, Literal, Union
-
-from commondef.training import TrainingMethod, TrainingMetrics
-
+from training import TrainingMethod, TrainingMetrics
 
 class LoadModelMessage(BaseModel):
     id: str

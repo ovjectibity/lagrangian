@@ -15,8 +15,11 @@
   import type { WorldBody } from './commondef/model';
   import type { SimulationParams } from './commondef/testing';
   import type {
+    ComputeInstance,
     FFNModel,
     MetricsData,
+    TrainingAccelerationMode,
+    TrainingJobController,
     TrainingMethod,
     TrainingMetrics,
   } from './commondef/training';
@@ -233,6 +236,8 @@
     return {
       type: 'PPO',
       content: {
+        num_trajs: getNumericSetting('training-method', 'num_trajs', 10),
+        num_steps_per_traj: getNumericSetting('training-method', 'num_steps_per_traj', 10000),
         num_epochs: getNumericSetting('training-method', 'num_epochs', 10),
         num_updates: getNumericSetting('training-method', 'num_updates', 10),
         epsilon: getNumericSetting('training-method', 'epsilon', 0.2),
@@ -254,6 +259,22 @@
           content: buildFfnModel('value-model'),
         },
       },
+    };
+  };
+
+  const buildTrainingController = (): TrainingJobController => {
+    return {
+      training_method: buildTrainingWorkflow(),
+      acceleration_mode: getStringSetting(
+        'training-job-controller',
+        'acceleration_mode',
+        'AllOnServer',
+      ) as TrainingAccelerationMode,
+      compute_instance: getStringSetting(
+        'training-job-controller',
+        'compute_instance',
+        'AWSG4dn',
+      ) as ComputeInstance,
     };
   };
 
@@ -280,7 +301,7 @@
       type: 'StartTrainingMessage',
       content: {
         id: trainingTaskId,
-        training_workflow: buildTrainingWorkflow(),
+        training_controller: buildTrainingController(),
       },
     });
     if (wasSent) {

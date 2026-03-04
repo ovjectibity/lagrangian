@@ -40,6 +40,8 @@ ValueModel = ValueModelFFN
 class PPOTrainingMethod(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    num_trajs: int
+    num_steps_per_traj: int
     num_epochs: int
     num_updates: int
     epsilon: float
@@ -57,6 +59,18 @@ class TrainingMethodPPO(BaseModel):
     content: PPOTrainingMethod
 
 TrainingMethod = TrainingMethodPPO
+class TrainingAccelerationMode(str, Enum):
+    MLGPUSIMULATIONCPU = "MLGPUSimulationCPU"
+    MLGPUSIMULATIONGPU = "MLGPUSimulationGPU"
+    MLCPUSIMULATIONGPU = "MLCPUSimulationGPU"
+    ALLONSERVER = "AllOnServer"
+class ComputeInstance(str, Enum):
+    AWSG4DN = "AWSG4dn"
+class TrainingJobController(BaseModel):
+    training_method: TrainingMethod
+    acceleration_mode: TrainingAccelerationMode
+    compute_instance: ComputeInstance
+
 class TrainingMetricsTypes(str, Enum):
     MEAN_REWARD = "MeanReward"
     MEAN_POLICY_LOSS = "MeanPolicyLoss"

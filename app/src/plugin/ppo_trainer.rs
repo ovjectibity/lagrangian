@@ -119,7 +119,8 @@ impl PPOTrainer {
         num_trajs: i32,
         traj_depth: i32,
         num_updates: i32,
-        epsilon: f64
+        epsilon: f64,
+        gamma_lambda: (f64, f64),
     ) -> Result<Self, tch::TchError> {
         let policy_opt = {
             let m = model.lock().expect("Model mutex poisoned");
@@ -134,7 +135,7 @@ impl PPOTrainer {
             traj_depth: traj_depth,
             num_updates: num_updates,
             epsilon: epsilon,
-            gamma_lambda: (0.99, 0.95),
+            gamma_lambda: gamma_lambda,
             simulator: simulator,
             model: model,
             policy_opt: policy_opt,

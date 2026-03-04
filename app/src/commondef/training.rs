@@ -34,6 +34,8 @@ pub enum TrainingMethod {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct PPOTrainingMethod {
+    pub num_trajs: i32,
+    pub num_steps_per_traj: i32,
     pub num_epochs: i32,
     pub num_updates: i32,
     pub epsilon: f64,
@@ -67,4 +69,27 @@ pub enum TrainingMetrics {
 pub struct MetricsData {
     pub x_axis: Vec<f64>,
     pub y_axis: Vec<f64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub enum TrainingAccelerationMode {
+    MLGPUSimulationCPU,
+    MLGPUSimulationGPU,
+    MLCPUSimulationGPU,
+    AllOnServer
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub enum ComputeInstance {
+    AWSG4dn
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct TrainingJobController {
+    pub training_method: TrainingMethod,
+    pub acceleration_mode: TrainingAccelerationMode,
+    pub compute_instance: ComputeInstance
 }

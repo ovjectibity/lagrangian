@@ -25,6 +25,8 @@ export type ValueModel =
 	| { type: "FFN", content: FFNModel };
 
 export interface PPOTrainingMethod {
+	num_trajs: number;
+	num_steps_per_traj: number;
 	num_epochs: number;
 	num_updates: number;
 	epsilon: number;
@@ -37,6 +39,23 @@ export interface PPOTrainingMethod {
 
 export type TrainingMethod = 
 	| { type: "PPO", content: PPOTrainingMethod };
+
+export enum TrainingAccelerationMode {
+	MLGPUSimulationCPU = "MLGPUSimulationCPU",
+	MLGPUSimulationGPU = "MLGPUSimulationGPU",
+	MLCPUSimulationGPU = "MLCPUSimulationGPU",
+	AllOnServer = "AllOnServer",
+}
+
+export enum ComputeInstance {
+	AWSG4dn = "AWSG4dn",
+}
+
+export interface TrainingJobController {
+	training_method: TrainingMethod;
+	acceleration_mode: TrainingAccelerationMode;
+	compute_instance: ComputeInstance;
+}
 
 export type TrainingMetrics = 
 	| { type: "MeanReward", content: MetricsData }
