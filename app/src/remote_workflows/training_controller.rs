@@ -14,9 +14,9 @@ use std::time::Duration;
 use aws_config::Region;
 use aws_sdk_ec2::Client as Ec2Client;
 use aws_sdk_ec2::types::{
-    IamInstanceProfileSpecification, InstanceInterruptionBehavior, InstanceMarketOptionsRequest,
-    InstanceStateName, InstanceType, MarketType, ResourceType, SpotInstanceType, SpotMarketOptions,
-    Tag, TagSpecification,
+    Filter, IamInstanceProfileSpecification, InstanceInterruptionBehavior,
+    InstanceMarketOptionsRequest, InstanceStateName, InstanceType, MarketType, ResourceType,
+    SpotInstanceType, SpotMarketOptions, Tag, TagSpecification,
 };
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -39,6 +39,13 @@ use crate::commondef::training::TrainingMethod;
 type DynError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, DynError>;
 type WorkerWs = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+fn skip_instance_launch_terminate() -> bool {
+    matches!(
+        env::var("AWS_SKIP_INSTANCE_LAUNCH_TERMINATE").as_deref(),
+        Ok("1")
+    )
+}
 
 #[derive(Debug, Clone)]
 pub struct TrainingWorkerControllerConfig {
@@ -84,6 +91,7 @@ impl Default for TrainingWorkerControllerConfig {
 pub struct TrainingWorkerController {
     ec2: Ec2Client,
     config: TrainingWorkerControllerConfig,
+    skip_instance_lifecycle: bool,
     instance_id: Option<String>,
     instance_public_dns: Option<String>,
     worker_ws: Option<WorkerWs>,
@@ -93,10 +101,11 @@ impl TrainingWorkerController {
     /// Creates controller, launches a `g4dn.xlarge` spot instance, waits for worker bootstrap,
     /// and connects to worker WSS.
     pub async fn initialize(config: TrainingWorkerControllerConfig) -> Result<Self> {
-        if config.ami_id.is_empty() {
+        let skip_instance_lifecycle = skip_instance_launch_terminate();
+        if !skip_instance_lifecycle && config.ami_id.is_empty() {
             return Err("TrainingWorkerControllerConfig.ami_id is required".into());
         }
-        if config.worker_image_uri.is_empty() {
+        if !skip_instance_lifecycle && config.worker_image_uri.is_empty() {
             return Err("TrainingWorkerControllerConfig.worker_image_uri is required".into());
         }
         if config.worker_shared_secret.is_empty() {
@@ -111,15 +120,22 @@ impl TrainingWorkerController {
         let mut controller = Self {
             ec2,
             config,
+            skip_instance_lifecycle,
             instance_id: None,
             instance_public_dns: None,
             worker_ws: None,
         };
 
-        let instance_id = controller.launch_spot_instance().await?;
-        let public_dns = controller.wait_until_instance_ready(&instance_id).await?;
-        controller.instance_id = Some(instance_id);
-        controller.instance_public_dns = Some(public_dns);
+        if controller.skip_instance_lifecycle {
+            let (instance_id, public_dns) = controller.resolve_existing_instance().await?;
+            controller.instance_id = Some(instance_id);
+            controller.instance_public_dns = Some(public_dns);
+        } else {
+            let instance_id = controller.launch_spot_instance().await?;
+            let public_dns = controller.wait_until_instance_ready(&instance_id).await?;
+            controller.instance_id = Some(instance_id);
+            controller.instance_public_dns = Some(public_dns);
+        }
         controller.connect_worker_wss().await?;
 
         Ok(controller)
@@ -181,6 +197,12 @@ impl TrainingWorkerController {
         }
         self.worker_ws = None;
 
+        if self.skip_instance_lifecycle {
+            self.instance_id = None;
+            self.instance_public_dns = None;
+            return Ok(());
+        }
+
         if let Some(instance_id) = self.instance_id.take() {
             self.ec2
                 .terminate_instances()
@@ -192,6 +214,51 @@ impl TrainingWorkerController {
         Ok(())
     }
 
+    async fn resolve_existing_instance(&self) -> Result<(String, String)> {
+        let response = self
+            .ec2
+            .describe_instances()
+            .filters(
+                Filter::builder()
+                    .name("tag:Name")
+                    .values(self.config.instance_name_tag.clone())
+                    .build(),
+            )
+            .filters(
+                Filter::builder()
+                    .name("instance-state-name")
+                    .values("running")
+                    .build(),
+            )
+            .send()
+            .await?;
+
+        let instance = response
+            .reservations()
+            .iter()
+            .flat_map(|reservation| reservation.instances())
+            .find(|instance| {
+                !instance.public_dns_name().unwrap_or_default().is_empty()
+                    && instance.instance_id().is_some()
+            })
+            .ok_or_else(|| {
+                format!(
+                    "AWS_SKIP_INSTANCE_LAUNCH_TERMINATE=1 but no running instance found with Name tag '{}'",
+                    self.config.instance_name_tag
+                )
+            })?;
+
+        let instance_id = instance
+            .instance_id()
+            .ok_or("Running instance is missing instance_id")?
+            .to_string();
+        let public_dns = instance
+            .public_dns_name()
+            .ok_or("Running instance is missing public DNS")?
+            .to_string();
+        Ok((instance_id, public_dns))
+    }
+
     async fn launch_spot_instance(&self) -> Result<String> {
         let user_data_plain = self.build_user_data_script()?;
         let user_data_base64 = BASE64.encode(user_data_plain.as_bytes());
@@ -200,7 +267,8 @@ impl TrainingWorkerController {
             .ec2
             .run_instances()
             .image_id(self.config.ami_id.clone())
-            .instance_type(InstanceType::G4dnXlarge)
+            // .instance_type(InstanceType::G4dnXlarge)
+            .instance_type(InstanceType::C7iFlexLarge)
             .min_count(1)
             .max_count(1)
             .user_data(user_data_base64)
@@ -427,7 +495,7 @@ impl TrainingWorkerController {
 impl Drop for TrainingWorkerController {
     fn drop(&mut self) {
         // Best-effort fail-safe notice; explicit `terminate_instance` should be preferred.
-        if self.instance_id.is_some() {
+        if self.instance_id.is_some() && !self.skip_instance_lifecycle {
             eprintln!(
                 "TrainingWorkerController dropped with live instance. \
                  Call `terminate_instance()` explicitly to avoid leaks."
