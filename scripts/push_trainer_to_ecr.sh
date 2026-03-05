@@ -26,6 +26,7 @@ IMAGE_URI="${TRAINING_WORKER_IMAGE_URI}"
 if [[ "${IMAGE_URI}" != *:* ]]; then
   IMAGE_URI="${IMAGE_URI}:latest"
 fi
+LOCAL_IMAGE="${TRAINING_WORKER_LOCAL_IMAGE:-lagrangian/trainer-worker:$(date +%Y%m%d%H%M%S)}"
 
 ECR_REGISTRY="${IMAGE_URI%%/*}"
 REPO_AND_TAG="${IMAGE_URI#*/}"
@@ -56,20 +57,19 @@ if [[ "${CREATE_REPO}" -eq 1 ]]; then
   fi
 fi
 
-LOCAL_TAG="lagrangian/trainer-worker:$(date +%Y%m%d%H%M%S)"
-
-echo "Building image from worker/trainer/Dockerfile ..."
+echo "Building image from worker/trainer/Dockerfile as ${LOCAL_IMAGE} ..."
 docker build \
+  --platform linux/amd64 \
   -f "${REPO_ROOT}/worker/trainer/Dockerfile" \
   "${REPO_ROOT}/worker/trainer" \
-  -t "${LOCAL_TAG}"
+  -t "${LOCAL_IMAGE}"
 
 echo "Logging into ECR registry: ${ECR_REGISTRY}"
 aws ecr get-login-password --region "${REGION}" \
   | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
-echo "Tagging image as ${IMAGE_URI}"
-docker tag "${LOCAL_TAG}" "${IMAGE_URI}"
+echo "Tagging local image ${LOCAL_IMAGE} as ${IMAGE_URI}"
+docker tag "${LOCAL_IMAGE}" "${IMAGE_URI}"
 
 echo "Pushing image to ECR ..."
 docker push "${IMAGE_URI}"
