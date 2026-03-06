@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import logging
 from typing import Any, Callable
 
 from commondef.remoteworkermessages import (
@@ -21,6 +22,8 @@ from commondef.training import (
 )
 from ppo_trainer import PPOTrainer, PPOTrainedModel
 from simulator import Simulator
+
+logger = logging.getLogger(__name__)
 
 
 class TrainingTaskSink(ABC):
@@ -72,6 +75,12 @@ class TrainingWorkflow:
             num_updates=10,
             epsilon=params.epsilon,
         )
+        logger.info(
+            "TrainingWorkflow initialized: id=%s epochs=%s epsilon=%s",
+            self.id,
+            self.params.num_epochs,
+            self.params.epsilon,
+        )
 
     @staticmethod
     def log_and_send_blocking(
@@ -79,7 +88,7 @@ class TrainingWorkflow:
         training_id: str,
         msg: str,
     ) -> None:
-        print(msg)
+        logger.info("training_id=%s %s", training_id, msg)
         tx.send_training_updates(
             TrainingUpdatesMessage(
                 id=training_id,
@@ -93,8 +102,10 @@ class TrainingWorkflow:
         tx: TrainingTaskSink,
         should_stop: Callable[[], bool] | None = None,
     ) -> None:
+        logger.info("Training run started: id=%s", self.id)
         for i in range(self.params.num_epochs):
             if should_stop is not None and should_stop():
+                logger.info("Training run stop requested: id=%s epoch=%s", self.id, i)
                 break
             self.log_and_send_blocking(
                 tx,
@@ -105,6 +116,13 @@ class TrainingWorkflow:
             runtime_info = self.trainer.train_an_epoch(trajs)
             mean_entropy = self.trainer.get_rollout_mean_entropy(trajs)
             mean_reward = self.trainer.get_rollout_mean_reward(trajs)
+            logger.info(
+                "Epoch completed: id=%s epoch=%s mean_reward=%.6f mean_entropy=%.6f",
+                self.id,
+                i,
+                mean_reward,
+                mean_entropy,
+            )
 
             mean_entropy_m = TrainingMetricsMeanEntropy(
                 content=MetricsData(x_axis=[float(i)], y_axis=[mean_entropy])
@@ -157,4 +175,5 @@ class TrainingWorkflow:
                 )
             )
 
+        logger.info("Training run finished, sending StopTrainingMessage: id=%s", self.id)
         tx.send_stop_training(StopTrainingMessage(id=self.id))

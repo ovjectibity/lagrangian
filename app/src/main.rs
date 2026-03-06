@@ -334,6 +334,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                                     .run_training_job(
                                                                         id_c.clone(),
                                                                         training_method,
+                                                                        Some(model_path.clone()),
                                                                         mjcf,
                                                                         move |update| {
                                                                             let _ = tx_updates.try_send(

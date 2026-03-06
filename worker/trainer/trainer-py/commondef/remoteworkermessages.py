@@ -5,12 +5,14 @@ from __future__ import annotations
 
 from enum import Enum
 from pydantic import BaseModel
-from typing import List, Literal, Union
-from training import TrainingMethod, TrainingMetrics
+from typing import List, Literal, Optional, Union
+from commondef.training import TrainingMethod, TrainingMetrics
 
 class LoadModelMessage(BaseModel):
     id: str
     mjcf: str
+    model_zip_base64: Optional[str] = None
+    mjcf_entrypoint: Optional[str] = None
 
 class StartTrainingMessage(BaseModel):
     id: str

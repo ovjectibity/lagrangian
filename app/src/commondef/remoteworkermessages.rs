@@ -38,6 +38,8 @@ pub enum TrainingRemoteWorkerClientMessage {
 pub struct LoadModelMessage {
     pub id: String,
     pub mjcf: String,
+    pub model_zip_base64: Option<String>,
+    pub mjcf_entrypoint: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

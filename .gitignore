@@ -15,3 +15,4 @@ worker/trainer/trainer-py/commondef/__pycache__/
 worker/trainer/trainer-py/samples/__pycache__/
 worker/trainer/docker_images
 .aws-env
+.keys

@@ -1,9 +1,14 @@
 import asyncio
+import base64
 import hmac
+import io
 import json
+import logging
 import os
 import ssl
+import tempfile
 import threading
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,11 +29,14 @@ from samples.arm import ArmModel
 from simulator import MjxSimulator
 from training import CallbackTrainingTaskSink, TrainingWorkflow
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class WorkerRuntime:
     simulator: MjxSimulator
     model: ArmModel
+    model_tmpdir: tempfile.TemporaryDirectory | None = None
 
 
 @dataclass
@@ -52,15 +60,22 @@ def _load_secret() -> str:
     return secret
 
 
-def _extract_presented_secret(websocket: websockets.WebSocketServerProtocol) -> str | None:
-    headers = websocket.request_headers
+def _extract_presented_secret(websocket: Any) -> str | None:
+    request = getattr(websocket, "request", None)
+    headers = getattr(request, "headers", None)
+    if headers is None:
+        headers = getattr(websocket, "request_headers", None)
+    if headers is None:
+        return None
     x_secret = headers.get("X-Worker-Secret")
     if x_secret:
         return x_secret
     auth_header = headers.get("Authorization", "")
     if auth_header.lower().startswith("bearer "):
         return auth_header[7:]
-    path = getattr(websocket, "path", "")
+    path = getattr(request, "path", None)
+    if path is None:
+        path = getattr(websocket, "path", "")
     if path:
         secret_q = parse_qs(urlparse(path).query).get("secret")
         if secret_q:
@@ -128,6 +143,32 @@ def _build_model_for_training(
     )
 
 
+def _extract_model_bundle_to_tempdir(
+    model_zip_base64: str,
+    mjcf_entrypoint: str,
+) -> tuple[tempfile.TemporaryDirectory, str]:
+    tempdir = tempfile.TemporaryDirectory(prefix="lagrangian-model-")
+    root = Path(tempdir.name).resolve()
+    try:
+        zip_bytes = base64.b64decode(model_zip_base64)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            for member in zf.namelist():
+                member_path = (root / member).resolve()
+                if member_path != root and root not in member_path.parents:
+                    raise ValueError(f"Unsafe zip member path: {member}")
+            zf.extractall(root)
+
+        entrypoint_path = (root / mjcf_entrypoint).resolve()
+        if entrypoint_path != root and root not in entrypoint_path.parents:
+            raise ValueError("Invalid mjcf_entrypoint path")
+        if not entrypoint_path.exists():
+            raise FileNotFoundError(f"mjcf_entrypoint not found in package: {mjcf_entrypoint}")
+        return tempdir, str(entrypoint_path)
+    except Exception:
+        tempdir.cleanup()
+        raise
+
+
 def _log_message_payload(msg: str, training_id: str = "system") -> dict[str, Any]:
     return {
         "type": "TrainingUpdatesMessage",
@@ -140,23 +181,25 @@ def _log_message_payload(msg: str, training_id: str = "system") -> dict[str, Any
 
 
 async def _sender_loop(
-    websocket: websockets.WebSocketServerProtocol,
+    websocket: Any,
     send_queue: asyncio.Queue[dict[str, Any]],
 ) -> None:
     while True:
         payload = await send_queue.get()
+        logger.debug("Sending payload to websocket: type=%s", payload.get("type"))
         await websocket.send(json.dumps(payload))
 
 
 async def handle_connection(
-    websocket: websockets.WebSocketServerProtocol,
+    websocket: Any,
     shared_secret: str,
 ) -> None:
-    print(f"Client connected: {websocket.remote_address}")
+    remote_addr = getattr(websocket, "remote_address", None)
+    logger.info("Client connected: %s", remote_addr)
     presented_secret = _extract_presented_secret(websocket)
     if not presented_secret or not hmac.compare_digest(presented_secret, shared_secret):
         await websocket.close(code=1008, reason="unauthorized")
-        print(f"Unauthorized connection rejected: {websocket.remote_address}")
+        logger.warning("Unauthorized connection rejected: %s", remote_addr)
         return
 
     runtime: WorkerRuntime | None = None
@@ -183,20 +226,46 @@ async def handle_connection(
 
             msg_type = payload.get("type")
             content = payload.get("content")
+            logger.info("Received message: type=%s", msg_type)
 
             if msg_type == TrainingRemoteWorkerServerMessageTypes.LOAD_MODEL_MESSAGE.value:
                 try:
                     load_msg = LoadModelMessage.model_validate(content)
-                    simulator = MjxSimulator(mjcf=load_msg.mjcf)
+                    logger.info("Loading model for training_id=%s", load_msg.id)
+                    if runtime is not None and runtime.model_tmpdir is not None:
+                        runtime.model_tmpdir.cleanup()
+                    model_tmpdir: tempfile.TemporaryDirectory | None = None
+                    if load_msg.model_zip_base64 and load_msg.mjcf_entrypoint:
+                        model_tmpdir, model_path = _extract_model_bundle_to_tempdir(
+                            model_zip_base64=load_msg.model_zip_base64,
+                            mjcf_entrypoint=load_msg.mjcf_entrypoint,
+                        )
+                        simulator = MjxSimulator(model_path=model_path)
+                        logger.info(
+                            "Loaded model bundle from zip for training_id=%s (entrypoint=%s)",
+                            load_msg.id,
+                            load_msg.mjcf_entrypoint,
+                        )
+                    else:
+                        simulator = MjxSimulator(mjcf=load_msg.mjcf)
+                        logger.info(
+                            "Loaded model from raw MJCF fallback for training_id=%s",
+                            load_msg.id,
+                        )
                     model = _build_default_model(simulator)
-                    runtime = WorkerRuntime(simulator=simulator, model=model)
+                    runtime = WorkerRuntime(
+                        simulator=simulator,
+                        model=model,
+                        model_tmpdir=model_tmpdir,
+                    )
                     await send_queue.put(
                         _log_message_payload(
-                            "Loaded model from LoadModelMessage.mjcf",
+                            "Loaded model from LoadModelMessage",
                             training_id=load_msg.id,
                         )
                     )
                 except Exception as exc:
+                    logger.exception("LoadModelMessage failed")
                     await send_queue.put(
                         _log_message_payload(f"LoadModelMessage failed: {type(exc).__name__}: {exc}")
                     )
@@ -213,12 +282,14 @@ async def handle_connection(
                 try:
                     start_msg = StartTrainingMessage.model_validate(content)
                 except ValidationError as exc:
+                    logger.warning("Invalid StartTrainingMessage: %s", exc)
                     await send_queue.put(
                         _log_message_payload(f"Invalid StartTrainingMessage: {exc}")
                     )
                     continue
 
                 training_id = start_msg.id
+                logger.info("StartTrainingMessage accepted for training_id=%s", training_id)
                 if training_id in training_tasks and not training_tasks[training_id].task.done():
                     await send_queue.put(
                         _log_message_payload(
@@ -259,9 +330,14 @@ async def handle_connection(
                     training_tasks.pop(training_id_local, None)
                     try:
                         done_task.result()
+                        logger.info("Training task completed: training_id=%s", training_id_local)
                     except asyncio.CancelledError:
-                        pass
+                        logger.info("Training task cancelled: training_id=%s", training_id_local)
                     except Exception as exc:
+                        logger.exception(
+                            "Training task failed: training_id=%s",
+                            training_id_local,
+                        )
                         thread_safe_send(
                             _log_message_payload(
                                 f"Training task '{training_id_local}' failed: {type(exc).__name__}: {exc}",
@@ -283,10 +359,12 @@ async def handle_connection(
                 try:
                     stop_msg = StopTrainingMessage.model_validate(content)
                 except ValidationError as exc:
+                    logger.warning("Invalid StopTrainingMessage: %s", exc)
                     await send_queue.put(
                         _log_message_payload(f"Invalid StopTrainingMessage: {exc}")
                     )
                     continue
+                logger.info("StopTrainingMessage received for training_id=%s", stop_msg.id)
                 task_state = training_tasks.get(stop_msg.id)
                 if task_state is None:
                     await send_queue.put(
@@ -309,11 +387,13 @@ async def handle_connection(
                 _log_message_payload(f"Unsupported message type: {msg_type}")
             )
     except ConnectionClosed:
-        pass
+        logger.info("Websocket closed for client: %s", remote_addr)
     finally:
         for task_state in training_tasks.values():
             task_state.stop_event.set()
-        print(f"Client disconnected: {websocket.remote_address}")
+        if runtime is not None and runtime.model_tmpdir is not None:
+            runtime.model_tmpdir.cleanup()
+        logger.info("Client disconnected: %s", remote_addr)
         sender_task.cancel()
         try:
             await sender_task
@@ -334,7 +414,7 @@ def _maybe_ssl_context() -> ssl.SSLContext | None:
 async def run_server(host: str, port: int, shared_secret: str) -> None:
     ssl_context = _maybe_ssl_context()
     protocol = "wss" if ssl_context else "ws"
-    print(f"Starting websocket server on {protocol}://{host}:{port}")
+    logger.info("Starting websocket server on %s://%s:%s", protocol, host, port)
     async with websockets.serve(
         lambda ws: handle_connection(ws, shared_secret),
         host,
@@ -345,9 +425,16 @@ async def run_server(host: str, port: int, shared_secret: str) -> None:
 
 
 def main() -> None:
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(
+        level=getattr(logging, log_level, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     host = os.getenv("WS_HOST", "0.0.0.0")
     port = int(os.getenv("WS_PORT", "8765"))
+    logger.info("Initializing worker runtime")
     shared_secret = _load_secret()
+    logger.info("Worker shared secret loaded")
     asyncio.run(run_server(host, port, shared_secret))
 
 
