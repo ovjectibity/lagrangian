@@ -386,8 +386,13 @@ async def handle_connection(
             await send_queue.put(
                 _log_message_payload(f"Unsupported message type: {msg_type}")
             )
-    except ConnectionClosed:
-        logger.info("Websocket closed for client: %s", remote_addr)
+    except ConnectionClosed as exc:
+        logger.info(
+            "Websocket closed for client: %s code=%s reason=%s",
+            remote_addr,
+            exc.code,
+            exc.reason,
+        )
     finally:
         for task_state in training_tasks.values():
             task_state.stop_event.set()
@@ -411,15 +416,37 @@ def _maybe_ssl_context() -> ssl.SSLContext | None:
     return context
 
 
+def _env_optional_int(name: str, default: int | None) -> int | None:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    value = value.strip().lower()
+    if value in {"", "none", "null", "unlimited", "inf", "infinite", "-1", "0"}:
+        return None
+    return int(value)
+
+
 async def run_server(host: str, port: int, shared_secret: str) -> None:
     ssl_context = _maybe_ssl_context()
     protocol = "wss" if ssl_context else "ws"
+    max_size = _env_optional_int("WS_MAX_MESSAGE_BYTES", 256 * 1024 * 1024)
+    ping_interval = _env_optional_int("WS_PING_INTERVAL_SECONDS", 20)
+    ping_timeout = _env_optional_int("WS_PING_TIMEOUT_SECONDS", 20)
     logger.info("Starting websocket server on %s://%s:%s", protocol, host, port)
+    logger.info(
+        "Websocket settings: max_size=%s ping_interval=%s ping_timeout=%s",
+        max_size,
+        ping_interval,
+        ping_timeout,
+    )
     async with websockets.serve(
         lambda ws: handle_connection(ws, shared_secret),
         host,
         port,
         ssl=ssl_context,
+        max_size=max_size,
+        ping_interval=ping_interval,
+        ping_timeout=ping_timeout,
     ):
         await asyncio.Future()
 

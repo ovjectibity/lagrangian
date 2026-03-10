@@ -8,8 +8,6 @@
 
 use std::env;
 use std::fs;
-use std::fs::File;
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -31,10 +29,6 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use walkdir::WalkDir;
-use zip::CompressionMethod;
-use zip::ZipWriter;
-use zip::write::FileOptions;
 
 use crate::commondef::remoteworkermessages::{
     LoadModelMessage, StartTrainingMessage, StopTrainingMessage, TrainingRemoteWorkerClientMessage,
@@ -46,40 +40,59 @@ type DynError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, DynError>;
 type WorkerWs = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-fn build_mjcf_package_zip_base64(model_path: &str) -> Result<(String, String)> {
+fn load_mjcf_package_zip_base64(model_path: &str) -> Result<(String, String)> {
     let model_path = Path::new(model_path);
-    let model_dir = model_path
-        .parent()
-        .ok_or("model_path has no parent directory")?;
-    let entrypoint = model_path
+    let model_dir = model_path.parent().ok_or("model_path has no parent directory")?;
+    let default_entrypoint = model_path
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or("model_path has no valid UTF-8 filename")?
-        .to_string();
+        .ok_or("model_path has no valid UTF-8 filename")?;
+    let entrypoint = env::var("TRAINING_WORKER_MJCF_ENTRYPOINT")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| default_entrypoint.to_string());
 
-    let mut zip_writer = ZipWriter::new(Cursor::new(Vec::new()));
-    let file_options = FileOptions::default().compression_method(CompressionMethod::Deflated);
-
-    for entry in WalkDir::new(model_dir).into_iter().flatten() {
-        let path = entry.path();
-        let rel = path.strip_prefix(model_dir)?;
-        if rel.as_os_str().is_empty() {
-            continue;
+    let zip_path = match env::var("TRAINING_WORKER_MODEL_ZIP_PATH")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+    {
+        Some(path) => PathBuf::from(path),
+        None => {
+            let explicit_default = model_dir.join("model.zip");
+            if explicit_default.exists() {
+                explicit_default
+            } else {
+                let stem = model_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .ok_or("model_path has no valid UTF-8 stem")?;
+                model_dir.join(format!("{stem}.zip"))
+            }
         }
+    };
 
-        let rel_name = rel.to_string_lossy().replace('\\', "/");
-        if entry.file_type().is_dir() {
-            zip_writer.add_directory(rel_name, file_options)?;
-            continue;
-        }
-
-        zip_writer.start_file(rel_name, file_options)?;
-        let mut file = File::open(path)?;
-        std::io::copy(&mut file, &mut zip_writer)?;
+    if !zip_path.exists() {
+        return Err(format!(
+            "Prebuilt zip not found at {:?}. Set TRAINING_WORKER_MODEL_ZIP_PATH or place model.zip/{:?}.zip in {:?}.",
+            zip_path,
+            model_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("model"),
+            model_dir
+        )
+        .into());
     }
 
-    let zip_cursor = zip_writer.finish()?;
-    let zip_bytes = zip_cursor.into_inner();
+    let zip_bytes = fs::read(&zip_path)?;
+    println!(
+        "Using prebuilt model zip {:?} ({} bytes), entrypoint={}",
+        zip_path,
+        zip_bytes.len(),
+        entrypoint
+    );
     Ok((BASE64.encode(zip_bytes), entrypoint))
 }
 
@@ -204,11 +217,11 @@ impl TrainingWorkerController {
         F: FnMut(&TrainingUpdatesMessage) + Send,
     {
         let (model_zip_base64, mjcf_entrypoint) = match model_path {
-            Some(path) => match build_mjcf_package_zip_base64(&path) {
+            Some(path) => match load_mjcf_package_zip_base64(&path) {
                 Ok((zip_b64, entrypoint)) => (Some(zip_b64), Some(entrypoint)),
                 Err(e) => {
                     println!(
-                        "Could not build zipped model package from path {:?}: {:?}. Falling back to raw mjcf.",
+                        "Could not load prebuilt zipped model package from path {:?}: {:?}. Falling back to raw mjcf.",
                         path, e
                     );
                     (None, None)

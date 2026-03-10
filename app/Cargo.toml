@@ -17,5 +17,3 @@ futures-util = "0.3.32"
 http = "1.4.0"
 tokio = { version = "1.50.0", features = ["macros", "net", "rt-multi-thread", "time"] }
 tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-webpki-roots"] }
-walkdir = "2.5.0"
-zip = "0.6.6"
