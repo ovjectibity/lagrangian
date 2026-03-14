@@ -163,7 +163,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                         //     "/Users/avi/Documents/manual/lagrangian/app/assets/universal_robots_ur10e/ur10e.xml".
                                         //     to_string());
                                         simulator::load_test_model(
-                                            "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml".
+                                            "/Users/khushi/Documents/projects/lagrangian/app/assets/trossen_vx300s/vx300s.xml".
                                             to_string());
                                     }
                                     if let Some(wb) = world_body {
@@ -190,7 +190,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                     //Setup the map ID of the model
                                     //Pass id to the simulator thread as well
                                     simulator::spawn_simulator(
-                                        "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml"
+                                        "/Users/khushi/Documents/projects/lagrangian/app/assets/trossen_vx300s/vx300s.xml"
                                         .to_string(),
                                         tx_simul.clone());
                                 } else {
@@ -198,7 +198,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                         Ok(m) => {
                                             match m {
                                                 clientmessages::ServerMessage::LoadModelMessage => {
-                                                    let model_path = "/Users/avi/Documents/manual/lagrangian/app/assets/trossen_vx300s/vx300s.xml"
+                                                    let model_path = "/Users/khushi/Documents/projects/lagrangian/app/assets/trossen_vx300s/vx300s.xml"
                                                         .to_string();
                                                     match WorkflowRuntime::load(model_path.clone()) {
                                                         Ok(runtime) => {
@@ -514,7 +514,7 @@ fn rocket() -> _ {
         // 'rank = 1' tries to match exact files first
         .mount(
             "/",
-            FileServer::from("/Users/avi/Documents/manual/lagrangian/client/dist").rank(1),
+            FileServer::from("/Users/khushi/Documents/projects/lagrangian/client/dist").rank(1),
         )
 
     // 3. Fallback (for client-side routing)

@@ -49,7 +49,11 @@ where
             index % 8
         };
         let mask = 1 << bit_index;
-        if val { byte | mask } else { byte & !mask }
+        if val {
+            byte | mask
+        } else {
+            byte & !mask
+        }
     }
     #[inline]
     pub fn set_bit(&mut self, index: usize, val: bool) {
@@ -139,15 +143,22 @@ where
 #[derive(PartialEq, Copy, Clone, Hash, Debug, Default)]
 #[repr(transparent)]
 pub struct __BindgenFloat16(pub u16);
-pub const mjVERSION_HEADER: u32 = 341;
+pub const mjVERSION_HEADER: u32 = 3005001;
 pub const __API_TO_BE_DEPRECATED: u32 = 100000;
 pub const __API_TO_BE_DEPRECATED_MACOS: u32 = 100000;
+pub const __API_TO_BE_DEPRECATED_MACOSAPPLICATIONEXTENSION: u32 = 100000;
 pub const __API_TO_BE_DEPRECATED_IOS: u32 = 100000;
+pub const __API_TO_BE_DEPRECATED_IOSAPPLICATIONEXTENSION: u32 = 100000;
 pub const __API_TO_BE_DEPRECATED_MACCATALYST: u32 = 100000;
+pub const __API_TO_BE_DEPRECATED_MACCATALYSTAPPLICATIONEXTENSION: u32 = 100000;
 pub const __API_TO_BE_DEPRECATED_WATCHOS: u32 = 100000;
+pub const __API_TO_BE_DEPRECATED_WATCHOSAPPLICATIONEXTENSION: u32 = 100000;
 pub const __API_TO_BE_DEPRECATED_TVOS: u32 = 100000;
+pub const __API_TO_BE_DEPRECATED_TVOSAPPLICATIONEXTENSION: u32 = 100000;
 pub const __API_TO_BE_DEPRECATED_DRIVERKIT: u32 = 100000;
 pub const __API_TO_BE_DEPRECATED_VISIONOS: u32 = 100000;
+pub const __API_TO_BE_DEPRECATED_VISIONOSAPPLICATIONEXTENSION: u32 = 100000;
+pub const __API_TO_BE_DEPRECATED_KERNELKIT: u32 = 100000;
 pub const __MAC_10_0: u32 = 1000;
 pub const __MAC_10_1: u32 = 1010;
 pub const __MAC_10_2: u32 = 1020;
@@ -203,14 +214,21 @@ pub const __MAC_13_3: u32 = 130300;
 pub const __MAC_13_4: u32 = 130400;
 pub const __MAC_13_5: u32 = 130500;
 pub const __MAC_13_6: u32 = 130600;
+pub const __MAC_13_7: u32 = 130700;
 pub const __MAC_14_0: u32 = 140000;
 pub const __MAC_14_1: u32 = 140100;
 pub const __MAC_14_2: u32 = 140200;
 pub const __MAC_14_3: u32 = 140300;
 pub const __MAC_14_4: u32 = 140400;
 pub const __MAC_14_5: u32 = 140500;
+pub const __MAC_14_6: u32 = 140600;
+pub const __MAC_14_7: u32 = 140700;
 pub const __MAC_15_0: u32 = 150000;
 pub const __MAC_15_1: u32 = 150100;
+pub const __MAC_15_2: u32 = 150200;
+pub const __MAC_15_3: u32 = 150300;
+pub const __MAC_15_4: u32 = 150400;
+pub const __MAC_15_5: u32 = 150500;
 pub const __IPHONE_2_0: u32 = 20000;
 pub const __IPHONE_2_1: u32 = 20100;
 pub const __IPHONE_2_2: u32 = 20200;
@@ -290,8 +308,14 @@ pub const __IPHONE_17_2: u32 = 170200;
 pub const __IPHONE_17_3: u32 = 170300;
 pub const __IPHONE_17_4: u32 = 170400;
 pub const __IPHONE_17_5: u32 = 170500;
+pub const __IPHONE_17_6: u32 = 170600;
+pub const __IPHONE_17_7: u32 = 170700;
 pub const __IPHONE_18_0: u32 = 180000;
 pub const __IPHONE_18_1: u32 = 180100;
+pub const __IPHONE_18_2: u32 = 180200;
+pub const __IPHONE_18_3: u32 = 180300;
+pub const __IPHONE_18_4: u32 = 180400;
+pub const __IPHONE_18_5: u32 = 180500;
 pub const __WATCHOS_1_0: u32 = 10000;
 pub const __WATCHOS_2_0: u32 = 20000;
 pub const __WATCHOS_2_1: u32 = 20100;
@@ -339,8 +363,14 @@ pub const __WATCHOS_10_2: u32 = 100200;
 pub const __WATCHOS_10_3: u32 = 100300;
 pub const __WATCHOS_10_4: u32 = 100400;
 pub const __WATCHOS_10_5: u32 = 100500;
+pub const __WATCHOS_10_6: u32 = 100600;
+pub const __WATCHOS_10_7: u32 = 100700;
 pub const __WATCHOS_11_0: u32 = 110000;
 pub const __WATCHOS_11_1: u32 = 110100;
+pub const __WATCHOS_11_2: u32 = 110200;
+pub const __WATCHOS_11_3: u32 = 110300;
+pub const __WATCHOS_11_4: u32 = 110400;
+pub const __WATCHOS_11_5: u32 = 110500;
 pub const __TVOS_9_0: u32 = 90000;
 pub const __TVOS_9_1: u32 = 90100;
 pub const __TVOS_9_2: u32 = 90200;
@@ -389,8 +419,13 @@ pub const __TVOS_17_2: u32 = 170200;
 pub const __TVOS_17_3: u32 = 170300;
 pub const __TVOS_17_4: u32 = 170400;
 pub const __TVOS_17_5: u32 = 170500;
+pub const __TVOS_17_6: u32 = 170600;
 pub const __TVOS_18_0: u32 = 180000;
 pub const __TVOS_18_1: u32 = 180100;
+pub const __TVOS_18_2: u32 = 180200;
+pub const __TVOS_18_3: u32 = 180300;
+pub const __TVOS_18_4: u32 = 180400;
+pub const __TVOS_18_5: u32 = 180500;
 pub const __BRIDGEOS_2_0: u32 = 20000;
 pub const __BRIDGEOS_3_0: u32 = 30000;
 pub const __BRIDGEOS_3_1: u32 = 30100;
@@ -417,8 +452,13 @@ pub const __BRIDGEOS_8_2: u32 = 80200;
 pub const __BRIDGEOS_8_3: u32 = 80300;
 pub const __BRIDGEOS_8_4: u32 = 80400;
 pub const __BRIDGEOS_8_5: u32 = 80500;
+pub const __BRIDGEOS_8_6: u32 = 80600;
 pub const __BRIDGEOS_9_0: u32 = 90000;
 pub const __BRIDGEOS_9_1: u32 = 90100;
+pub const __BRIDGEOS_9_2: u32 = 90200;
+pub const __BRIDGEOS_9_3: u32 = 90300;
+pub const __BRIDGEOS_9_4: u32 = 90400;
+pub const __BRIDGEOS_9_5: u32 = 90500;
 pub const __DRIVERKIT_19_0: u32 = 190000;
 pub const __DRIVERKIT_20_0: u32 = 200000;
 pub const __DRIVERKIT_21_0: u32 = 210000;
@@ -432,13 +472,23 @@ pub const __DRIVERKIT_23_2: u32 = 230200;
 pub const __DRIVERKIT_23_3: u32 = 230300;
 pub const __DRIVERKIT_23_4: u32 = 230400;
 pub const __DRIVERKIT_23_5: u32 = 230500;
+pub const __DRIVERKIT_23_6: u32 = 230600;
 pub const __DRIVERKIT_24_0: u32 = 240000;
 pub const __DRIVERKIT_24_1: u32 = 240100;
+pub const __DRIVERKIT_24_2: u32 = 240200;
+pub const __DRIVERKIT_24_3: u32 = 240300;
+pub const __DRIVERKIT_24_4: u32 = 240400;
+pub const __DRIVERKIT_24_5: u32 = 240500;
 pub const __VISIONOS_1_0: u32 = 10000;
 pub const __VISIONOS_1_1: u32 = 10100;
 pub const __VISIONOS_1_2: u32 = 10200;
+pub const __VISIONOS_1_3: u32 = 10300;
 pub const __VISIONOS_2_0: u32 = 20000;
 pub const __VISIONOS_2_1: u32 = 20100;
+pub const __VISIONOS_2_2: u32 = 20200;
+pub const __VISIONOS_2_3: u32 = 20300;
+pub const __VISIONOS_2_4: u32 = 20400;
+pub const __VISIONOS_2_5: u32 = 20500;
 pub const MAC_OS_X_VERSION_10_0: u32 = 1000;
 pub const MAC_OS_X_VERSION_10_1: u32 = 1010;
 pub const MAC_OS_X_VERSION_10_2: u32 = 1020;
@@ -494,15 +544,25 @@ pub const MAC_OS_VERSION_13_3: u32 = 130300;
 pub const MAC_OS_VERSION_13_4: u32 = 130400;
 pub const MAC_OS_VERSION_13_5: u32 = 130500;
 pub const MAC_OS_VERSION_13_6: u32 = 130600;
+pub const MAC_OS_VERSION_13_7: u32 = 130700;
 pub const MAC_OS_VERSION_14_0: u32 = 140000;
 pub const MAC_OS_VERSION_14_1: u32 = 140100;
 pub const MAC_OS_VERSION_14_2: u32 = 140200;
 pub const MAC_OS_VERSION_14_3: u32 = 140300;
 pub const MAC_OS_VERSION_14_4: u32 = 140400;
 pub const MAC_OS_VERSION_14_5: u32 = 140500;
+pub const MAC_OS_VERSION_14_6: u32 = 140600;
+pub const MAC_OS_VERSION_14_7: u32 = 140700;
 pub const MAC_OS_VERSION_15_0: u32 = 150000;
 pub const MAC_OS_VERSION_15_1: u32 = 150100;
-pub const __MAC_OS_X_VERSION_MAX_ALLOWED: u32 = 150100;
+pub const MAC_OS_VERSION_15_2: u32 = 150200;
+pub const MAC_OS_VERSION_15_3: u32 = 150300;
+pub const MAC_OS_VERSION_15_4: u32 = 150400;
+pub const MAC_OS_VERSION_15_5: u32 = 150500;
+pub const __AVAILABILITY_VERSIONS_VERSION_HASH: u32 = 93585900;
+pub const __AVAILABILITY_VERSIONS_VERSION_STRING: &[u8; 6] = b"Local\0";
+pub const __AVAILABILITY_FILE: &[u8; 23] = b"AvailabilityVersions.h\0";
+pub const __MAC_OS_X_VERSION_MAX_ALLOWED: u32 = 150500;
 pub const __ENABLE_LEGACY_MAC_AVAILABILITY: u32 = 1;
 pub const __has_safe_buffers: u32 = 1;
 pub const __DARWIN_ONLY_64_BIT_INO_T: u32 = 1;
@@ -524,6 +584,7 @@ pub const _DARWIN_FEATURE_ONLY_VERS_1050: u32 = 1;
 pub const _DARWIN_FEATURE_ONLY_UNIX_CONFORMANCE: u32 = 1;
 pub const _DARWIN_FEATURE_UNIX_CONFORMANCE: u32 = 3;
 pub const __has_ptrcheck: u32 = 0;
+pub const __has_bounds_safety_attributes: u32 = 0;
 pub const USE_CLANG_TYPES: u32 = 0;
 pub const __PTHREAD_SIZE__: u32 = 8176;
 pub const __PTHREAD_ATTR_SIZE__: u32 = 56;
@@ -769,6 +830,7 @@ pub const IOPOL_VFS_IGNORE_PERMISSIONS_OFF: u32 = 0;
 pub const IOPOL_VFS_IGNORE_PERMISSIONS_ON: u32 = 1;
 pub const IOPOL_VFS_SKIP_MTIME_UPDATE_OFF: u32 = 0;
 pub const IOPOL_VFS_SKIP_MTIME_UPDATE_ON: u32 = 1;
+pub const IOPOL_VFS_SKIP_MTIME_UPDATE_IGNORE: u32 = 2;
 pub const IOPOL_VFS_ALLOW_LOW_SPACE_WRITES_OFF: u32 = 0;
 pub const IOPOL_VFS_ALLOW_LOW_SPACE_WRITES_ON: u32 = 1;
 pub const IOPOL_VFS_DISALLOW_RW_FOR_O_EVTONLY_DEFAULT: u32 = 0;
@@ -1343,6 +1405,84 @@ const _: () = {
     ["Alignment of __arm_pagein_state"][::std::mem::align_of::<__arm_pagein_state>() - 4usize];
     ["Offset of field: __arm_pagein_state::__pagein_error"]
         [::std::mem::offset_of!(__arm_pagein_state, __pagein_error) - 0usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct __darwin_arm_sme_state {
+    pub __svcr: __uint64_t,
+    pub __tpidr2_el0: __uint64_t,
+    pub __svl_b: __uint16_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of __darwin_arm_sme_state"][::std::mem::size_of::<__darwin_arm_sme_state>() - 24usize];
+    ["Alignment of __darwin_arm_sme_state"]
+        [::std::mem::align_of::<__darwin_arm_sme_state>() - 8usize];
+    ["Offset of field: __darwin_arm_sme_state::__svcr"]
+        [::std::mem::offset_of!(__darwin_arm_sme_state, __svcr) - 0usize];
+    ["Offset of field: __darwin_arm_sme_state::__tpidr2_el0"]
+        [::std::mem::offset_of!(__darwin_arm_sme_state, __tpidr2_el0) - 8usize];
+    ["Offset of field: __darwin_arm_sme_state::__svl_b"]
+        [::std::mem::offset_of!(__darwin_arm_sme_state, __svl_b) - 16usize];
+};
+#[repr(C)]
+#[repr(align(4))]
+#[derive(Debug, Copy, Clone)]
+pub struct __darwin_arm_sve_z_state {
+    pub __z: [[::std::os::raw::c_char; 256usize]; 16usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of __darwin_arm_sve_z_state"]
+        [::std::mem::size_of::<__darwin_arm_sve_z_state>() - 4096usize];
+    ["Alignment of __darwin_arm_sve_z_state"]
+        [::std::mem::align_of::<__darwin_arm_sve_z_state>() - 4usize];
+    ["Offset of field: __darwin_arm_sve_z_state::__z"]
+        [::std::mem::offset_of!(__darwin_arm_sve_z_state, __z) - 0usize];
+};
+#[repr(C)]
+#[repr(align(4))]
+#[derive(Debug, Copy, Clone)]
+pub struct __darwin_arm_sve_p_state {
+    pub __p: [[::std::os::raw::c_char; 32usize]; 16usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of __darwin_arm_sve_p_state"]
+        [::std::mem::size_of::<__darwin_arm_sve_p_state>() - 512usize];
+    ["Alignment of __darwin_arm_sve_p_state"]
+        [::std::mem::align_of::<__darwin_arm_sve_p_state>() - 4usize];
+    ["Offset of field: __darwin_arm_sve_p_state::__p"]
+        [::std::mem::offset_of!(__darwin_arm_sve_p_state, __p) - 0usize];
+};
+#[repr(C)]
+#[repr(align(4))]
+#[derive(Debug, Copy, Clone)]
+pub struct __darwin_arm_sme_za_state {
+    pub __za: [::std::os::raw::c_char; 4096usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of __darwin_arm_sme_za_state"]
+        [::std::mem::size_of::<__darwin_arm_sme_za_state>() - 4096usize];
+    ["Alignment of __darwin_arm_sme_za_state"]
+        [::std::mem::align_of::<__darwin_arm_sme_za_state>() - 4usize];
+    ["Offset of field: __darwin_arm_sme_za_state::__za"]
+        [::std::mem::offset_of!(__darwin_arm_sme_za_state, __za) - 0usize];
+};
+#[repr(C)]
+#[repr(align(4))]
+#[derive(Debug, Copy, Clone)]
+pub struct __darwin_arm_sme2_state {
+    pub __zt0: [::std::os::raw::c_char; 64usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of __darwin_arm_sme2_state"][::std::mem::size_of::<__darwin_arm_sme2_state>() - 64usize];
+    ["Alignment of __darwin_arm_sme2_state"]
+        [::std::mem::align_of::<__darwin_arm_sme2_state>() - 4usize];
+    ["Offset of field: __darwin_arm_sme2_state::__zt0"]
+        [::std::mem::offset_of!(__darwin_arm_sme2_state, __zt0) - 0usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -2843,7 +2983,7 @@ unsafe extern "C" {
     ) -> pid_t;
 }
 unsafe extern "C" {
-    pub fn alloca(arg1: ::std::os::raw::c_ulong) -> *mut ::std::os::raw::c_void;
+    pub fn alloca(__size: ::std::os::raw::c_ulong) -> *mut ::std::os::raw::c_void;
 }
 pub type ct_rune_t = __darwin_ct_rune_t;
 pub type rune_t = __darwin_rune_t;
@@ -3091,13 +3231,13 @@ unsafe extern "C" {
     pub fn mblen(__s: *const ::std::os::raw::c_char, __n: usize) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn mbstowcs(arg1: *mut wchar_t, arg2: *const ::std::os::raw::c_char, arg3: usize) -> usize;
+    pub fn mbstowcs(arg1: *mut wchar_t, arg2: *const ::std::os::raw::c_char, __n: usize) -> usize;
 }
 unsafe extern "C" {
     pub fn mbtowc(
         arg1: *mut wchar_t,
         arg2: *const ::std::os::raw::c_char,
-        arg3: usize,
+        __n: usize,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
@@ -3172,7 +3312,7 @@ unsafe extern "C" {
     pub fn system(arg1: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn wcstombs(arg1: *mut ::std::os::raw::c_char, arg2: *const wchar_t, arg3: usize) -> usize;
+    pub fn wcstombs(arg1: *mut ::std::os::raw::c_char, arg2: *const wchar_t, __n: usize) -> usize;
 }
 unsafe extern "C" {
     pub fn wctomb(arg1: *mut ::std::os::raw::c_char, arg2: wchar_t) -> ::std::os::raw::c_int;
@@ -3226,7 +3366,7 @@ unsafe extern "C" {
     pub fn initstate(
         arg1: ::std::os::raw::c_uint,
         arg2: *mut ::std::os::raw::c_char,
-        arg3: usize,
+        __size: usize,
     ) -> *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
@@ -3316,7 +3456,10 @@ unsafe extern "C" {
     pub fn arc4random() -> u32;
 }
 unsafe extern "C" {
-    pub fn arc4random_addrandom(arg1: *mut ::std::os::raw::c_uchar, arg2: ::std::os::raw::c_int);
+    pub fn arc4random_addrandom(
+        arg1: *mut ::std::os::raw::c_uchar,
+        __datlen: ::std::os::raw::c_int,
+    );
 }
 unsafe extern "C" {
     pub fn arc4random_buf(__buf: *mut ::std::os::raw::c_void, __nbytes: usize);
@@ -3422,7 +3565,7 @@ unsafe extern "C" {
     ) -> *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
-    pub fn getloadavg(arg1: *mut f64, arg2: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+    pub fn getloadavg(arg1: *mut f64, __nelem: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn getprogname() -> *const ::std::os::raw::c_char;
@@ -4385,7 +4528,8 @@ pub const mjtEq__mjEQ_WELD: mjtEq_ = 1;
 pub const mjtEq__mjEQ_JOINT: mjtEq_ = 2;
 pub const mjtEq__mjEQ_TENDON: mjtEq_ = 3;
 pub const mjtEq__mjEQ_FLEX: mjtEq_ = 4;
-pub const mjtEq__mjEQ_DISTANCE: mjtEq_ = 5;
+pub const mjtEq__mjEQ_FLEXVERT: mjtEq_ = 5;
+pub const mjtEq__mjEQ_DISTANCE: mjtEq_ = 6;
 pub type mjtEq_ = ::std::os::raw::c_uint;
 pub use self::mjtEq_ as mjtEq;
 pub const mjtWrap__mjWRAP_NONE: mjtWrap_ = 0;
@@ -5069,91 +5213,94 @@ pub type mjStatistic = mjStatistic_;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct mjModel_ {
-    pub nq: ::std::os::raw::c_int,
-    pub nv: ::std::os::raw::c_int,
-    pub nu: ::std::os::raw::c_int,
-    pub na: ::std::os::raw::c_int,
-    pub nbody: ::std::os::raw::c_int,
-    pub nbvh: ::std::os::raw::c_int,
-    pub nbvhstatic: ::std::os::raw::c_int,
-    pub nbvhdynamic: ::std::os::raw::c_int,
-    pub noct: ::std::os::raw::c_int,
-    pub njnt: ::std::os::raw::c_int,
-    pub ntree: ::std::os::raw::c_int,
-    pub nM: ::std::os::raw::c_int,
-    pub nB: ::std::os::raw::c_int,
-    pub nC: ::std::os::raw::c_int,
-    pub nD: ::std::os::raw::c_int,
-    pub ngeom: ::std::os::raw::c_int,
-    pub nsite: ::std::os::raw::c_int,
-    pub ncam: ::std::os::raw::c_int,
-    pub nlight: ::std::os::raw::c_int,
-    pub nflex: ::std::os::raw::c_int,
-    pub nflexnode: ::std::os::raw::c_int,
-    pub nflexvert: ::std::os::raw::c_int,
-    pub nflexedge: ::std::os::raw::c_int,
-    pub nflexelem: ::std::os::raw::c_int,
-    pub nflexelemdata: ::std::os::raw::c_int,
-    pub nflexelemedge: ::std::os::raw::c_int,
-    pub nflexshelldata: ::std::os::raw::c_int,
-    pub nflexevpair: ::std::os::raw::c_int,
-    pub nflextexcoord: ::std::os::raw::c_int,
-    pub nJfe: ::std::os::raw::c_int,
-    pub nmesh: ::std::os::raw::c_int,
-    pub nmeshvert: ::std::os::raw::c_int,
-    pub nmeshnormal: ::std::os::raw::c_int,
-    pub nmeshtexcoord: ::std::os::raw::c_int,
-    pub nmeshface: ::std::os::raw::c_int,
-    pub nmeshgraph: ::std::os::raw::c_int,
-    pub nmeshpoly: ::std::os::raw::c_int,
-    pub nmeshpolyvert: ::std::os::raw::c_int,
-    pub nmeshpolymap: ::std::os::raw::c_int,
-    pub nskin: ::std::os::raw::c_int,
-    pub nskinvert: ::std::os::raw::c_int,
-    pub nskintexvert: ::std::os::raw::c_int,
-    pub nskinface: ::std::os::raw::c_int,
-    pub nskinbone: ::std::os::raw::c_int,
-    pub nskinbonevert: ::std::os::raw::c_int,
-    pub nhfield: ::std::os::raw::c_int,
-    pub nhfielddata: ::std::os::raw::c_int,
-    pub ntex: ::std::os::raw::c_int,
-    pub ntexdata: ::std::os::raw::c_int,
-    pub nmat: ::std::os::raw::c_int,
-    pub npair: ::std::os::raw::c_int,
-    pub nexclude: ::std::os::raw::c_int,
-    pub neq: ::std::os::raw::c_int,
-    pub ntendon: ::std::os::raw::c_int,
-    pub nwrap: ::std::os::raw::c_int,
-    pub nsensor: ::std::os::raw::c_int,
-    pub nnumeric: ::std::os::raw::c_int,
-    pub nnumericdata: ::std::os::raw::c_int,
-    pub ntext: ::std::os::raw::c_int,
-    pub ntextdata: ::std::os::raw::c_int,
-    pub ntuple: ::std::os::raw::c_int,
-    pub ntupledata: ::std::os::raw::c_int,
-    pub nkey: ::std::os::raw::c_int,
-    pub nmocap: ::std::os::raw::c_int,
-    pub nplugin: ::std::os::raw::c_int,
-    pub npluginattr: ::std::os::raw::c_int,
-    pub nuser_body: ::std::os::raw::c_int,
-    pub nuser_jnt: ::std::os::raw::c_int,
-    pub nuser_geom: ::std::os::raw::c_int,
-    pub nuser_site: ::std::os::raw::c_int,
-    pub nuser_cam: ::std::os::raw::c_int,
-    pub nuser_tendon: ::std::os::raw::c_int,
-    pub nuser_actuator: ::std::os::raw::c_int,
-    pub nuser_sensor: ::std::os::raw::c_int,
-    pub nnames: ::std::os::raw::c_int,
-    pub npaths: ::std::os::raw::c_int,
-    pub nnames_map: ::std::os::raw::c_int,
-    pub nJmom: ::std::os::raw::c_int,
-    pub ngravcomp: ::std::os::raw::c_int,
-    pub nemax: ::std::os::raw::c_int,
-    pub njmax: ::std::os::raw::c_int,
-    pub nconmax: ::std::os::raw::c_int,
-    pub nuserdata: ::std::os::raw::c_int,
-    pub nsensordata: ::std::os::raw::c_int,
-    pub npluginstate: ::std::os::raw::c_int,
+    pub nq: mjtSize,
+    pub nv: mjtSize,
+    pub nu: mjtSize,
+    pub na: mjtSize,
+    pub nbody: mjtSize,
+    pub nbvh: mjtSize,
+    pub nbvhstatic: mjtSize,
+    pub nbvhdynamic: mjtSize,
+    pub noct: mjtSize,
+    pub njnt: mjtSize,
+    pub ntree: mjtSize,
+    pub nM: mjtSize,
+    pub nB: mjtSize,
+    pub nC: mjtSize,
+    pub nD: mjtSize,
+    pub ngeom: mjtSize,
+    pub nsite: mjtSize,
+    pub ncam: mjtSize,
+    pub nlight: mjtSize,
+    pub nflex: mjtSize,
+    pub nflexnode: mjtSize,
+    pub nflexvert: mjtSize,
+    pub nflexedge: mjtSize,
+    pub nflexelem: mjtSize,
+    pub nflexelemdata: mjtSize,
+    pub nflexelemedge: mjtSize,
+    pub nflexshelldata: mjtSize,
+    pub nflexevpair: mjtSize,
+    pub nflextexcoord: mjtSize,
+    pub nJfe: mjtSize,
+    pub nJfv: mjtSize,
+    pub nmesh: mjtSize,
+    pub nmeshvert: mjtSize,
+    pub nmeshnormal: mjtSize,
+    pub nmeshtexcoord: mjtSize,
+    pub nmeshface: mjtSize,
+    pub nmeshgraph: mjtSize,
+    pub nmeshpoly: mjtSize,
+    pub nmeshpolyvert: mjtSize,
+    pub nmeshpolymap: mjtSize,
+    pub nskin: mjtSize,
+    pub nskinvert: mjtSize,
+    pub nskintexvert: mjtSize,
+    pub nskinface: mjtSize,
+    pub nskinbone: mjtSize,
+    pub nskinbonevert: mjtSize,
+    pub nhfield: mjtSize,
+    pub nhfielddata: mjtSize,
+    pub ntex: mjtSize,
+    pub ntexdata: mjtSize,
+    pub nmat: mjtSize,
+    pub npair: mjtSize,
+    pub nexclude: mjtSize,
+    pub neq: mjtSize,
+    pub ntendon: mjtSize,
+    pub nJten: mjtSize,
+    pub nwrap: mjtSize,
+    pub nsensor: mjtSize,
+    pub nnumeric: mjtSize,
+    pub nnumericdata: mjtSize,
+    pub ntext: mjtSize,
+    pub ntextdata: mjtSize,
+    pub ntuple: mjtSize,
+    pub ntupledata: mjtSize,
+    pub nkey: mjtSize,
+    pub nmocap: mjtSize,
+    pub nplugin: mjtSize,
+    pub npluginattr: mjtSize,
+    pub nuser_body: mjtSize,
+    pub nuser_jnt: mjtSize,
+    pub nuser_geom: mjtSize,
+    pub nuser_site: mjtSize,
+    pub nuser_cam: mjtSize,
+    pub nuser_tendon: mjtSize,
+    pub nuser_actuator: mjtSize,
+    pub nuser_sensor: mjtSize,
+    pub nnames: mjtSize,
+    pub npaths: mjtSize,
+    pub nnames_map: mjtSize,
+    pub nJmom: mjtSize,
+    pub ngravcomp: mjtSize,
+    pub nemax: mjtSize,
+    pub njmax: mjtSize,
+    pub nconmax: mjtSize,
+    pub nuserdata: mjtSize,
+    pub nsensordata: mjtSize,
+    pub npluginstate: mjtSize,
+    pub nhistory: mjtSize,
     pub narena: mjtSize,
     pub nbuffer: mjtSize,
     pub opt: mjOption,
@@ -5342,6 +5489,9 @@ pub struct mjModel_ {
     pub flex_texcoordadr: *mut ::std::os::raw::c_int,
     pub flex_nodebodyid: *mut ::std::os::raw::c_int,
     pub flex_vertbodyid: *mut ::std::os::raw::c_int,
+    pub flex_vertedgeadr: *mut ::std::os::raw::c_int,
+    pub flex_vertedgenum: *mut ::std::os::raw::c_int,
+    pub flex_vertedge: *mut ::std::os::raw::c_int,
     pub flex_edge: *mut ::std::os::raw::c_int,
     pub flex_edgeflap: *mut ::std::os::raw::c_int,
     pub flex_elem: *mut ::std::os::raw::c_int,
@@ -5352,17 +5502,19 @@ pub struct mjModel_ {
     pub flex_evpair: *mut ::std::os::raw::c_int,
     pub flex_vert: *mut mjtNum,
     pub flex_vert0: *mut mjtNum,
+    pub flex_vertmetric: *mut mjtNum,
     pub flex_node: *mut mjtNum,
     pub flex_node0: *mut mjtNum,
     pub flexedge_length0: *mut mjtNum,
     pub flexedge_invweight0: *mut mjtNum,
     pub flex_radius: *mut mjtNum,
+    pub flex_size: *mut mjtNum,
     pub flex_stiffness: *mut mjtNum,
     pub flex_bending: *mut mjtNum,
     pub flex_damping: *mut mjtNum,
     pub flex_edgestiffness: *mut mjtNum,
     pub flex_edgedamping: *mut mjtNum,
-    pub flex_edgeequality: *mut mjtByte,
+    pub flex_edgeequality: *mut ::std::os::raw::c_int,
     pub flex_rigid: *mut mjtByte,
     pub flexedge_rigid: *mut mjtByte,
     pub flex_centered: *mut mjtByte,
@@ -5372,6 +5524,9 @@ pub struct mjModel_ {
     pub flexedge_J_rownnz: *mut ::std::os::raw::c_int,
     pub flexedge_J_rowadr: *mut ::std::os::raw::c_int,
     pub flexedge_J_colind: *mut ::std::os::raw::c_int,
+    pub flexvert_J_rownnz: *mut ::std::os::raw::c_int,
+    pub flexvert_J_rowadr: *mut ::std::os::raw::c_int,
+    pub flexvert_J_colind: *mut ::std::os::raw::c_int,
     pub flex_rgba: *mut f32,
     pub flex_texcoord: *mut f32,
     pub mesh_vertadr: *mut ::std::os::raw::c_int,
@@ -5440,7 +5595,7 @@ pub struct mjModel_ {
     pub tex_height: *mut ::std::os::raw::c_int,
     pub tex_width: *mut ::std::os::raw::c_int,
     pub tex_nchannel: *mut ::std::os::raw::c_int,
-    pub tex_adr: *mut ::std::os::raw::c_int,
+    pub tex_adr: *mut mjtSize,
     pub tex_data: *mut mjtByte,
     pub tex_pathadr: *mut ::std::os::raw::c_int,
     pub mat_texid: *mut ::std::os::raw::c_int,
@@ -5478,6 +5633,9 @@ pub struct mjModel_ {
     pub tendon_group: *mut ::std::os::raw::c_int,
     pub tendon_treenum: *mut ::std::os::raw::c_int,
     pub tendon_treeid: *mut ::std::os::raw::c_int,
+    pub ten_J_rownnz: *mut ::std::os::raw::c_int,
+    pub ten_J_rowadr: *mut ::std::os::raw::c_int,
+    pub ten_J_colind: *mut ::std::os::raw::c_int,
     pub tendon_limited: *mut mjtByte,
     pub tendon_actfrclimited: *mut mjtByte,
     pub tendon_width: *mut mjtNum,
@@ -5508,6 +5666,9 @@ pub struct mjModel_ {
     pub actuator_actadr: *mut ::std::os::raw::c_int,
     pub actuator_actnum: *mut ::std::os::raw::c_int,
     pub actuator_group: *mut ::std::os::raw::c_int,
+    pub actuator_history: *mut ::std::os::raw::c_int,
+    pub actuator_historyadr: *mut ::std::os::raw::c_int,
+    pub actuator_delay: *mut mjtNum,
     pub actuator_ctrllimited: *mut mjtByte,
     pub actuator_forcelimited: *mut mjtByte,
     pub actuator_actlimited: *mut mjtByte,
@@ -5537,6 +5698,10 @@ pub struct mjModel_ {
     pub sensor_adr: *mut ::std::os::raw::c_int,
     pub sensor_cutoff: *mut mjtNum,
     pub sensor_noise: *mut mjtNum,
+    pub sensor_history: *mut ::std::os::raw::c_int,
+    pub sensor_historyadr: *mut ::std::os::raw::c_int,
+    pub sensor_delay: *mut mjtNum,
+    pub sensor_interval: *mut mjtNum,
     pub sensor_user: *mut mjtNum,
     pub sensor_plugin: *mut ::std::os::raw::c_int,
     pub plugin: *mut ::std::os::raw::c_int,
@@ -5605,965 +5770,1008 @@ pub struct mjModel_ {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of mjModel_"][::std::mem::size_of::<mjModel_>() - 4896usize];
+    ["Size of mjModel_"][::std::mem::size_of::<mjModel_>() - 5400usize];
     ["Alignment of mjModel_"][::std::mem::align_of::<mjModel_>() - 8usize];
     ["Offset of field: mjModel_::nq"][::std::mem::offset_of!(mjModel_, nq) - 0usize];
-    ["Offset of field: mjModel_::nv"][::std::mem::offset_of!(mjModel_, nv) - 4usize];
-    ["Offset of field: mjModel_::nu"][::std::mem::offset_of!(mjModel_, nu) - 8usize];
-    ["Offset of field: mjModel_::na"][::std::mem::offset_of!(mjModel_, na) - 12usize];
-    ["Offset of field: mjModel_::nbody"][::std::mem::offset_of!(mjModel_, nbody) - 16usize];
-    ["Offset of field: mjModel_::nbvh"][::std::mem::offset_of!(mjModel_, nbvh) - 20usize];
+    ["Offset of field: mjModel_::nv"][::std::mem::offset_of!(mjModel_, nv) - 8usize];
+    ["Offset of field: mjModel_::nu"][::std::mem::offset_of!(mjModel_, nu) - 16usize];
+    ["Offset of field: mjModel_::na"][::std::mem::offset_of!(mjModel_, na) - 24usize];
+    ["Offset of field: mjModel_::nbody"][::std::mem::offset_of!(mjModel_, nbody) - 32usize];
+    ["Offset of field: mjModel_::nbvh"][::std::mem::offset_of!(mjModel_, nbvh) - 40usize];
     ["Offset of field: mjModel_::nbvhstatic"]
-        [::std::mem::offset_of!(mjModel_, nbvhstatic) - 24usize];
+        [::std::mem::offset_of!(mjModel_, nbvhstatic) - 48usize];
     ["Offset of field: mjModel_::nbvhdynamic"]
-        [::std::mem::offset_of!(mjModel_, nbvhdynamic) - 28usize];
-    ["Offset of field: mjModel_::noct"][::std::mem::offset_of!(mjModel_, noct) - 32usize];
-    ["Offset of field: mjModel_::njnt"][::std::mem::offset_of!(mjModel_, njnt) - 36usize];
-    ["Offset of field: mjModel_::ntree"][::std::mem::offset_of!(mjModel_, ntree) - 40usize];
-    ["Offset of field: mjModel_::nM"][::std::mem::offset_of!(mjModel_, nM) - 44usize];
-    ["Offset of field: mjModel_::nB"][::std::mem::offset_of!(mjModel_, nB) - 48usize];
-    ["Offset of field: mjModel_::nC"][::std::mem::offset_of!(mjModel_, nC) - 52usize];
-    ["Offset of field: mjModel_::nD"][::std::mem::offset_of!(mjModel_, nD) - 56usize];
-    ["Offset of field: mjModel_::ngeom"][::std::mem::offset_of!(mjModel_, ngeom) - 60usize];
-    ["Offset of field: mjModel_::nsite"][::std::mem::offset_of!(mjModel_, nsite) - 64usize];
-    ["Offset of field: mjModel_::ncam"][::std::mem::offset_of!(mjModel_, ncam) - 68usize];
-    ["Offset of field: mjModel_::nlight"][::std::mem::offset_of!(mjModel_, nlight) - 72usize];
-    ["Offset of field: mjModel_::nflex"][::std::mem::offset_of!(mjModel_, nflex) - 76usize];
-    ["Offset of field: mjModel_::nflexnode"][::std::mem::offset_of!(mjModel_, nflexnode) - 80usize];
-    ["Offset of field: mjModel_::nflexvert"][::std::mem::offset_of!(mjModel_, nflexvert) - 84usize];
-    ["Offset of field: mjModel_::nflexedge"][::std::mem::offset_of!(mjModel_, nflexedge) - 88usize];
-    ["Offset of field: mjModel_::nflexelem"][::std::mem::offset_of!(mjModel_, nflexelem) - 92usize];
+        [::std::mem::offset_of!(mjModel_, nbvhdynamic) - 56usize];
+    ["Offset of field: mjModel_::noct"][::std::mem::offset_of!(mjModel_, noct) - 64usize];
+    ["Offset of field: mjModel_::njnt"][::std::mem::offset_of!(mjModel_, njnt) - 72usize];
+    ["Offset of field: mjModel_::ntree"][::std::mem::offset_of!(mjModel_, ntree) - 80usize];
+    ["Offset of field: mjModel_::nM"][::std::mem::offset_of!(mjModel_, nM) - 88usize];
+    ["Offset of field: mjModel_::nB"][::std::mem::offset_of!(mjModel_, nB) - 96usize];
+    ["Offset of field: mjModel_::nC"][::std::mem::offset_of!(mjModel_, nC) - 104usize];
+    ["Offset of field: mjModel_::nD"][::std::mem::offset_of!(mjModel_, nD) - 112usize];
+    ["Offset of field: mjModel_::ngeom"][::std::mem::offset_of!(mjModel_, ngeom) - 120usize];
+    ["Offset of field: mjModel_::nsite"][::std::mem::offset_of!(mjModel_, nsite) - 128usize];
+    ["Offset of field: mjModel_::ncam"][::std::mem::offset_of!(mjModel_, ncam) - 136usize];
+    ["Offset of field: mjModel_::nlight"][::std::mem::offset_of!(mjModel_, nlight) - 144usize];
+    ["Offset of field: mjModel_::nflex"][::std::mem::offset_of!(mjModel_, nflex) - 152usize];
+    ["Offset of field: mjModel_::nflexnode"]
+        [::std::mem::offset_of!(mjModel_, nflexnode) - 160usize];
+    ["Offset of field: mjModel_::nflexvert"]
+        [::std::mem::offset_of!(mjModel_, nflexvert) - 168usize];
+    ["Offset of field: mjModel_::nflexedge"]
+        [::std::mem::offset_of!(mjModel_, nflexedge) - 176usize];
+    ["Offset of field: mjModel_::nflexelem"]
+        [::std::mem::offset_of!(mjModel_, nflexelem) - 184usize];
     ["Offset of field: mjModel_::nflexelemdata"]
-        [::std::mem::offset_of!(mjModel_, nflexelemdata) - 96usize];
+        [::std::mem::offset_of!(mjModel_, nflexelemdata) - 192usize];
     ["Offset of field: mjModel_::nflexelemedge"]
-        [::std::mem::offset_of!(mjModel_, nflexelemedge) - 100usize];
+        [::std::mem::offset_of!(mjModel_, nflexelemedge) - 200usize];
     ["Offset of field: mjModel_::nflexshelldata"]
-        [::std::mem::offset_of!(mjModel_, nflexshelldata) - 104usize];
+        [::std::mem::offset_of!(mjModel_, nflexshelldata) - 208usize];
     ["Offset of field: mjModel_::nflexevpair"]
-        [::std::mem::offset_of!(mjModel_, nflexevpair) - 108usize];
+        [::std::mem::offset_of!(mjModel_, nflexevpair) - 216usize];
     ["Offset of field: mjModel_::nflextexcoord"]
-        [::std::mem::offset_of!(mjModel_, nflextexcoord) - 112usize];
-    ["Offset of field: mjModel_::nJfe"][::std::mem::offset_of!(mjModel_, nJfe) - 116usize];
-    ["Offset of field: mjModel_::nmesh"][::std::mem::offset_of!(mjModel_, nmesh) - 120usize];
+        [::std::mem::offset_of!(mjModel_, nflextexcoord) - 224usize];
+    ["Offset of field: mjModel_::nJfe"][::std::mem::offset_of!(mjModel_, nJfe) - 232usize];
+    ["Offset of field: mjModel_::nJfv"][::std::mem::offset_of!(mjModel_, nJfv) - 240usize];
+    ["Offset of field: mjModel_::nmesh"][::std::mem::offset_of!(mjModel_, nmesh) - 248usize];
     ["Offset of field: mjModel_::nmeshvert"]
-        [::std::mem::offset_of!(mjModel_, nmeshvert) - 124usize];
+        [::std::mem::offset_of!(mjModel_, nmeshvert) - 256usize];
     ["Offset of field: mjModel_::nmeshnormal"]
-        [::std::mem::offset_of!(mjModel_, nmeshnormal) - 128usize];
+        [::std::mem::offset_of!(mjModel_, nmeshnormal) - 264usize];
     ["Offset of field: mjModel_::nmeshtexcoord"]
-        [::std::mem::offset_of!(mjModel_, nmeshtexcoord) - 132usize];
+        [::std::mem::offset_of!(mjModel_, nmeshtexcoord) - 272usize];
     ["Offset of field: mjModel_::nmeshface"]
-        [::std::mem::offset_of!(mjModel_, nmeshface) - 136usize];
+        [::std::mem::offset_of!(mjModel_, nmeshface) - 280usize];
     ["Offset of field: mjModel_::nmeshgraph"]
-        [::std::mem::offset_of!(mjModel_, nmeshgraph) - 140usize];
+        [::std::mem::offset_of!(mjModel_, nmeshgraph) - 288usize];
     ["Offset of field: mjModel_::nmeshpoly"]
-        [::std::mem::offset_of!(mjModel_, nmeshpoly) - 144usize];
+        [::std::mem::offset_of!(mjModel_, nmeshpoly) - 296usize];
     ["Offset of field: mjModel_::nmeshpolyvert"]
-        [::std::mem::offset_of!(mjModel_, nmeshpolyvert) - 148usize];
+        [::std::mem::offset_of!(mjModel_, nmeshpolyvert) - 304usize];
     ["Offset of field: mjModel_::nmeshpolymap"]
-        [::std::mem::offset_of!(mjModel_, nmeshpolymap) - 152usize];
-    ["Offset of field: mjModel_::nskin"][::std::mem::offset_of!(mjModel_, nskin) - 156usize];
+        [::std::mem::offset_of!(mjModel_, nmeshpolymap) - 312usize];
+    ["Offset of field: mjModel_::nskin"][::std::mem::offset_of!(mjModel_, nskin) - 320usize];
     ["Offset of field: mjModel_::nskinvert"]
-        [::std::mem::offset_of!(mjModel_, nskinvert) - 160usize];
+        [::std::mem::offset_of!(mjModel_, nskinvert) - 328usize];
     ["Offset of field: mjModel_::nskintexvert"]
-        [::std::mem::offset_of!(mjModel_, nskintexvert) - 164usize];
+        [::std::mem::offset_of!(mjModel_, nskintexvert) - 336usize];
     ["Offset of field: mjModel_::nskinface"]
-        [::std::mem::offset_of!(mjModel_, nskinface) - 168usize];
+        [::std::mem::offset_of!(mjModel_, nskinface) - 344usize];
     ["Offset of field: mjModel_::nskinbone"]
-        [::std::mem::offset_of!(mjModel_, nskinbone) - 172usize];
+        [::std::mem::offset_of!(mjModel_, nskinbone) - 352usize];
     ["Offset of field: mjModel_::nskinbonevert"]
-        [::std::mem::offset_of!(mjModel_, nskinbonevert) - 176usize];
-    ["Offset of field: mjModel_::nhfield"][::std::mem::offset_of!(mjModel_, nhfield) - 180usize];
+        [::std::mem::offset_of!(mjModel_, nskinbonevert) - 360usize];
+    ["Offset of field: mjModel_::nhfield"][::std::mem::offset_of!(mjModel_, nhfield) - 368usize];
     ["Offset of field: mjModel_::nhfielddata"]
-        [::std::mem::offset_of!(mjModel_, nhfielddata) - 184usize];
-    ["Offset of field: mjModel_::ntex"][::std::mem::offset_of!(mjModel_, ntex) - 188usize];
-    ["Offset of field: mjModel_::ntexdata"][::std::mem::offset_of!(mjModel_, ntexdata) - 192usize];
-    ["Offset of field: mjModel_::nmat"][::std::mem::offset_of!(mjModel_, nmat) - 196usize];
-    ["Offset of field: mjModel_::npair"][::std::mem::offset_of!(mjModel_, npair) - 200usize];
-    ["Offset of field: mjModel_::nexclude"][::std::mem::offset_of!(mjModel_, nexclude) - 204usize];
-    ["Offset of field: mjModel_::neq"][::std::mem::offset_of!(mjModel_, neq) - 208usize];
-    ["Offset of field: mjModel_::ntendon"][::std::mem::offset_of!(mjModel_, ntendon) - 212usize];
-    ["Offset of field: mjModel_::nwrap"][::std::mem::offset_of!(mjModel_, nwrap) - 216usize];
-    ["Offset of field: mjModel_::nsensor"][::std::mem::offset_of!(mjModel_, nsensor) - 220usize];
-    ["Offset of field: mjModel_::nnumeric"][::std::mem::offset_of!(mjModel_, nnumeric) - 224usize];
+        [::std::mem::offset_of!(mjModel_, nhfielddata) - 376usize];
+    ["Offset of field: mjModel_::ntex"][::std::mem::offset_of!(mjModel_, ntex) - 384usize];
+    ["Offset of field: mjModel_::ntexdata"][::std::mem::offset_of!(mjModel_, ntexdata) - 392usize];
+    ["Offset of field: mjModel_::nmat"][::std::mem::offset_of!(mjModel_, nmat) - 400usize];
+    ["Offset of field: mjModel_::npair"][::std::mem::offset_of!(mjModel_, npair) - 408usize];
+    ["Offset of field: mjModel_::nexclude"][::std::mem::offset_of!(mjModel_, nexclude) - 416usize];
+    ["Offset of field: mjModel_::neq"][::std::mem::offset_of!(mjModel_, neq) - 424usize];
+    ["Offset of field: mjModel_::ntendon"][::std::mem::offset_of!(mjModel_, ntendon) - 432usize];
+    ["Offset of field: mjModel_::nJten"][::std::mem::offset_of!(mjModel_, nJten) - 440usize];
+    ["Offset of field: mjModel_::nwrap"][::std::mem::offset_of!(mjModel_, nwrap) - 448usize];
+    ["Offset of field: mjModel_::nsensor"][::std::mem::offset_of!(mjModel_, nsensor) - 456usize];
+    ["Offset of field: mjModel_::nnumeric"][::std::mem::offset_of!(mjModel_, nnumeric) - 464usize];
     ["Offset of field: mjModel_::nnumericdata"]
-        [::std::mem::offset_of!(mjModel_, nnumericdata) - 228usize];
-    ["Offset of field: mjModel_::ntext"][::std::mem::offset_of!(mjModel_, ntext) - 232usize];
+        [::std::mem::offset_of!(mjModel_, nnumericdata) - 472usize];
+    ["Offset of field: mjModel_::ntext"][::std::mem::offset_of!(mjModel_, ntext) - 480usize];
     ["Offset of field: mjModel_::ntextdata"]
-        [::std::mem::offset_of!(mjModel_, ntextdata) - 236usize];
-    ["Offset of field: mjModel_::ntuple"][::std::mem::offset_of!(mjModel_, ntuple) - 240usize];
+        [::std::mem::offset_of!(mjModel_, ntextdata) - 488usize];
+    ["Offset of field: mjModel_::ntuple"][::std::mem::offset_of!(mjModel_, ntuple) - 496usize];
     ["Offset of field: mjModel_::ntupledata"]
-        [::std::mem::offset_of!(mjModel_, ntupledata) - 244usize];
-    ["Offset of field: mjModel_::nkey"][::std::mem::offset_of!(mjModel_, nkey) - 248usize];
-    ["Offset of field: mjModel_::nmocap"][::std::mem::offset_of!(mjModel_, nmocap) - 252usize];
-    ["Offset of field: mjModel_::nplugin"][::std::mem::offset_of!(mjModel_, nplugin) - 256usize];
+        [::std::mem::offset_of!(mjModel_, ntupledata) - 504usize];
+    ["Offset of field: mjModel_::nkey"][::std::mem::offset_of!(mjModel_, nkey) - 512usize];
+    ["Offset of field: mjModel_::nmocap"][::std::mem::offset_of!(mjModel_, nmocap) - 520usize];
+    ["Offset of field: mjModel_::nplugin"][::std::mem::offset_of!(mjModel_, nplugin) - 528usize];
     ["Offset of field: mjModel_::npluginattr"]
-        [::std::mem::offset_of!(mjModel_, npluginattr) - 260usize];
+        [::std::mem::offset_of!(mjModel_, npluginattr) - 536usize];
     ["Offset of field: mjModel_::nuser_body"]
-        [::std::mem::offset_of!(mjModel_, nuser_body) - 264usize];
+        [::std::mem::offset_of!(mjModel_, nuser_body) - 544usize];
     ["Offset of field: mjModel_::nuser_jnt"]
-        [::std::mem::offset_of!(mjModel_, nuser_jnt) - 268usize];
+        [::std::mem::offset_of!(mjModel_, nuser_jnt) - 552usize];
     ["Offset of field: mjModel_::nuser_geom"]
-        [::std::mem::offset_of!(mjModel_, nuser_geom) - 272usize];
+        [::std::mem::offset_of!(mjModel_, nuser_geom) - 560usize];
     ["Offset of field: mjModel_::nuser_site"]
-        [::std::mem::offset_of!(mjModel_, nuser_site) - 276usize];
+        [::std::mem::offset_of!(mjModel_, nuser_site) - 568usize];
     ["Offset of field: mjModel_::nuser_cam"]
-        [::std::mem::offset_of!(mjModel_, nuser_cam) - 280usize];
+        [::std::mem::offset_of!(mjModel_, nuser_cam) - 576usize];
     ["Offset of field: mjModel_::nuser_tendon"]
-        [::std::mem::offset_of!(mjModel_, nuser_tendon) - 284usize];
+        [::std::mem::offset_of!(mjModel_, nuser_tendon) - 584usize];
     ["Offset of field: mjModel_::nuser_actuator"]
-        [::std::mem::offset_of!(mjModel_, nuser_actuator) - 288usize];
+        [::std::mem::offset_of!(mjModel_, nuser_actuator) - 592usize];
     ["Offset of field: mjModel_::nuser_sensor"]
-        [::std::mem::offset_of!(mjModel_, nuser_sensor) - 292usize];
-    ["Offset of field: mjModel_::nnames"][::std::mem::offset_of!(mjModel_, nnames) - 296usize];
-    ["Offset of field: mjModel_::npaths"][::std::mem::offset_of!(mjModel_, npaths) - 300usize];
+        [::std::mem::offset_of!(mjModel_, nuser_sensor) - 600usize];
+    ["Offset of field: mjModel_::nnames"][::std::mem::offset_of!(mjModel_, nnames) - 608usize];
+    ["Offset of field: mjModel_::npaths"][::std::mem::offset_of!(mjModel_, npaths) - 616usize];
     ["Offset of field: mjModel_::nnames_map"]
-        [::std::mem::offset_of!(mjModel_, nnames_map) - 304usize];
-    ["Offset of field: mjModel_::nJmom"][::std::mem::offset_of!(mjModel_, nJmom) - 308usize];
+        [::std::mem::offset_of!(mjModel_, nnames_map) - 624usize];
+    ["Offset of field: mjModel_::nJmom"][::std::mem::offset_of!(mjModel_, nJmom) - 632usize];
     ["Offset of field: mjModel_::ngravcomp"]
-        [::std::mem::offset_of!(mjModel_, ngravcomp) - 312usize];
-    ["Offset of field: mjModel_::nemax"][::std::mem::offset_of!(mjModel_, nemax) - 316usize];
-    ["Offset of field: mjModel_::njmax"][::std::mem::offset_of!(mjModel_, njmax) - 320usize];
-    ["Offset of field: mjModel_::nconmax"][::std::mem::offset_of!(mjModel_, nconmax) - 324usize];
+        [::std::mem::offset_of!(mjModel_, ngravcomp) - 640usize];
+    ["Offset of field: mjModel_::nemax"][::std::mem::offset_of!(mjModel_, nemax) - 648usize];
+    ["Offset of field: mjModel_::njmax"][::std::mem::offset_of!(mjModel_, njmax) - 656usize];
+    ["Offset of field: mjModel_::nconmax"][::std::mem::offset_of!(mjModel_, nconmax) - 664usize];
     ["Offset of field: mjModel_::nuserdata"]
-        [::std::mem::offset_of!(mjModel_, nuserdata) - 328usize];
+        [::std::mem::offset_of!(mjModel_, nuserdata) - 672usize];
     ["Offset of field: mjModel_::nsensordata"]
-        [::std::mem::offset_of!(mjModel_, nsensordata) - 332usize];
+        [::std::mem::offset_of!(mjModel_, nsensordata) - 680usize];
     ["Offset of field: mjModel_::npluginstate"]
-        [::std::mem::offset_of!(mjModel_, npluginstate) - 336usize];
-    ["Offset of field: mjModel_::narena"][::std::mem::offset_of!(mjModel_, narena) - 344usize];
-    ["Offset of field: mjModel_::nbuffer"][::std::mem::offset_of!(mjModel_, nbuffer) - 352usize];
-    ["Offset of field: mjModel_::opt"][::std::mem::offset_of!(mjModel_, opt) - 360usize];
-    ["Offset of field: mjModel_::vis"][::std::mem::offset_of!(mjModel_, vis) - 664usize];
-    ["Offset of field: mjModel_::stat"][::std::mem::offset_of!(mjModel_, stat) - 1296usize];
-    ["Offset of field: mjModel_::buffer"][::std::mem::offset_of!(mjModel_, buffer) - 1352usize];
-    ["Offset of field: mjModel_::qpos0"][::std::mem::offset_of!(mjModel_, qpos0) - 1360usize];
+        [::std::mem::offset_of!(mjModel_, npluginstate) - 688usize];
+    ["Offset of field: mjModel_::nhistory"][::std::mem::offset_of!(mjModel_, nhistory) - 696usize];
+    ["Offset of field: mjModel_::narena"][::std::mem::offset_of!(mjModel_, narena) - 704usize];
+    ["Offset of field: mjModel_::nbuffer"][::std::mem::offset_of!(mjModel_, nbuffer) - 712usize];
+    ["Offset of field: mjModel_::opt"][::std::mem::offset_of!(mjModel_, opt) - 720usize];
+    ["Offset of field: mjModel_::vis"][::std::mem::offset_of!(mjModel_, vis) - 1024usize];
+    ["Offset of field: mjModel_::stat"][::std::mem::offset_of!(mjModel_, stat) - 1656usize];
+    ["Offset of field: mjModel_::buffer"][::std::mem::offset_of!(mjModel_, buffer) - 1712usize];
+    ["Offset of field: mjModel_::qpos0"][::std::mem::offset_of!(mjModel_, qpos0) - 1720usize];
     ["Offset of field: mjModel_::qpos_spring"]
-        [::std::mem::offset_of!(mjModel_, qpos_spring) - 1368usize];
+        [::std::mem::offset_of!(mjModel_, qpos_spring) - 1728usize];
     ["Offset of field: mjModel_::body_parentid"]
-        [::std::mem::offset_of!(mjModel_, body_parentid) - 1376usize];
+        [::std::mem::offset_of!(mjModel_, body_parentid) - 1736usize];
     ["Offset of field: mjModel_::body_rootid"]
-        [::std::mem::offset_of!(mjModel_, body_rootid) - 1384usize];
+        [::std::mem::offset_of!(mjModel_, body_rootid) - 1744usize];
     ["Offset of field: mjModel_::body_weldid"]
-        [::std::mem::offset_of!(mjModel_, body_weldid) - 1392usize];
+        [::std::mem::offset_of!(mjModel_, body_weldid) - 1752usize];
     ["Offset of field: mjModel_::body_mocapid"]
-        [::std::mem::offset_of!(mjModel_, body_mocapid) - 1400usize];
+        [::std::mem::offset_of!(mjModel_, body_mocapid) - 1760usize];
     ["Offset of field: mjModel_::body_jntnum"]
-        [::std::mem::offset_of!(mjModel_, body_jntnum) - 1408usize];
+        [::std::mem::offset_of!(mjModel_, body_jntnum) - 1768usize];
     ["Offset of field: mjModel_::body_jntadr"]
-        [::std::mem::offset_of!(mjModel_, body_jntadr) - 1416usize];
+        [::std::mem::offset_of!(mjModel_, body_jntadr) - 1776usize];
     ["Offset of field: mjModel_::body_dofnum"]
-        [::std::mem::offset_of!(mjModel_, body_dofnum) - 1424usize];
+        [::std::mem::offset_of!(mjModel_, body_dofnum) - 1784usize];
     ["Offset of field: mjModel_::body_dofadr"]
-        [::std::mem::offset_of!(mjModel_, body_dofadr) - 1432usize];
+        [::std::mem::offset_of!(mjModel_, body_dofadr) - 1792usize];
     ["Offset of field: mjModel_::body_treeid"]
-        [::std::mem::offset_of!(mjModel_, body_treeid) - 1440usize];
+        [::std::mem::offset_of!(mjModel_, body_treeid) - 1800usize];
     ["Offset of field: mjModel_::body_geomnum"]
-        [::std::mem::offset_of!(mjModel_, body_geomnum) - 1448usize];
+        [::std::mem::offset_of!(mjModel_, body_geomnum) - 1808usize];
     ["Offset of field: mjModel_::body_geomadr"]
-        [::std::mem::offset_of!(mjModel_, body_geomadr) - 1456usize];
+        [::std::mem::offset_of!(mjModel_, body_geomadr) - 1816usize];
     ["Offset of field: mjModel_::body_simple"]
-        [::std::mem::offset_of!(mjModel_, body_simple) - 1464usize];
+        [::std::mem::offset_of!(mjModel_, body_simple) - 1824usize];
     ["Offset of field: mjModel_::body_sameframe"]
-        [::std::mem::offset_of!(mjModel_, body_sameframe) - 1472usize];
-    ["Offset of field: mjModel_::body_pos"][::std::mem::offset_of!(mjModel_, body_pos) - 1480usize];
+        [::std::mem::offset_of!(mjModel_, body_sameframe) - 1832usize];
+    ["Offset of field: mjModel_::body_pos"][::std::mem::offset_of!(mjModel_, body_pos) - 1840usize];
     ["Offset of field: mjModel_::body_quat"]
-        [::std::mem::offset_of!(mjModel_, body_quat) - 1488usize];
+        [::std::mem::offset_of!(mjModel_, body_quat) - 1848usize];
     ["Offset of field: mjModel_::body_ipos"]
-        [::std::mem::offset_of!(mjModel_, body_ipos) - 1496usize];
+        [::std::mem::offset_of!(mjModel_, body_ipos) - 1856usize];
     ["Offset of field: mjModel_::body_iquat"]
-        [::std::mem::offset_of!(mjModel_, body_iquat) - 1504usize];
+        [::std::mem::offset_of!(mjModel_, body_iquat) - 1864usize];
     ["Offset of field: mjModel_::body_mass"]
-        [::std::mem::offset_of!(mjModel_, body_mass) - 1512usize];
+        [::std::mem::offset_of!(mjModel_, body_mass) - 1872usize];
     ["Offset of field: mjModel_::body_subtreemass"]
-        [::std::mem::offset_of!(mjModel_, body_subtreemass) - 1520usize];
+        [::std::mem::offset_of!(mjModel_, body_subtreemass) - 1880usize];
     ["Offset of field: mjModel_::body_inertia"]
-        [::std::mem::offset_of!(mjModel_, body_inertia) - 1528usize];
+        [::std::mem::offset_of!(mjModel_, body_inertia) - 1888usize];
     ["Offset of field: mjModel_::body_invweight0"]
-        [::std::mem::offset_of!(mjModel_, body_invweight0) - 1536usize];
+        [::std::mem::offset_of!(mjModel_, body_invweight0) - 1896usize];
     ["Offset of field: mjModel_::body_gravcomp"]
-        [::std::mem::offset_of!(mjModel_, body_gravcomp) - 1544usize];
+        [::std::mem::offset_of!(mjModel_, body_gravcomp) - 1904usize];
     ["Offset of field: mjModel_::body_margin"]
-        [::std::mem::offset_of!(mjModel_, body_margin) - 1552usize];
+        [::std::mem::offset_of!(mjModel_, body_margin) - 1912usize];
     ["Offset of field: mjModel_::body_user"]
-        [::std::mem::offset_of!(mjModel_, body_user) - 1560usize];
+        [::std::mem::offset_of!(mjModel_, body_user) - 1920usize];
     ["Offset of field: mjModel_::body_plugin"]
-        [::std::mem::offset_of!(mjModel_, body_plugin) - 1568usize];
+        [::std::mem::offset_of!(mjModel_, body_plugin) - 1928usize];
     ["Offset of field: mjModel_::body_contype"]
-        [::std::mem::offset_of!(mjModel_, body_contype) - 1576usize];
+        [::std::mem::offset_of!(mjModel_, body_contype) - 1936usize];
     ["Offset of field: mjModel_::body_conaffinity"]
-        [::std::mem::offset_of!(mjModel_, body_conaffinity) - 1584usize];
+        [::std::mem::offset_of!(mjModel_, body_conaffinity) - 1944usize];
     ["Offset of field: mjModel_::body_bvhadr"]
-        [::std::mem::offset_of!(mjModel_, body_bvhadr) - 1592usize];
+        [::std::mem::offset_of!(mjModel_, body_bvhadr) - 1952usize];
     ["Offset of field: mjModel_::body_bvhnum"]
-        [::std::mem::offset_of!(mjModel_, body_bvhnum) - 1600usize];
+        [::std::mem::offset_of!(mjModel_, body_bvhnum) - 1960usize];
     ["Offset of field: mjModel_::bvh_depth"]
-        [::std::mem::offset_of!(mjModel_, bvh_depth) - 1608usize];
+        [::std::mem::offset_of!(mjModel_, bvh_depth) - 1968usize];
     ["Offset of field: mjModel_::bvh_child"]
-        [::std::mem::offset_of!(mjModel_, bvh_child) - 1616usize];
+        [::std::mem::offset_of!(mjModel_, bvh_child) - 1976usize];
     ["Offset of field: mjModel_::bvh_nodeid"]
-        [::std::mem::offset_of!(mjModel_, bvh_nodeid) - 1624usize];
-    ["Offset of field: mjModel_::bvh_aabb"][::std::mem::offset_of!(mjModel_, bvh_aabb) - 1632usize];
+        [::std::mem::offset_of!(mjModel_, bvh_nodeid) - 1984usize];
+    ["Offset of field: mjModel_::bvh_aabb"][::std::mem::offset_of!(mjModel_, bvh_aabb) - 1992usize];
     ["Offset of field: mjModel_::oct_depth"]
-        [::std::mem::offset_of!(mjModel_, oct_depth) - 1640usize];
+        [::std::mem::offset_of!(mjModel_, oct_depth) - 2000usize];
     ["Offset of field: mjModel_::oct_child"]
-        [::std::mem::offset_of!(mjModel_, oct_child) - 1648usize];
-    ["Offset of field: mjModel_::oct_aabb"][::std::mem::offset_of!(mjModel_, oct_aabb) - 1656usize];
+        [::std::mem::offset_of!(mjModel_, oct_child) - 2008usize];
+    ["Offset of field: mjModel_::oct_aabb"][::std::mem::offset_of!(mjModel_, oct_aabb) - 2016usize];
     ["Offset of field: mjModel_::oct_coeff"]
-        [::std::mem::offset_of!(mjModel_, oct_coeff) - 1664usize];
-    ["Offset of field: mjModel_::jnt_type"][::std::mem::offset_of!(mjModel_, jnt_type) - 1672usize];
+        [::std::mem::offset_of!(mjModel_, oct_coeff) - 2024usize];
+    ["Offset of field: mjModel_::jnt_type"][::std::mem::offset_of!(mjModel_, jnt_type) - 2032usize];
     ["Offset of field: mjModel_::jnt_qposadr"]
-        [::std::mem::offset_of!(mjModel_, jnt_qposadr) - 1680usize];
+        [::std::mem::offset_of!(mjModel_, jnt_qposadr) - 2040usize];
     ["Offset of field: mjModel_::jnt_dofadr"]
-        [::std::mem::offset_of!(mjModel_, jnt_dofadr) - 1688usize];
+        [::std::mem::offset_of!(mjModel_, jnt_dofadr) - 2048usize];
     ["Offset of field: mjModel_::jnt_bodyid"]
-        [::std::mem::offset_of!(mjModel_, jnt_bodyid) - 1696usize];
+        [::std::mem::offset_of!(mjModel_, jnt_bodyid) - 2056usize];
     ["Offset of field: mjModel_::jnt_group"]
-        [::std::mem::offset_of!(mjModel_, jnt_group) - 1704usize];
+        [::std::mem::offset_of!(mjModel_, jnt_group) - 2064usize];
     ["Offset of field: mjModel_::jnt_limited"]
-        [::std::mem::offset_of!(mjModel_, jnt_limited) - 1712usize];
+        [::std::mem::offset_of!(mjModel_, jnt_limited) - 2072usize];
     ["Offset of field: mjModel_::jnt_actfrclimited"]
-        [::std::mem::offset_of!(mjModel_, jnt_actfrclimited) - 1720usize];
+        [::std::mem::offset_of!(mjModel_, jnt_actfrclimited) - 2080usize];
     ["Offset of field: mjModel_::jnt_actgravcomp"]
-        [::std::mem::offset_of!(mjModel_, jnt_actgravcomp) - 1728usize];
+        [::std::mem::offset_of!(mjModel_, jnt_actgravcomp) - 2088usize];
     ["Offset of field: mjModel_::jnt_solref"]
-        [::std::mem::offset_of!(mjModel_, jnt_solref) - 1736usize];
+        [::std::mem::offset_of!(mjModel_, jnt_solref) - 2096usize];
     ["Offset of field: mjModel_::jnt_solimp"]
-        [::std::mem::offset_of!(mjModel_, jnt_solimp) - 1744usize];
-    ["Offset of field: mjModel_::jnt_pos"][::std::mem::offset_of!(mjModel_, jnt_pos) - 1752usize];
-    ["Offset of field: mjModel_::jnt_axis"][::std::mem::offset_of!(mjModel_, jnt_axis) - 1760usize];
+        [::std::mem::offset_of!(mjModel_, jnt_solimp) - 2104usize];
+    ["Offset of field: mjModel_::jnt_pos"][::std::mem::offset_of!(mjModel_, jnt_pos) - 2112usize];
+    ["Offset of field: mjModel_::jnt_axis"][::std::mem::offset_of!(mjModel_, jnt_axis) - 2120usize];
     ["Offset of field: mjModel_::jnt_stiffness"]
-        [::std::mem::offset_of!(mjModel_, jnt_stiffness) - 1768usize];
+        [::std::mem::offset_of!(mjModel_, jnt_stiffness) - 2128usize];
     ["Offset of field: mjModel_::jnt_range"]
-        [::std::mem::offset_of!(mjModel_, jnt_range) - 1776usize];
+        [::std::mem::offset_of!(mjModel_, jnt_range) - 2136usize];
     ["Offset of field: mjModel_::jnt_actfrcrange"]
-        [::std::mem::offset_of!(mjModel_, jnt_actfrcrange) - 1784usize];
+        [::std::mem::offset_of!(mjModel_, jnt_actfrcrange) - 2144usize];
     ["Offset of field: mjModel_::jnt_margin"]
-        [::std::mem::offset_of!(mjModel_, jnt_margin) - 1792usize];
-    ["Offset of field: mjModel_::jnt_user"][::std::mem::offset_of!(mjModel_, jnt_user) - 1800usize];
+        [::std::mem::offset_of!(mjModel_, jnt_margin) - 2152usize];
+    ["Offset of field: mjModel_::jnt_user"][::std::mem::offset_of!(mjModel_, jnt_user) - 2160usize];
     ["Offset of field: mjModel_::dof_bodyid"]
-        [::std::mem::offset_of!(mjModel_, dof_bodyid) - 1808usize];
+        [::std::mem::offset_of!(mjModel_, dof_bodyid) - 2168usize];
     ["Offset of field: mjModel_::dof_jntid"]
-        [::std::mem::offset_of!(mjModel_, dof_jntid) - 1816usize];
+        [::std::mem::offset_of!(mjModel_, dof_jntid) - 2176usize];
     ["Offset of field: mjModel_::dof_parentid"]
-        [::std::mem::offset_of!(mjModel_, dof_parentid) - 1824usize];
+        [::std::mem::offset_of!(mjModel_, dof_parentid) - 2184usize];
     ["Offset of field: mjModel_::dof_treeid"]
-        [::std::mem::offset_of!(mjModel_, dof_treeid) - 1832usize];
-    ["Offset of field: mjModel_::dof_Madr"][::std::mem::offset_of!(mjModel_, dof_Madr) - 1840usize];
+        [::std::mem::offset_of!(mjModel_, dof_treeid) - 2192usize];
+    ["Offset of field: mjModel_::dof_Madr"][::std::mem::offset_of!(mjModel_, dof_Madr) - 2200usize];
     ["Offset of field: mjModel_::dof_simplenum"]
-        [::std::mem::offset_of!(mjModel_, dof_simplenum) - 1848usize];
+        [::std::mem::offset_of!(mjModel_, dof_simplenum) - 2208usize];
     ["Offset of field: mjModel_::dof_solref"]
-        [::std::mem::offset_of!(mjModel_, dof_solref) - 1856usize];
+        [::std::mem::offset_of!(mjModel_, dof_solref) - 2216usize];
     ["Offset of field: mjModel_::dof_solimp"]
-        [::std::mem::offset_of!(mjModel_, dof_solimp) - 1864usize];
+        [::std::mem::offset_of!(mjModel_, dof_solimp) - 2224usize];
     ["Offset of field: mjModel_::dof_frictionloss"]
-        [::std::mem::offset_of!(mjModel_, dof_frictionloss) - 1872usize];
+        [::std::mem::offset_of!(mjModel_, dof_frictionloss) - 2232usize];
     ["Offset of field: mjModel_::dof_armature"]
-        [::std::mem::offset_of!(mjModel_, dof_armature) - 1880usize];
+        [::std::mem::offset_of!(mjModel_, dof_armature) - 2240usize];
     ["Offset of field: mjModel_::dof_damping"]
-        [::std::mem::offset_of!(mjModel_, dof_damping) - 1888usize];
+        [::std::mem::offset_of!(mjModel_, dof_damping) - 2248usize];
     ["Offset of field: mjModel_::dof_invweight0"]
-        [::std::mem::offset_of!(mjModel_, dof_invweight0) - 1896usize];
-    ["Offset of field: mjModel_::dof_M0"][::std::mem::offset_of!(mjModel_, dof_M0) - 1904usize];
+        [::std::mem::offset_of!(mjModel_, dof_invweight0) - 2256usize];
+    ["Offset of field: mjModel_::dof_M0"][::std::mem::offset_of!(mjModel_, dof_M0) - 2264usize];
     ["Offset of field: mjModel_::dof_length"]
-        [::std::mem::offset_of!(mjModel_, dof_length) - 1912usize];
+        [::std::mem::offset_of!(mjModel_, dof_length) - 2272usize];
     ["Offset of field: mjModel_::tree_bodyadr"]
-        [::std::mem::offset_of!(mjModel_, tree_bodyadr) - 1920usize];
+        [::std::mem::offset_of!(mjModel_, tree_bodyadr) - 2280usize];
     ["Offset of field: mjModel_::tree_bodynum"]
-        [::std::mem::offset_of!(mjModel_, tree_bodynum) - 1928usize];
+        [::std::mem::offset_of!(mjModel_, tree_bodynum) - 2288usize];
     ["Offset of field: mjModel_::tree_dofadr"]
-        [::std::mem::offset_of!(mjModel_, tree_dofadr) - 1936usize];
+        [::std::mem::offset_of!(mjModel_, tree_dofadr) - 2296usize];
     ["Offset of field: mjModel_::tree_dofnum"]
-        [::std::mem::offset_of!(mjModel_, tree_dofnum) - 1944usize];
+        [::std::mem::offset_of!(mjModel_, tree_dofnum) - 2304usize];
     ["Offset of field: mjModel_::tree_sleep_policy"]
-        [::std::mem::offset_of!(mjModel_, tree_sleep_policy) - 1952usize];
+        [::std::mem::offset_of!(mjModel_, tree_sleep_policy) - 2312usize];
     ["Offset of field: mjModel_::geom_type"]
-        [::std::mem::offset_of!(mjModel_, geom_type) - 1960usize];
+        [::std::mem::offset_of!(mjModel_, geom_type) - 2320usize];
     ["Offset of field: mjModel_::geom_contype"]
-        [::std::mem::offset_of!(mjModel_, geom_contype) - 1968usize];
+        [::std::mem::offset_of!(mjModel_, geom_contype) - 2328usize];
     ["Offset of field: mjModel_::geom_conaffinity"]
-        [::std::mem::offset_of!(mjModel_, geom_conaffinity) - 1976usize];
+        [::std::mem::offset_of!(mjModel_, geom_conaffinity) - 2336usize];
     ["Offset of field: mjModel_::geom_condim"]
-        [::std::mem::offset_of!(mjModel_, geom_condim) - 1984usize];
+        [::std::mem::offset_of!(mjModel_, geom_condim) - 2344usize];
     ["Offset of field: mjModel_::geom_bodyid"]
-        [::std::mem::offset_of!(mjModel_, geom_bodyid) - 1992usize];
+        [::std::mem::offset_of!(mjModel_, geom_bodyid) - 2352usize];
     ["Offset of field: mjModel_::geom_dataid"]
-        [::std::mem::offset_of!(mjModel_, geom_dataid) - 2000usize];
+        [::std::mem::offset_of!(mjModel_, geom_dataid) - 2360usize];
     ["Offset of field: mjModel_::geom_matid"]
-        [::std::mem::offset_of!(mjModel_, geom_matid) - 2008usize];
+        [::std::mem::offset_of!(mjModel_, geom_matid) - 2368usize];
     ["Offset of field: mjModel_::geom_group"]
-        [::std::mem::offset_of!(mjModel_, geom_group) - 2016usize];
+        [::std::mem::offset_of!(mjModel_, geom_group) - 2376usize];
     ["Offset of field: mjModel_::geom_priority"]
-        [::std::mem::offset_of!(mjModel_, geom_priority) - 2024usize];
+        [::std::mem::offset_of!(mjModel_, geom_priority) - 2384usize];
     ["Offset of field: mjModel_::geom_plugin"]
-        [::std::mem::offset_of!(mjModel_, geom_plugin) - 2032usize];
+        [::std::mem::offset_of!(mjModel_, geom_plugin) - 2392usize];
     ["Offset of field: mjModel_::geom_sameframe"]
-        [::std::mem::offset_of!(mjModel_, geom_sameframe) - 2040usize];
+        [::std::mem::offset_of!(mjModel_, geom_sameframe) - 2400usize];
     ["Offset of field: mjModel_::geom_solmix"]
-        [::std::mem::offset_of!(mjModel_, geom_solmix) - 2048usize];
+        [::std::mem::offset_of!(mjModel_, geom_solmix) - 2408usize];
     ["Offset of field: mjModel_::geom_solref"]
-        [::std::mem::offset_of!(mjModel_, geom_solref) - 2056usize];
+        [::std::mem::offset_of!(mjModel_, geom_solref) - 2416usize];
     ["Offset of field: mjModel_::geom_solimp"]
-        [::std::mem::offset_of!(mjModel_, geom_solimp) - 2064usize];
+        [::std::mem::offset_of!(mjModel_, geom_solimp) - 2424usize];
     ["Offset of field: mjModel_::geom_size"]
-        [::std::mem::offset_of!(mjModel_, geom_size) - 2072usize];
+        [::std::mem::offset_of!(mjModel_, geom_size) - 2432usize];
     ["Offset of field: mjModel_::geom_aabb"]
-        [::std::mem::offset_of!(mjModel_, geom_aabb) - 2080usize];
+        [::std::mem::offset_of!(mjModel_, geom_aabb) - 2440usize];
     ["Offset of field: mjModel_::geom_rbound"]
-        [::std::mem::offset_of!(mjModel_, geom_rbound) - 2088usize];
-    ["Offset of field: mjModel_::geom_pos"][::std::mem::offset_of!(mjModel_, geom_pos) - 2096usize];
+        [::std::mem::offset_of!(mjModel_, geom_rbound) - 2448usize];
+    ["Offset of field: mjModel_::geom_pos"][::std::mem::offset_of!(mjModel_, geom_pos) - 2456usize];
     ["Offset of field: mjModel_::geom_quat"]
-        [::std::mem::offset_of!(mjModel_, geom_quat) - 2104usize];
+        [::std::mem::offset_of!(mjModel_, geom_quat) - 2464usize];
     ["Offset of field: mjModel_::geom_friction"]
-        [::std::mem::offset_of!(mjModel_, geom_friction) - 2112usize];
+        [::std::mem::offset_of!(mjModel_, geom_friction) - 2472usize];
     ["Offset of field: mjModel_::geom_margin"]
-        [::std::mem::offset_of!(mjModel_, geom_margin) - 2120usize];
-    ["Offset of field: mjModel_::geom_gap"][::std::mem::offset_of!(mjModel_, geom_gap) - 2128usize];
+        [::std::mem::offset_of!(mjModel_, geom_margin) - 2480usize];
+    ["Offset of field: mjModel_::geom_gap"][::std::mem::offset_of!(mjModel_, geom_gap) - 2488usize];
     ["Offset of field: mjModel_::geom_fluid"]
-        [::std::mem::offset_of!(mjModel_, geom_fluid) - 2136usize];
+        [::std::mem::offset_of!(mjModel_, geom_fluid) - 2496usize];
     ["Offset of field: mjModel_::geom_user"]
-        [::std::mem::offset_of!(mjModel_, geom_user) - 2144usize];
+        [::std::mem::offset_of!(mjModel_, geom_user) - 2504usize];
     ["Offset of field: mjModel_::geom_rgba"]
-        [::std::mem::offset_of!(mjModel_, geom_rgba) - 2152usize];
+        [::std::mem::offset_of!(mjModel_, geom_rgba) - 2512usize];
     ["Offset of field: mjModel_::site_type"]
-        [::std::mem::offset_of!(mjModel_, site_type) - 2160usize];
+        [::std::mem::offset_of!(mjModel_, site_type) - 2520usize];
     ["Offset of field: mjModel_::site_bodyid"]
-        [::std::mem::offset_of!(mjModel_, site_bodyid) - 2168usize];
+        [::std::mem::offset_of!(mjModel_, site_bodyid) - 2528usize];
     ["Offset of field: mjModel_::site_matid"]
-        [::std::mem::offset_of!(mjModel_, site_matid) - 2176usize];
+        [::std::mem::offset_of!(mjModel_, site_matid) - 2536usize];
     ["Offset of field: mjModel_::site_group"]
-        [::std::mem::offset_of!(mjModel_, site_group) - 2184usize];
+        [::std::mem::offset_of!(mjModel_, site_group) - 2544usize];
     ["Offset of field: mjModel_::site_sameframe"]
-        [::std::mem::offset_of!(mjModel_, site_sameframe) - 2192usize];
+        [::std::mem::offset_of!(mjModel_, site_sameframe) - 2552usize];
     ["Offset of field: mjModel_::site_size"]
-        [::std::mem::offset_of!(mjModel_, site_size) - 2200usize];
-    ["Offset of field: mjModel_::site_pos"][::std::mem::offset_of!(mjModel_, site_pos) - 2208usize];
+        [::std::mem::offset_of!(mjModel_, site_size) - 2560usize];
+    ["Offset of field: mjModel_::site_pos"][::std::mem::offset_of!(mjModel_, site_pos) - 2568usize];
     ["Offset of field: mjModel_::site_quat"]
-        [::std::mem::offset_of!(mjModel_, site_quat) - 2216usize];
+        [::std::mem::offset_of!(mjModel_, site_quat) - 2576usize];
     ["Offset of field: mjModel_::site_user"]
-        [::std::mem::offset_of!(mjModel_, site_user) - 2224usize];
+        [::std::mem::offset_of!(mjModel_, site_user) - 2584usize];
     ["Offset of field: mjModel_::site_rgba"]
-        [::std::mem::offset_of!(mjModel_, site_rgba) - 2232usize];
-    ["Offset of field: mjModel_::cam_mode"][::std::mem::offset_of!(mjModel_, cam_mode) - 2240usize];
+        [::std::mem::offset_of!(mjModel_, site_rgba) - 2592usize];
+    ["Offset of field: mjModel_::cam_mode"][::std::mem::offset_of!(mjModel_, cam_mode) - 2600usize];
     ["Offset of field: mjModel_::cam_bodyid"]
-        [::std::mem::offset_of!(mjModel_, cam_bodyid) - 2248usize];
+        [::std::mem::offset_of!(mjModel_, cam_bodyid) - 2608usize];
     ["Offset of field: mjModel_::cam_targetbodyid"]
-        [::std::mem::offset_of!(mjModel_, cam_targetbodyid) - 2256usize];
-    ["Offset of field: mjModel_::cam_pos"][::std::mem::offset_of!(mjModel_, cam_pos) - 2264usize];
-    ["Offset of field: mjModel_::cam_quat"][::std::mem::offset_of!(mjModel_, cam_quat) - 2272usize];
+        [::std::mem::offset_of!(mjModel_, cam_targetbodyid) - 2616usize];
+    ["Offset of field: mjModel_::cam_pos"][::std::mem::offset_of!(mjModel_, cam_pos) - 2624usize];
+    ["Offset of field: mjModel_::cam_quat"][::std::mem::offset_of!(mjModel_, cam_quat) - 2632usize];
     ["Offset of field: mjModel_::cam_poscom0"]
-        [::std::mem::offset_of!(mjModel_, cam_poscom0) - 2280usize];
-    ["Offset of field: mjModel_::cam_pos0"][::std::mem::offset_of!(mjModel_, cam_pos0) - 2288usize];
-    ["Offset of field: mjModel_::cam_mat0"][::std::mem::offset_of!(mjModel_, cam_mat0) - 2296usize];
+        [::std::mem::offset_of!(mjModel_, cam_poscom0) - 2640usize];
+    ["Offset of field: mjModel_::cam_pos0"][::std::mem::offset_of!(mjModel_, cam_pos0) - 2648usize];
+    ["Offset of field: mjModel_::cam_mat0"][::std::mem::offset_of!(mjModel_, cam_mat0) - 2656usize];
     ["Offset of field: mjModel_::cam_projection"]
-        [::std::mem::offset_of!(mjModel_, cam_projection) - 2304usize];
-    ["Offset of field: mjModel_::cam_fovy"][::std::mem::offset_of!(mjModel_, cam_fovy) - 2312usize];
-    ["Offset of field: mjModel_::cam_ipd"][::std::mem::offset_of!(mjModel_, cam_ipd) - 2320usize];
+        [::std::mem::offset_of!(mjModel_, cam_projection) - 2664usize];
+    ["Offset of field: mjModel_::cam_fovy"][::std::mem::offset_of!(mjModel_, cam_fovy) - 2672usize];
+    ["Offset of field: mjModel_::cam_ipd"][::std::mem::offset_of!(mjModel_, cam_ipd) - 2680usize];
     ["Offset of field: mjModel_::cam_resolution"]
-        [::std::mem::offset_of!(mjModel_, cam_resolution) - 2328usize];
+        [::std::mem::offset_of!(mjModel_, cam_resolution) - 2688usize];
     ["Offset of field: mjModel_::cam_output"]
-        [::std::mem::offset_of!(mjModel_, cam_output) - 2336usize];
+        [::std::mem::offset_of!(mjModel_, cam_output) - 2696usize];
     ["Offset of field: mjModel_::cam_sensorsize"]
-        [::std::mem::offset_of!(mjModel_, cam_sensorsize) - 2344usize];
+        [::std::mem::offset_of!(mjModel_, cam_sensorsize) - 2704usize];
     ["Offset of field: mjModel_::cam_intrinsic"]
-        [::std::mem::offset_of!(mjModel_, cam_intrinsic) - 2352usize];
-    ["Offset of field: mjModel_::cam_user"][::std::mem::offset_of!(mjModel_, cam_user) - 2360usize];
+        [::std::mem::offset_of!(mjModel_, cam_intrinsic) - 2712usize];
+    ["Offset of field: mjModel_::cam_user"][::std::mem::offset_of!(mjModel_, cam_user) - 2720usize];
     ["Offset of field: mjModel_::light_mode"]
-        [::std::mem::offset_of!(mjModel_, light_mode) - 2368usize];
+        [::std::mem::offset_of!(mjModel_, light_mode) - 2728usize];
     ["Offset of field: mjModel_::light_bodyid"]
-        [::std::mem::offset_of!(mjModel_, light_bodyid) - 2376usize];
+        [::std::mem::offset_of!(mjModel_, light_bodyid) - 2736usize];
     ["Offset of field: mjModel_::light_targetbodyid"]
-        [::std::mem::offset_of!(mjModel_, light_targetbodyid) - 2384usize];
+        [::std::mem::offset_of!(mjModel_, light_targetbodyid) - 2744usize];
     ["Offset of field: mjModel_::light_type"]
-        [::std::mem::offset_of!(mjModel_, light_type) - 2392usize];
+        [::std::mem::offset_of!(mjModel_, light_type) - 2752usize];
     ["Offset of field: mjModel_::light_texid"]
-        [::std::mem::offset_of!(mjModel_, light_texid) - 2400usize];
+        [::std::mem::offset_of!(mjModel_, light_texid) - 2760usize];
     ["Offset of field: mjModel_::light_castshadow"]
-        [::std::mem::offset_of!(mjModel_, light_castshadow) - 2408usize];
+        [::std::mem::offset_of!(mjModel_, light_castshadow) - 2768usize];
     ["Offset of field: mjModel_::light_bulbradius"]
-        [::std::mem::offset_of!(mjModel_, light_bulbradius) - 2416usize];
+        [::std::mem::offset_of!(mjModel_, light_bulbradius) - 2776usize];
     ["Offset of field: mjModel_::light_intensity"]
-        [::std::mem::offset_of!(mjModel_, light_intensity) - 2424usize];
+        [::std::mem::offset_of!(mjModel_, light_intensity) - 2784usize];
     ["Offset of field: mjModel_::light_range"]
-        [::std::mem::offset_of!(mjModel_, light_range) - 2432usize];
+        [::std::mem::offset_of!(mjModel_, light_range) - 2792usize];
     ["Offset of field: mjModel_::light_active"]
-        [::std::mem::offset_of!(mjModel_, light_active) - 2440usize];
+        [::std::mem::offset_of!(mjModel_, light_active) - 2800usize];
     ["Offset of field: mjModel_::light_pos"]
-        [::std::mem::offset_of!(mjModel_, light_pos) - 2448usize];
+        [::std::mem::offset_of!(mjModel_, light_pos) - 2808usize];
     ["Offset of field: mjModel_::light_dir"]
-        [::std::mem::offset_of!(mjModel_, light_dir) - 2456usize];
+        [::std::mem::offset_of!(mjModel_, light_dir) - 2816usize];
     ["Offset of field: mjModel_::light_poscom0"]
-        [::std::mem::offset_of!(mjModel_, light_poscom0) - 2464usize];
+        [::std::mem::offset_of!(mjModel_, light_poscom0) - 2824usize];
     ["Offset of field: mjModel_::light_pos0"]
-        [::std::mem::offset_of!(mjModel_, light_pos0) - 2472usize];
+        [::std::mem::offset_of!(mjModel_, light_pos0) - 2832usize];
     ["Offset of field: mjModel_::light_dir0"]
-        [::std::mem::offset_of!(mjModel_, light_dir0) - 2480usize];
+        [::std::mem::offset_of!(mjModel_, light_dir0) - 2840usize];
     ["Offset of field: mjModel_::light_attenuation"]
-        [::std::mem::offset_of!(mjModel_, light_attenuation) - 2488usize];
+        [::std::mem::offset_of!(mjModel_, light_attenuation) - 2848usize];
     ["Offset of field: mjModel_::light_cutoff"]
-        [::std::mem::offset_of!(mjModel_, light_cutoff) - 2496usize];
+        [::std::mem::offset_of!(mjModel_, light_cutoff) - 2856usize];
     ["Offset of field: mjModel_::light_exponent"]
-        [::std::mem::offset_of!(mjModel_, light_exponent) - 2504usize];
+        [::std::mem::offset_of!(mjModel_, light_exponent) - 2864usize];
     ["Offset of field: mjModel_::light_ambient"]
-        [::std::mem::offset_of!(mjModel_, light_ambient) - 2512usize];
+        [::std::mem::offset_of!(mjModel_, light_ambient) - 2872usize];
     ["Offset of field: mjModel_::light_diffuse"]
-        [::std::mem::offset_of!(mjModel_, light_diffuse) - 2520usize];
+        [::std::mem::offset_of!(mjModel_, light_diffuse) - 2880usize];
     ["Offset of field: mjModel_::light_specular"]
-        [::std::mem::offset_of!(mjModel_, light_specular) - 2528usize];
+        [::std::mem::offset_of!(mjModel_, light_specular) - 2888usize];
     ["Offset of field: mjModel_::flex_contype"]
-        [::std::mem::offset_of!(mjModel_, flex_contype) - 2536usize];
+        [::std::mem::offset_of!(mjModel_, flex_contype) - 2896usize];
     ["Offset of field: mjModel_::flex_conaffinity"]
-        [::std::mem::offset_of!(mjModel_, flex_conaffinity) - 2544usize];
+        [::std::mem::offset_of!(mjModel_, flex_conaffinity) - 2904usize];
     ["Offset of field: mjModel_::flex_condim"]
-        [::std::mem::offset_of!(mjModel_, flex_condim) - 2552usize];
+        [::std::mem::offset_of!(mjModel_, flex_condim) - 2912usize];
     ["Offset of field: mjModel_::flex_priority"]
-        [::std::mem::offset_of!(mjModel_, flex_priority) - 2560usize];
+        [::std::mem::offset_of!(mjModel_, flex_priority) - 2920usize];
     ["Offset of field: mjModel_::flex_solmix"]
-        [::std::mem::offset_of!(mjModel_, flex_solmix) - 2568usize];
+        [::std::mem::offset_of!(mjModel_, flex_solmix) - 2928usize];
     ["Offset of field: mjModel_::flex_solref"]
-        [::std::mem::offset_of!(mjModel_, flex_solref) - 2576usize];
+        [::std::mem::offset_of!(mjModel_, flex_solref) - 2936usize];
     ["Offset of field: mjModel_::flex_solimp"]
-        [::std::mem::offset_of!(mjModel_, flex_solimp) - 2584usize];
+        [::std::mem::offset_of!(mjModel_, flex_solimp) - 2944usize];
     ["Offset of field: mjModel_::flex_friction"]
-        [::std::mem::offset_of!(mjModel_, flex_friction) - 2592usize];
+        [::std::mem::offset_of!(mjModel_, flex_friction) - 2952usize];
     ["Offset of field: mjModel_::flex_margin"]
-        [::std::mem::offset_of!(mjModel_, flex_margin) - 2600usize];
-    ["Offset of field: mjModel_::flex_gap"][::std::mem::offset_of!(mjModel_, flex_gap) - 2608usize];
+        [::std::mem::offset_of!(mjModel_, flex_margin) - 2960usize];
+    ["Offset of field: mjModel_::flex_gap"][::std::mem::offset_of!(mjModel_, flex_gap) - 2968usize];
     ["Offset of field: mjModel_::flex_internal"]
-        [::std::mem::offset_of!(mjModel_, flex_internal) - 2616usize];
+        [::std::mem::offset_of!(mjModel_, flex_internal) - 2976usize];
     ["Offset of field: mjModel_::flex_selfcollide"]
-        [::std::mem::offset_of!(mjModel_, flex_selfcollide) - 2624usize];
+        [::std::mem::offset_of!(mjModel_, flex_selfcollide) - 2984usize];
     ["Offset of field: mjModel_::flex_activelayers"]
-        [::std::mem::offset_of!(mjModel_, flex_activelayers) - 2632usize];
+        [::std::mem::offset_of!(mjModel_, flex_activelayers) - 2992usize];
     ["Offset of field: mjModel_::flex_passive"]
-        [::std::mem::offset_of!(mjModel_, flex_passive) - 2640usize];
-    ["Offset of field: mjModel_::flex_dim"][::std::mem::offset_of!(mjModel_, flex_dim) - 2648usize];
+        [::std::mem::offset_of!(mjModel_, flex_passive) - 3000usize];
+    ["Offset of field: mjModel_::flex_dim"][::std::mem::offset_of!(mjModel_, flex_dim) - 3008usize];
     ["Offset of field: mjModel_::flex_matid"]
-        [::std::mem::offset_of!(mjModel_, flex_matid) - 2656usize];
+        [::std::mem::offset_of!(mjModel_, flex_matid) - 3016usize];
     ["Offset of field: mjModel_::flex_group"]
-        [::std::mem::offset_of!(mjModel_, flex_group) - 2664usize];
+        [::std::mem::offset_of!(mjModel_, flex_group) - 3024usize];
     ["Offset of field: mjModel_::flex_interp"]
-        [::std::mem::offset_of!(mjModel_, flex_interp) - 2672usize];
+        [::std::mem::offset_of!(mjModel_, flex_interp) - 3032usize];
     ["Offset of field: mjModel_::flex_nodeadr"]
-        [::std::mem::offset_of!(mjModel_, flex_nodeadr) - 2680usize];
+        [::std::mem::offset_of!(mjModel_, flex_nodeadr) - 3040usize];
     ["Offset of field: mjModel_::flex_nodenum"]
-        [::std::mem::offset_of!(mjModel_, flex_nodenum) - 2688usize];
+        [::std::mem::offset_of!(mjModel_, flex_nodenum) - 3048usize];
     ["Offset of field: mjModel_::flex_vertadr"]
-        [::std::mem::offset_of!(mjModel_, flex_vertadr) - 2696usize];
+        [::std::mem::offset_of!(mjModel_, flex_vertadr) - 3056usize];
     ["Offset of field: mjModel_::flex_vertnum"]
-        [::std::mem::offset_of!(mjModel_, flex_vertnum) - 2704usize];
+        [::std::mem::offset_of!(mjModel_, flex_vertnum) - 3064usize];
     ["Offset of field: mjModel_::flex_edgeadr"]
-        [::std::mem::offset_of!(mjModel_, flex_edgeadr) - 2712usize];
+        [::std::mem::offset_of!(mjModel_, flex_edgeadr) - 3072usize];
     ["Offset of field: mjModel_::flex_edgenum"]
-        [::std::mem::offset_of!(mjModel_, flex_edgenum) - 2720usize];
+        [::std::mem::offset_of!(mjModel_, flex_edgenum) - 3080usize];
     ["Offset of field: mjModel_::flex_elemadr"]
-        [::std::mem::offset_of!(mjModel_, flex_elemadr) - 2728usize];
+        [::std::mem::offset_of!(mjModel_, flex_elemadr) - 3088usize];
     ["Offset of field: mjModel_::flex_elemnum"]
-        [::std::mem::offset_of!(mjModel_, flex_elemnum) - 2736usize];
+        [::std::mem::offset_of!(mjModel_, flex_elemnum) - 3096usize];
     ["Offset of field: mjModel_::flex_elemdataadr"]
-        [::std::mem::offset_of!(mjModel_, flex_elemdataadr) - 2744usize];
+        [::std::mem::offset_of!(mjModel_, flex_elemdataadr) - 3104usize];
     ["Offset of field: mjModel_::flex_elemedgeadr"]
-        [::std::mem::offset_of!(mjModel_, flex_elemedgeadr) - 2752usize];
+        [::std::mem::offset_of!(mjModel_, flex_elemedgeadr) - 3112usize];
     ["Offset of field: mjModel_::flex_shellnum"]
-        [::std::mem::offset_of!(mjModel_, flex_shellnum) - 2760usize];
+        [::std::mem::offset_of!(mjModel_, flex_shellnum) - 3120usize];
     ["Offset of field: mjModel_::flex_shelldataadr"]
-        [::std::mem::offset_of!(mjModel_, flex_shelldataadr) - 2768usize];
+        [::std::mem::offset_of!(mjModel_, flex_shelldataadr) - 3128usize];
     ["Offset of field: mjModel_::flex_evpairadr"]
-        [::std::mem::offset_of!(mjModel_, flex_evpairadr) - 2776usize];
+        [::std::mem::offset_of!(mjModel_, flex_evpairadr) - 3136usize];
     ["Offset of field: mjModel_::flex_evpairnum"]
-        [::std::mem::offset_of!(mjModel_, flex_evpairnum) - 2784usize];
+        [::std::mem::offset_of!(mjModel_, flex_evpairnum) - 3144usize];
     ["Offset of field: mjModel_::flex_texcoordadr"]
-        [::std::mem::offset_of!(mjModel_, flex_texcoordadr) - 2792usize];
+        [::std::mem::offset_of!(mjModel_, flex_texcoordadr) - 3152usize];
     ["Offset of field: mjModel_::flex_nodebodyid"]
-        [::std::mem::offset_of!(mjModel_, flex_nodebodyid) - 2800usize];
+        [::std::mem::offset_of!(mjModel_, flex_nodebodyid) - 3160usize];
     ["Offset of field: mjModel_::flex_vertbodyid"]
-        [::std::mem::offset_of!(mjModel_, flex_vertbodyid) - 2808usize];
+        [::std::mem::offset_of!(mjModel_, flex_vertbodyid) - 3168usize];
+    ["Offset of field: mjModel_::flex_vertedgeadr"]
+        [::std::mem::offset_of!(mjModel_, flex_vertedgeadr) - 3176usize];
+    ["Offset of field: mjModel_::flex_vertedgenum"]
+        [::std::mem::offset_of!(mjModel_, flex_vertedgenum) - 3184usize];
+    ["Offset of field: mjModel_::flex_vertedge"]
+        [::std::mem::offset_of!(mjModel_, flex_vertedge) - 3192usize];
     ["Offset of field: mjModel_::flex_edge"]
-        [::std::mem::offset_of!(mjModel_, flex_edge) - 2816usize];
+        [::std::mem::offset_of!(mjModel_, flex_edge) - 3200usize];
     ["Offset of field: mjModel_::flex_edgeflap"]
-        [::std::mem::offset_of!(mjModel_, flex_edgeflap) - 2824usize];
+        [::std::mem::offset_of!(mjModel_, flex_edgeflap) - 3208usize];
     ["Offset of field: mjModel_::flex_elem"]
-        [::std::mem::offset_of!(mjModel_, flex_elem) - 2832usize];
+        [::std::mem::offset_of!(mjModel_, flex_elem) - 3216usize];
     ["Offset of field: mjModel_::flex_elemtexcoord"]
-        [::std::mem::offset_of!(mjModel_, flex_elemtexcoord) - 2840usize];
+        [::std::mem::offset_of!(mjModel_, flex_elemtexcoord) - 3224usize];
     ["Offset of field: mjModel_::flex_elemedge"]
-        [::std::mem::offset_of!(mjModel_, flex_elemedge) - 2848usize];
+        [::std::mem::offset_of!(mjModel_, flex_elemedge) - 3232usize];
     ["Offset of field: mjModel_::flex_elemlayer"]
-        [::std::mem::offset_of!(mjModel_, flex_elemlayer) - 2856usize];
+        [::std::mem::offset_of!(mjModel_, flex_elemlayer) - 3240usize];
     ["Offset of field: mjModel_::flex_shell"]
-        [::std::mem::offset_of!(mjModel_, flex_shell) - 2864usize];
+        [::std::mem::offset_of!(mjModel_, flex_shell) - 3248usize];
     ["Offset of field: mjModel_::flex_evpair"]
-        [::std::mem::offset_of!(mjModel_, flex_evpair) - 2872usize];
+        [::std::mem::offset_of!(mjModel_, flex_evpair) - 3256usize];
     ["Offset of field: mjModel_::flex_vert"]
-        [::std::mem::offset_of!(mjModel_, flex_vert) - 2880usize];
+        [::std::mem::offset_of!(mjModel_, flex_vert) - 3264usize];
     ["Offset of field: mjModel_::flex_vert0"]
-        [::std::mem::offset_of!(mjModel_, flex_vert0) - 2888usize];
+        [::std::mem::offset_of!(mjModel_, flex_vert0) - 3272usize];
+    ["Offset of field: mjModel_::flex_vertmetric"]
+        [::std::mem::offset_of!(mjModel_, flex_vertmetric) - 3280usize];
     ["Offset of field: mjModel_::flex_node"]
-        [::std::mem::offset_of!(mjModel_, flex_node) - 2896usize];
+        [::std::mem::offset_of!(mjModel_, flex_node) - 3288usize];
     ["Offset of field: mjModel_::flex_node0"]
-        [::std::mem::offset_of!(mjModel_, flex_node0) - 2904usize];
+        [::std::mem::offset_of!(mjModel_, flex_node0) - 3296usize];
     ["Offset of field: mjModel_::flexedge_length0"]
-        [::std::mem::offset_of!(mjModel_, flexedge_length0) - 2912usize];
+        [::std::mem::offset_of!(mjModel_, flexedge_length0) - 3304usize];
     ["Offset of field: mjModel_::flexedge_invweight0"]
-        [::std::mem::offset_of!(mjModel_, flexedge_invweight0) - 2920usize];
+        [::std::mem::offset_of!(mjModel_, flexedge_invweight0) - 3312usize];
     ["Offset of field: mjModel_::flex_radius"]
-        [::std::mem::offset_of!(mjModel_, flex_radius) - 2928usize];
+        [::std::mem::offset_of!(mjModel_, flex_radius) - 3320usize];
+    ["Offset of field: mjModel_::flex_size"]
+        [::std::mem::offset_of!(mjModel_, flex_size) - 3328usize];
     ["Offset of field: mjModel_::flex_stiffness"]
-        [::std::mem::offset_of!(mjModel_, flex_stiffness) - 2936usize];
+        [::std::mem::offset_of!(mjModel_, flex_stiffness) - 3336usize];
     ["Offset of field: mjModel_::flex_bending"]
-        [::std::mem::offset_of!(mjModel_, flex_bending) - 2944usize];
+        [::std::mem::offset_of!(mjModel_, flex_bending) - 3344usize];
     ["Offset of field: mjModel_::flex_damping"]
-        [::std::mem::offset_of!(mjModel_, flex_damping) - 2952usize];
+        [::std::mem::offset_of!(mjModel_, flex_damping) - 3352usize];
     ["Offset of field: mjModel_::flex_edgestiffness"]
-        [::std::mem::offset_of!(mjModel_, flex_edgestiffness) - 2960usize];
+        [::std::mem::offset_of!(mjModel_, flex_edgestiffness) - 3360usize];
     ["Offset of field: mjModel_::flex_edgedamping"]
-        [::std::mem::offset_of!(mjModel_, flex_edgedamping) - 2968usize];
+        [::std::mem::offset_of!(mjModel_, flex_edgedamping) - 3368usize];
     ["Offset of field: mjModel_::flex_edgeequality"]
-        [::std::mem::offset_of!(mjModel_, flex_edgeequality) - 2976usize];
+        [::std::mem::offset_of!(mjModel_, flex_edgeequality) - 3376usize];
     ["Offset of field: mjModel_::flex_rigid"]
-        [::std::mem::offset_of!(mjModel_, flex_rigid) - 2984usize];
+        [::std::mem::offset_of!(mjModel_, flex_rigid) - 3384usize];
     ["Offset of field: mjModel_::flexedge_rigid"]
-        [::std::mem::offset_of!(mjModel_, flexedge_rigid) - 2992usize];
+        [::std::mem::offset_of!(mjModel_, flexedge_rigid) - 3392usize];
     ["Offset of field: mjModel_::flex_centered"]
-        [::std::mem::offset_of!(mjModel_, flex_centered) - 3000usize];
+        [::std::mem::offset_of!(mjModel_, flex_centered) - 3400usize];
     ["Offset of field: mjModel_::flex_flatskin"]
-        [::std::mem::offset_of!(mjModel_, flex_flatskin) - 3008usize];
+        [::std::mem::offset_of!(mjModel_, flex_flatskin) - 3408usize];
     ["Offset of field: mjModel_::flex_bvhadr"]
-        [::std::mem::offset_of!(mjModel_, flex_bvhadr) - 3016usize];
+        [::std::mem::offset_of!(mjModel_, flex_bvhadr) - 3416usize];
     ["Offset of field: mjModel_::flex_bvhnum"]
-        [::std::mem::offset_of!(mjModel_, flex_bvhnum) - 3024usize];
+        [::std::mem::offset_of!(mjModel_, flex_bvhnum) - 3424usize];
     ["Offset of field: mjModel_::flexedge_J_rownnz"]
-        [::std::mem::offset_of!(mjModel_, flexedge_J_rownnz) - 3032usize];
+        [::std::mem::offset_of!(mjModel_, flexedge_J_rownnz) - 3432usize];
     ["Offset of field: mjModel_::flexedge_J_rowadr"]
-        [::std::mem::offset_of!(mjModel_, flexedge_J_rowadr) - 3040usize];
+        [::std::mem::offset_of!(mjModel_, flexedge_J_rowadr) - 3440usize];
     ["Offset of field: mjModel_::flexedge_J_colind"]
-        [::std::mem::offset_of!(mjModel_, flexedge_J_colind) - 3048usize];
+        [::std::mem::offset_of!(mjModel_, flexedge_J_colind) - 3448usize];
+    ["Offset of field: mjModel_::flexvert_J_rownnz"]
+        [::std::mem::offset_of!(mjModel_, flexvert_J_rownnz) - 3456usize];
+    ["Offset of field: mjModel_::flexvert_J_rowadr"]
+        [::std::mem::offset_of!(mjModel_, flexvert_J_rowadr) - 3464usize];
+    ["Offset of field: mjModel_::flexvert_J_colind"]
+        [::std::mem::offset_of!(mjModel_, flexvert_J_colind) - 3472usize];
     ["Offset of field: mjModel_::flex_rgba"]
-        [::std::mem::offset_of!(mjModel_, flex_rgba) - 3056usize];
+        [::std::mem::offset_of!(mjModel_, flex_rgba) - 3480usize];
     ["Offset of field: mjModel_::flex_texcoord"]
-        [::std::mem::offset_of!(mjModel_, flex_texcoord) - 3064usize];
+        [::std::mem::offset_of!(mjModel_, flex_texcoord) - 3488usize];
     ["Offset of field: mjModel_::mesh_vertadr"]
-        [::std::mem::offset_of!(mjModel_, mesh_vertadr) - 3072usize];
+        [::std::mem::offset_of!(mjModel_, mesh_vertadr) - 3496usize];
     ["Offset of field: mjModel_::mesh_vertnum"]
-        [::std::mem::offset_of!(mjModel_, mesh_vertnum) - 3080usize];
+        [::std::mem::offset_of!(mjModel_, mesh_vertnum) - 3504usize];
     ["Offset of field: mjModel_::mesh_faceadr"]
-        [::std::mem::offset_of!(mjModel_, mesh_faceadr) - 3088usize];
+        [::std::mem::offset_of!(mjModel_, mesh_faceadr) - 3512usize];
     ["Offset of field: mjModel_::mesh_facenum"]
-        [::std::mem::offset_of!(mjModel_, mesh_facenum) - 3096usize];
+        [::std::mem::offset_of!(mjModel_, mesh_facenum) - 3520usize];
     ["Offset of field: mjModel_::mesh_bvhadr"]
-        [::std::mem::offset_of!(mjModel_, mesh_bvhadr) - 3104usize];
+        [::std::mem::offset_of!(mjModel_, mesh_bvhadr) - 3528usize];
     ["Offset of field: mjModel_::mesh_bvhnum"]
-        [::std::mem::offset_of!(mjModel_, mesh_bvhnum) - 3112usize];
+        [::std::mem::offset_of!(mjModel_, mesh_bvhnum) - 3536usize];
     ["Offset of field: mjModel_::mesh_octadr"]
-        [::std::mem::offset_of!(mjModel_, mesh_octadr) - 3120usize];
+        [::std::mem::offset_of!(mjModel_, mesh_octadr) - 3544usize];
     ["Offset of field: mjModel_::mesh_octnum"]
-        [::std::mem::offset_of!(mjModel_, mesh_octnum) - 3128usize];
+        [::std::mem::offset_of!(mjModel_, mesh_octnum) - 3552usize];
     ["Offset of field: mjModel_::mesh_normaladr"]
-        [::std::mem::offset_of!(mjModel_, mesh_normaladr) - 3136usize];
+        [::std::mem::offset_of!(mjModel_, mesh_normaladr) - 3560usize];
     ["Offset of field: mjModel_::mesh_normalnum"]
-        [::std::mem::offset_of!(mjModel_, mesh_normalnum) - 3144usize];
+        [::std::mem::offset_of!(mjModel_, mesh_normalnum) - 3568usize];
     ["Offset of field: mjModel_::mesh_texcoordadr"]
-        [::std::mem::offset_of!(mjModel_, mesh_texcoordadr) - 3152usize];
+        [::std::mem::offset_of!(mjModel_, mesh_texcoordadr) - 3576usize];
     ["Offset of field: mjModel_::mesh_texcoordnum"]
-        [::std::mem::offset_of!(mjModel_, mesh_texcoordnum) - 3160usize];
+        [::std::mem::offset_of!(mjModel_, mesh_texcoordnum) - 3584usize];
     ["Offset of field: mjModel_::mesh_graphadr"]
-        [::std::mem::offset_of!(mjModel_, mesh_graphadr) - 3168usize];
+        [::std::mem::offset_of!(mjModel_, mesh_graphadr) - 3592usize];
     ["Offset of field: mjModel_::mesh_vert"]
-        [::std::mem::offset_of!(mjModel_, mesh_vert) - 3176usize];
+        [::std::mem::offset_of!(mjModel_, mesh_vert) - 3600usize];
     ["Offset of field: mjModel_::mesh_normal"]
-        [::std::mem::offset_of!(mjModel_, mesh_normal) - 3184usize];
+        [::std::mem::offset_of!(mjModel_, mesh_normal) - 3608usize];
     ["Offset of field: mjModel_::mesh_texcoord"]
-        [::std::mem::offset_of!(mjModel_, mesh_texcoord) - 3192usize];
+        [::std::mem::offset_of!(mjModel_, mesh_texcoord) - 3616usize];
     ["Offset of field: mjModel_::mesh_face"]
-        [::std::mem::offset_of!(mjModel_, mesh_face) - 3200usize];
+        [::std::mem::offset_of!(mjModel_, mesh_face) - 3624usize];
     ["Offset of field: mjModel_::mesh_facenormal"]
-        [::std::mem::offset_of!(mjModel_, mesh_facenormal) - 3208usize];
+        [::std::mem::offset_of!(mjModel_, mesh_facenormal) - 3632usize];
     ["Offset of field: mjModel_::mesh_facetexcoord"]
-        [::std::mem::offset_of!(mjModel_, mesh_facetexcoord) - 3216usize];
+        [::std::mem::offset_of!(mjModel_, mesh_facetexcoord) - 3640usize];
     ["Offset of field: mjModel_::mesh_graph"]
-        [::std::mem::offset_of!(mjModel_, mesh_graph) - 3224usize];
+        [::std::mem::offset_of!(mjModel_, mesh_graph) - 3648usize];
     ["Offset of field: mjModel_::mesh_scale"]
-        [::std::mem::offset_of!(mjModel_, mesh_scale) - 3232usize];
-    ["Offset of field: mjModel_::mesh_pos"][::std::mem::offset_of!(mjModel_, mesh_pos) - 3240usize];
+        [::std::mem::offset_of!(mjModel_, mesh_scale) - 3656usize];
+    ["Offset of field: mjModel_::mesh_pos"][::std::mem::offset_of!(mjModel_, mesh_pos) - 3664usize];
     ["Offset of field: mjModel_::mesh_quat"]
-        [::std::mem::offset_of!(mjModel_, mesh_quat) - 3248usize];
+        [::std::mem::offset_of!(mjModel_, mesh_quat) - 3672usize];
     ["Offset of field: mjModel_::mesh_pathadr"]
-        [::std::mem::offset_of!(mjModel_, mesh_pathadr) - 3256usize];
+        [::std::mem::offset_of!(mjModel_, mesh_pathadr) - 3680usize];
     ["Offset of field: mjModel_::mesh_polynum"]
-        [::std::mem::offset_of!(mjModel_, mesh_polynum) - 3264usize];
+        [::std::mem::offset_of!(mjModel_, mesh_polynum) - 3688usize];
     ["Offset of field: mjModel_::mesh_polyadr"]
-        [::std::mem::offset_of!(mjModel_, mesh_polyadr) - 3272usize];
+        [::std::mem::offset_of!(mjModel_, mesh_polyadr) - 3696usize];
     ["Offset of field: mjModel_::mesh_polynormal"]
-        [::std::mem::offset_of!(mjModel_, mesh_polynormal) - 3280usize];
+        [::std::mem::offset_of!(mjModel_, mesh_polynormal) - 3704usize];
     ["Offset of field: mjModel_::mesh_polyvertadr"]
-        [::std::mem::offset_of!(mjModel_, mesh_polyvertadr) - 3288usize];
+        [::std::mem::offset_of!(mjModel_, mesh_polyvertadr) - 3712usize];
     ["Offset of field: mjModel_::mesh_polyvertnum"]
-        [::std::mem::offset_of!(mjModel_, mesh_polyvertnum) - 3296usize];
+        [::std::mem::offset_of!(mjModel_, mesh_polyvertnum) - 3720usize];
     ["Offset of field: mjModel_::mesh_polyvert"]
-        [::std::mem::offset_of!(mjModel_, mesh_polyvert) - 3304usize];
+        [::std::mem::offset_of!(mjModel_, mesh_polyvert) - 3728usize];
     ["Offset of field: mjModel_::mesh_polymapadr"]
-        [::std::mem::offset_of!(mjModel_, mesh_polymapadr) - 3312usize];
+        [::std::mem::offset_of!(mjModel_, mesh_polymapadr) - 3736usize];
     ["Offset of field: mjModel_::mesh_polymapnum"]
-        [::std::mem::offset_of!(mjModel_, mesh_polymapnum) - 3320usize];
+        [::std::mem::offset_of!(mjModel_, mesh_polymapnum) - 3744usize];
     ["Offset of field: mjModel_::mesh_polymap"]
-        [::std::mem::offset_of!(mjModel_, mesh_polymap) - 3328usize];
+        [::std::mem::offset_of!(mjModel_, mesh_polymap) - 3752usize];
     ["Offset of field: mjModel_::skin_matid"]
-        [::std::mem::offset_of!(mjModel_, skin_matid) - 3336usize];
+        [::std::mem::offset_of!(mjModel_, skin_matid) - 3760usize];
     ["Offset of field: mjModel_::skin_group"]
-        [::std::mem::offset_of!(mjModel_, skin_group) - 3344usize];
+        [::std::mem::offset_of!(mjModel_, skin_group) - 3768usize];
     ["Offset of field: mjModel_::skin_rgba"]
-        [::std::mem::offset_of!(mjModel_, skin_rgba) - 3352usize];
+        [::std::mem::offset_of!(mjModel_, skin_rgba) - 3776usize];
     ["Offset of field: mjModel_::skin_inflate"]
-        [::std::mem::offset_of!(mjModel_, skin_inflate) - 3360usize];
+        [::std::mem::offset_of!(mjModel_, skin_inflate) - 3784usize];
     ["Offset of field: mjModel_::skin_vertadr"]
-        [::std::mem::offset_of!(mjModel_, skin_vertadr) - 3368usize];
+        [::std::mem::offset_of!(mjModel_, skin_vertadr) - 3792usize];
     ["Offset of field: mjModel_::skin_vertnum"]
-        [::std::mem::offset_of!(mjModel_, skin_vertnum) - 3376usize];
+        [::std::mem::offset_of!(mjModel_, skin_vertnum) - 3800usize];
     ["Offset of field: mjModel_::skin_texcoordadr"]
-        [::std::mem::offset_of!(mjModel_, skin_texcoordadr) - 3384usize];
+        [::std::mem::offset_of!(mjModel_, skin_texcoordadr) - 3808usize];
     ["Offset of field: mjModel_::skin_faceadr"]
-        [::std::mem::offset_of!(mjModel_, skin_faceadr) - 3392usize];
+        [::std::mem::offset_of!(mjModel_, skin_faceadr) - 3816usize];
     ["Offset of field: mjModel_::skin_facenum"]
-        [::std::mem::offset_of!(mjModel_, skin_facenum) - 3400usize];
+        [::std::mem::offset_of!(mjModel_, skin_facenum) - 3824usize];
     ["Offset of field: mjModel_::skin_boneadr"]
-        [::std::mem::offset_of!(mjModel_, skin_boneadr) - 3408usize];
+        [::std::mem::offset_of!(mjModel_, skin_boneadr) - 3832usize];
     ["Offset of field: mjModel_::skin_bonenum"]
-        [::std::mem::offset_of!(mjModel_, skin_bonenum) - 3416usize];
+        [::std::mem::offset_of!(mjModel_, skin_bonenum) - 3840usize];
     ["Offset of field: mjModel_::skin_vert"]
-        [::std::mem::offset_of!(mjModel_, skin_vert) - 3424usize];
+        [::std::mem::offset_of!(mjModel_, skin_vert) - 3848usize];
     ["Offset of field: mjModel_::skin_texcoord"]
-        [::std::mem::offset_of!(mjModel_, skin_texcoord) - 3432usize];
+        [::std::mem::offset_of!(mjModel_, skin_texcoord) - 3856usize];
     ["Offset of field: mjModel_::skin_face"]
-        [::std::mem::offset_of!(mjModel_, skin_face) - 3440usize];
+        [::std::mem::offset_of!(mjModel_, skin_face) - 3864usize];
     ["Offset of field: mjModel_::skin_bonevertadr"]
-        [::std::mem::offset_of!(mjModel_, skin_bonevertadr) - 3448usize];
+        [::std::mem::offset_of!(mjModel_, skin_bonevertadr) - 3872usize];
     ["Offset of field: mjModel_::skin_bonevertnum"]
-        [::std::mem::offset_of!(mjModel_, skin_bonevertnum) - 3456usize];
+        [::std::mem::offset_of!(mjModel_, skin_bonevertnum) - 3880usize];
     ["Offset of field: mjModel_::skin_bonebindpos"]
-        [::std::mem::offset_of!(mjModel_, skin_bonebindpos) - 3464usize];
+        [::std::mem::offset_of!(mjModel_, skin_bonebindpos) - 3888usize];
     ["Offset of field: mjModel_::skin_bonebindquat"]
-        [::std::mem::offset_of!(mjModel_, skin_bonebindquat) - 3472usize];
+        [::std::mem::offset_of!(mjModel_, skin_bonebindquat) - 3896usize];
     ["Offset of field: mjModel_::skin_bonebodyid"]
-        [::std::mem::offset_of!(mjModel_, skin_bonebodyid) - 3480usize];
+        [::std::mem::offset_of!(mjModel_, skin_bonebodyid) - 3904usize];
     ["Offset of field: mjModel_::skin_bonevertid"]
-        [::std::mem::offset_of!(mjModel_, skin_bonevertid) - 3488usize];
+        [::std::mem::offset_of!(mjModel_, skin_bonevertid) - 3912usize];
     ["Offset of field: mjModel_::skin_bonevertweight"]
-        [::std::mem::offset_of!(mjModel_, skin_bonevertweight) - 3496usize];
+        [::std::mem::offset_of!(mjModel_, skin_bonevertweight) - 3920usize];
     ["Offset of field: mjModel_::skin_pathadr"]
-        [::std::mem::offset_of!(mjModel_, skin_pathadr) - 3504usize];
+        [::std::mem::offset_of!(mjModel_, skin_pathadr) - 3928usize];
     ["Offset of field: mjModel_::hfield_size"]
-        [::std::mem::offset_of!(mjModel_, hfield_size) - 3512usize];
+        [::std::mem::offset_of!(mjModel_, hfield_size) - 3936usize];
     ["Offset of field: mjModel_::hfield_nrow"]
-        [::std::mem::offset_of!(mjModel_, hfield_nrow) - 3520usize];
+        [::std::mem::offset_of!(mjModel_, hfield_nrow) - 3944usize];
     ["Offset of field: mjModel_::hfield_ncol"]
-        [::std::mem::offset_of!(mjModel_, hfield_ncol) - 3528usize];
+        [::std::mem::offset_of!(mjModel_, hfield_ncol) - 3952usize];
     ["Offset of field: mjModel_::hfield_adr"]
-        [::std::mem::offset_of!(mjModel_, hfield_adr) - 3536usize];
+        [::std::mem::offset_of!(mjModel_, hfield_adr) - 3960usize];
     ["Offset of field: mjModel_::hfield_data"]
-        [::std::mem::offset_of!(mjModel_, hfield_data) - 3544usize];
+        [::std::mem::offset_of!(mjModel_, hfield_data) - 3968usize];
     ["Offset of field: mjModel_::hfield_pathadr"]
-        [::std::mem::offset_of!(mjModel_, hfield_pathadr) - 3552usize];
-    ["Offset of field: mjModel_::tex_type"][::std::mem::offset_of!(mjModel_, tex_type) - 3560usize];
+        [::std::mem::offset_of!(mjModel_, hfield_pathadr) - 3976usize];
+    ["Offset of field: mjModel_::tex_type"][::std::mem::offset_of!(mjModel_, tex_type) - 3984usize];
     ["Offset of field: mjModel_::tex_colorspace"]
-        [::std::mem::offset_of!(mjModel_, tex_colorspace) - 3568usize];
+        [::std::mem::offset_of!(mjModel_, tex_colorspace) - 3992usize];
     ["Offset of field: mjModel_::tex_height"]
-        [::std::mem::offset_of!(mjModel_, tex_height) - 3576usize];
+        [::std::mem::offset_of!(mjModel_, tex_height) - 4000usize];
     ["Offset of field: mjModel_::tex_width"]
-        [::std::mem::offset_of!(mjModel_, tex_width) - 3584usize];
+        [::std::mem::offset_of!(mjModel_, tex_width) - 4008usize];
     ["Offset of field: mjModel_::tex_nchannel"]
-        [::std::mem::offset_of!(mjModel_, tex_nchannel) - 3592usize];
-    ["Offset of field: mjModel_::tex_adr"][::std::mem::offset_of!(mjModel_, tex_adr) - 3600usize];
-    ["Offset of field: mjModel_::tex_data"][::std::mem::offset_of!(mjModel_, tex_data) - 3608usize];
+        [::std::mem::offset_of!(mjModel_, tex_nchannel) - 4016usize];
+    ["Offset of field: mjModel_::tex_adr"][::std::mem::offset_of!(mjModel_, tex_adr) - 4024usize];
+    ["Offset of field: mjModel_::tex_data"][::std::mem::offset_of!(mjModel_, tex_data) - 4032usize];
     ["Offset of field: mjModel_::tex_pathadr"]
-        [::std::mem::offset_of!(mjModel_, tex_pathadr) - 3616usize];
+        [::std::mem::offset_of!(mjModel_, tex_pathadr) - 4040usize];
     ["Offset of field: mjModel_::mat_texid"]
-        [::std::mem::offset_of!(mjModel_, mat_texid) - 3624usize];
+        [::std::mem::offset_of!(mjModel_, mat_texid) - 4048usize];
     ["Offset of field: mjModel_::mat_texuniform"]
-        [::std::mem::offset_of!(mjModel_, mat_texuniform) - 3632usize];
+        [::std::mem::offset_of!(mjModel_, mat_texuniform) - 4056usize];
     ["Offset of field: mjModel_::mat_texrepeat"]
-        [::std::mem::offset_of!(mjModel_, mat_texrepeat) - 3640usize];
+        [::std::mem::offset_of!(mjModel_, mat_texrepeat) - 4064usize];
     ["Offset of field: mjModel_::mat_emission"]
-        [::std::mem::offset_of!(mjModel_, mat_emission) - 3648usize];
+        [::std::mem::offset_of!(mjModel_, mat_emission) - 4072usize];
     ["Offset of field: mjModel_::mat_specular"]
-        [::std::mem::offset_of!(mjModel_, mat_specular) - 3656usize];
+        [::std::mem::offset_of!(mjModel_, mat_specular) - 4080usize];
     ["Offset of field: mjModel_::mat_shininess"]
-        [::std::mem::offset_of!(mjModel_, mat_shininess) - 3664usize];
+        [::std::mem::offset_of!(mjModel_, mat_shininess) - 4088usize];
     ["Offset of field: mjModel_::mat_reflectance"]
-        [::std::mem::offset_of!(mjModel_, mat_reflectance) - 3672usize];
+        [::std::mem::offset_of!(mjModel_, mat_reflectance) - 4096usize];
     ["Offset of field: mjModel_::mat_metallic"]
-        [::std::mem::offset_of!(mjModel_, mat_metallic) - 3680usize];
+        [::std::mem::offset_of!(mjModel_, mat_metallic) - 4104usize];
     ["Offset of field: mjModel_::mat_roughness"]
-        [::std::mem::offset_of!(mjModel_, mat_roughness) - 3688usize];
-    ["Offset of field: mjModel_::mat_rgba"][::std::mem::offset_of!(mjModel_, mat_rgba) - 3696usize];
-    ["Offset of field: mjModel_::pair_dim"][::std::mem::offset_of!(mjModel_, pair_dim) - 3704usize];
+        [::std::mem::offset_of!(mjModel_, mat_roughness) - 4112usize];
+    ["Offset of field: mjModel_::mat_rgba"][::std::mem::offset_of!(mjModel_, mat_rgba) - 4120usize];
+    ["Offset of field: mjModel_::pair_dim"][::std::mem::offset_of!(mjModel_, pair_dim) - 4128usize];
     ["Offset of field: mjModel_::pair_geom1"]
-        [::std::mem::offset_of!(mjModel_, pair_geom1) - 3712usize];
+        [::std::mem::offset_of!(mjModel_, pair_geom1) - 4136usize];
     ["Offset of field: mjModel_::pair_geom2"]
-        [::std::mem::offset_of!(mjModel_, pair_geom2) - 3720usize];
+        [::std::mem::offset_of!(mjModel_, pair_geom2) - 4144usize];
     ["Offset of field: mjModel_::pair_signature"]
-        [::std::mem::offset_of!(mjModel_, pair_signature) - 3728usize];
+        [::std::mem::offset_of!(mjModel_, pair_signature) - 4152usize];
     ["Offset of field: mjModel_::pair_solref"]
-        [::std::mem::offset_of!(mjModel_, pair_solref) - 3736usize];
+        [::std::mem::offset_of!(mjModel_, pair_solref) - 4160usize];
     ["Offset of field: mjModel_::pair_solreffriction"]
-        [::std::mem::offset_of!(mjModel_, pair_solreffriction) - 3744usize];
+        [::std::mem::offset_of!(mjModel_, pair_solreffriction) - 4168usize];
     ["Offset of field: mjModel_::pair_solimp"]
-        [::std::mem::offset_of!(mjModel_, pair_solimp) - 3752usize];
+        [::std::mem::offset_of!(mjModel_, pair_solimp) - 4176usize];
     ["Offset of field: mjModel_::pair_margin"]
-        [::std::mem::offset_of!(mjModel_, pair_margin) - 3760usize];
-    ["Offset of field: mjModel_::pair_gap"][::std::mem::offset_of!(mjModel_, pair_gap) - 3768usize];
+        [::std::mem::offset_of!(mjModel_, pair_margin) - 4184usize];
+    ["Offset of field: mjModel_::pair_gap"][::std::mem::offset_of!(mjModel_, pair_gap) - 4192usize];
     ["Offset of field: mjModel_::pair_friction"]
-        [::std::mem::offset_of!(mjModel_, pair_friction) - 3776usize];
+        [::std::mem::offset_of!(mjModel_, pair_friction) - 4200usize];
     ["Offset of field: mjModel_::exclude_signature"]
-        [::std::mem::offset_of!(mjModel_, exclude_signature) - 3784usize];
-    ["Offset of field: mjModel_::eq_type"][::std::mem::offset_of!(mjModel_, eq_type) - 3792usize];
+        [::std::mem::offset_of!(mjModel_, exclude_signature) - 4208usize];
+    ["Offset of field: mjModel_::eq_type"][::std::mem::offset_of!(mjModel_, eq_type) - 4216usize];
     ["Offset of field: mjModel_::eq_obj1id"]
-        [::std::mem::offset_of!(mjModel_, eq_obj1id) - 3800usize];
+        [::std::mem::offset_of!(mjModel_, eq_obj1id) - 4224usize];
     ["Offset of field: mjModel_::eq_obj2id"]
-        [::std::mem::offset_of!(mjModel_, eq_obj2id) - 3808usize];
+        [::std::mem::offset_of!(mjModel_, eq_obj2id) - 4232usize];
     ["Offset of field: mjModel_::eq_objtype"]
-        [::std::mem::offset_of!(mjModel_, eq_objtype) - 3816usize];
+        [::std::mem::offset_of!(mjModel_, eq_objtype) - 4240usize];
     ["Offset of field: mjModel_::eq_active0"]
-        [::std::mem::offset_of!(mjModel_, eq_active0) - 3824usize];
+        [::std::mem::offset_of!(mjModel_, eq_active0) - 4248usize];
     ["Offset of field: mjModel_::eq_solref"]
-        [::std::mem::offset_of!(mjModel_, eq_solref) - 3832usize];
+        [::std::mem::offset_of!(mjModel_, eq_solref) - 4256usize];
     ["Offset of field: mjModel_::eq_solimp"]
-        [::std::mem::offset_of!(mjModel_, eq_solimp) - 3840usize];
-    ["Offset of field: mjModel_::eq_data"][::std::mem::offset_of!(mjModel_, eq_data) - 3848usize];
+        [::std::mem::offset_of!(mjModel_, eq_solimp) - 4264usize];
+    ["Offset of field: mjModel_::eq_data"][::std::mem::offset_of!(mjModel_, eq_data) - 4272usize];
     ["Offset of field: mjModel_::tendon_adr"]
-        [::std::mem::offset_of!(mjModel_, tendon_adr) - 3856usize];
+        [::std::mem::offset_of!(mjModel_, tendon_adr) - 4280usize];
     ["Offset of field: mjModel_::tendon_num"]
-        [::std::mem::offset_of!(mjModel_, tendon_num) - 3864usize];
+        [::std::mem::offset_of!(mjModel_, tendon_num) - 4288usize];
     ["Offset of field: mjModel_::tendon_matid"]
-        [::std::mem::offset_of!(mjModel_, tendon_matid) - 3872usize];
+        [::std::mem::offset_of!(mjModel_, tendon_matid) - 4296usize];
     ["Offset of field: mjModel_::tendon_group"]
-        [::std::mem::offset_of!(mjModel_, tendon_group) - 3880usize];
+        [::std::mem::offset_of!(mjModel_, tendon_group) - 4304usize];
     ["Offset of field: mjModel_::tendon_treenum"]
-        [::std::mem::offset_of!(mjModel_, tendon_treenum) - 3888usize];
+        [::std::mem::offset_of!(mjModel_, tendon_treenum) - 4312usize];
     ["Offset of field: mjModel_::tendon_treeid"]
-        [::std::mem::offset_of!(mjModel_, tendon_treeid) - 3896usize];
+        [::std::mem::offset_of!(mjModel_, tendon_treeid) - 4320usize];
+    ["Offset of field: mjModel_::ten_J_rownnz"]
+        [::std::mem::offset_of!(mjModel_, ten_J_rownnz) - 4328usize];
+    ["Offset of field: mjModel_::ten_J_rowadr"]
+        [::std::mem::offset_of!(mjModel_, ten_J_rowadr) - 4336usize];
+    ["Offset of field: mjModel_::ten_J_colind"]
+        [::std::mem::offset_of!(mjModel_, ten_J_colind) - 4344usize];
     ["Offset of field: mjModel_::tendon_limited"]
-        [::std::mem::offset_of!(mjModel_, tendon_limited) - 3904usize];
+        [::std::mem::offset_of!(mjModel_, tendon_limited) - 4352usize];
     ["Offset of field: mjModel_::tendon_actfrclimited"]
-        [::std::mem::offset_of!(mjModel_, tendon_actfrclimited) - 3912usize];
+        [::std::mem::offset_of!(mjModel_, tendon_actfrclimited) - 4360usize];
     ["Offset of field: mjModel_::tendon_width"]
-        [::std::mem::offset_of!(mjModel_, tendon_width) - 3920usize];
+        [::std::mem::offset_of!(mjModel_, tendon_width) - 4368usize];
     ["Offset of field: mjModel_::tendon_solref_lim"]
-        [::std::mem::offset_of!(mjModel_, tendon_solref_lim) - 3928usize];
+        [::std::mem::offset_of!(mjModel_, tendon_solref_lim) - 4376usize];
     ["Offset of field: mjModel_::tendon_solimp_lim"]
-        [::std::mem::offset_of!(mjModel_, tendon_solimp_lim) - 3936usize];
+        [::std::mem::offset_of!(mjModel_, tendon_solimp_lim) - 4384usize];
     ["Offset of field: mjModel_::tendon_solref_fri"]
-        [::std::mem::offset_of!(mjModel_, tendon_solref_fri) - 3944usize];
+        [::std::mem::offset_of!(mjModel_, tendon_solref_fri) - 4392usize];
     ["Offset of field: mjModel_::tendon_solimp_fri"]
-        [::std::mem::offset_of!(mjModel_, tendon_solimp_fri) - 3952usize];
+        [::std::mem::offset_of!(mjModel_, tendon_solimp_fri) - 4400usize];
     ["Offset of field: mjModel_::tendon_range"]
-        [::std::mem::offset_of!(mjModel_, tendon_range) - 3960usize];
+        [::std::mem::offset_of!(mjModel_, tendon_range) - 4408usize];
     ["Offset of field: mjModel_::tendon_actfrcrange"]
-        [::std::mem::offset_of!(mjModel_, tendon_actfrcrange) - 3968usize];
+        [::std::mem::offset_of!(mjModel_, tendon_actfrcrange) - 4416usize];
     ["Offset of field: mjModel_::tendon_margin"]
-        [::std::mem::offset_of!(mjModel_, tendon_margin) - 3976usize];
+        [::std::mem::offset_of!(mjModel_, tendon_margin) - 4424usize];
     ["Offset of field: mjModel_::tendon_stiffness"]
-        [::std::mem::offset_of!(mjModel_, tendon_stiffness) - 3984usize];
+        [::std::mem::offset_of!(mjModel_, tendon_stiffness) - 4432usize];
     ["Offset of field: mjModel_::tendon_damping"]
-        [::std::mem::offset_of!(mjModel_, tendon_damping) - 3992usize];
+        [::std::mem::offset_of!(mjModel_, tendon_damping) - 4440usize];
     ["Offset of field: mjModel_::tendon_armature"]
-        [::std::mem::offset_of!(mjModel_, tendon_armature) - 4000usize];
+        [::std::mem::offset_of!(mjModel_, tendon_armature) - 4448usize];
     ["Offset of field: mjModel_::tendon_frictionloss"]
-        [::std::mem::offset_of!(mjModel_, tendon_frictionloss) - 4008usize];
+        [::std::mem::offset_of!(mjModel_, tendon_frictionloss) - 4456usize];
     ["Offset of field: mjModel_::tendon_lengthspring"]
-        [::std::mem::offset_of!(mjModel_, tendon_lengthspring) - 4016usize];
+        [::std::mem::offset_of!(mjModel_, tendon_lengthspring) - 4464usize];
     ["Offset of field: mjModel_::tendon_length0"]
-        [::std::mem::offset_of!(mjModel_, tendon_length0) - 4024usize];
+        [::std::mem::offset_of!(mjModel_, tendon_length0) - 4472usize];
     ["Offset of field: mjModel_::tendon_invweight0"]
-        [::std::mem::offset_of!(mjModel_, tendon_invweight0) - 4032usize];
+        [::std::mem::offset_of!(mjModel_, tendon_invweight0) - 4480usize];
     ["Offset of field: mjModel_::tendon_user"]
-        [::std::mem::offset_of!(mjModel_, tendon_user) - 4040usize];
+        [::std::mem::offset_of!(mjModel_, tendon_user) - 4488usize];
     ["Offset of field: mjModel_::tendon_rgba"]
-        [::std::mem::offset_of!(mjModel_, tendon_rgba) - 4048usize];
+        [::std::mem::offset_of!(mjModel_, tendon_rgba) - 4496usize];
     ["Offset of field: mjModel_::wrap_type"]
-        [::std::mem::offset_of!(mjModel_, wrap_type) - 4056usize];
+        [::std::mem::offset_of!(mjModel_, wrap_type) - 4504usize];
     ["Offset of field: mjModel_::wrap_objid"]
-        [::std::mem::offset_of!(mjModel_, wrap_objid) - 4064usize];
-    ["Offset of field: mjModel_::wrap_prm"][::std::mem::offset_of!(mjModel_, wrap_prm) - 4072usize];
+        [::std::mem::offset_of!(mjModel_, wrap_objid) - 4512usize];
+    ["Offset of field: mjModel_::wrap_prm"][::std::mem::offset_of!(mjModel_, wrap_prm) - 4520usize];
     ["Offset of field: mjModel_::actuator_trntype"]
-        [::std::mem::offset_of!(mjModel_, actuator_trntype) - 4080usize];
+        [::std::mem::offset_of!(mjModel_, actuator_trntype) - 4528usize];
     ["Offset of field: mjModel_::actuator_dyntype"]
-        [::std::mem::offset_of!(mjModel_, actuator_dyntype) - 4088usize];
+        [::std::mem::offset_of!(mjModel_, actuator_dyntype) - 4536usize];
     ["Offset of field: mjModel_::actuator_gaintype"]
-        [::std::mem::offset_of!(mjModel_, actuator_gaintype) - 4096usize];
+        [::std::mem::offset_of!(mjModel_, actuator_gaintype) - 4544usize];
     ["Offset of field: mjModel_::actuator_biastype"]
-        [::std::mem::offset_of!(mjModel_, actuator_biastype) - 4104usize];
+        [::std::mem::offset_of!(mjModel_, actuator_biastype) - 4552usize];
     ["Offset of field: mjModel_::actuator_trnid"]
-        [::std::mem::offset_of!(mjModel_, actuator_trnid) - 4112usize];
+        [::std::mem::offset_of!(mjModel_, actuator_trnid) - 4560usize];
     ["Offset of field: mjModel_::actuator_actadr"]
-        [::std::mem::offset_of!(mjModel_, actuator_actadr) - 4120usize];
+        [::std::mem::offset_of!(mjModel_, actuator_actadr) - 4568usize];
     ["Offset of field: mjModel_::actuator_actnum"]
-        [::std::mem::offset_of!(mjModel_, actuator_actnum) - 4128usize];
+        [::std::mem::offset_of!(mjModel_, actuator_actnum) - 4576usize];
     ["Offset of field: mjModel_::actuator_group"]
-        [::std::mem::offset_of!(mjModel_, actuator_group) - 4136usize];
+        [::std::mem::offset_of!(mjModel_, actuator_group) - 4584usize];
+    ["Offset of field: mjModel_::actuator_history"]
+        [::std::mem::offset_of!(mjModel_, actuator_history) - 4592usize];
+    ["Offset of field: mjModel_::actuator_historyadr"]
+        [::std::mem::offset_of!(mjModel_, actuator_historyadr) - 4600usize];
+    ["Offset of field: mjModel_::actuator_delay"]
+        [::std::mem::offset_of!(mjModel_, actuator_delay) - 4608usize];
     ["Offset of field: mjModel_::actuator_ctrllimited"]
-        [::std::mem::offset_of!(mjModel_, actuator_ctrllimited) - 4144usize];
+        [::std::mem::offset_of!(mjModel_, actuator_ctrllimited) - 4616usize];
     ["Offset of field: mjModel_::actuator_forcelimited"]
-        [::std::mem::offset_of!(mjModel_, actuator_forcelimited) - 4152usize];
+        [::std::mem::offset_of!(mjModel_, actuator_forcelimited) - 4624usize];
     ["Offset of field: mjModel_::actuator_actlimited"]
-        [::std::mem::offset_of!(mjModel_, actuator_actlimited) - 4160usize];
+        [::std::mem::offset_of!(mjModel_, actuator_actlimited) - 4632usize];
     ["Offset of field: mjModel_::actuator_dynprm"]
-        [::std::mem::offset_of!(mjModel_, actuator_dynprm) - 4168usize];
+        [::std::mem::offset_of!(mjModel_, actuator_dynprm) - 4640usize];
     ["Offset of field: mjModel_::actuator_gainprm"]
-        [::std::mem::offset_of!(mjModel_, actuator_gainprm) - 4176usize];
+        [::std::mem::offset_of!(mjModel_, actuator_gainprm) - 4648usize];
     ["Offset of field: mjModel_::actuator_biasprm"]
-        [::std::mem::offset_of!(mjModel_, actuator_biasprm) - 4184usize];
+        [::std::mem::offset_of!(mjModel_, actuator_biasprm) - 4656usize];
     ["Offset of field: mjModel_::actuator_actearly"]
-        [::std::mem::offset_of!(mjModel_, actuator_actearly) - 4192usize];
+        [::std::mem::offset_of!(mjModel_, actuator_actearly) - 4664usize];
     ["Offset of field: mjModel_::actuator_ctrlrange"]
-        [::std::mem::offset_of!(mjModel_, actuator_ctrlrange) - 4200usize];
+        [::std::mem::offset_of!(mjModel_, actuator_ctrlrange) - 4672usize];
     ["Offset of field: mjModel_::actuator_forcerange"]
-        [::std::mem::offset_of!(mjModel_, actuator_forcerange) - 4208usize];
+        [::std::mem::offset_of!(mjModel_, actuator_forcerange) - 4680usize];
     ["Offset of field: mjModel_::actuator_actrange"]
-        [::std::mem::offset_of!(mjModel_, actuator_actrange) - 4216usize];
+        [::std::mem::offset_of!(mjModel_, actuator_actrange) - 4688usize];
     ["Offset of field: mjModel_::actuator_gear"]
-        [::std::mem::offset_of!(mjModel_, actuator_gear) - 4224usize];
+        [::std::mem::offset_of!(mjModel_, actuator_gear) - 4696usize];
     ["Offset of field: mjModel_::actuator_cranklength"]
-        [::std::mem::offset_of!(mjModel_, actuator_cranklength) - 4232usize];
+        [::std::mem::offset_of!(mjModel_, actuator_cranklength) - 4704usize];
     ["Offset of field: mjModel_::actuator_acc0"]
-        [::std::mem::offset_of!(mjModel_, actuator_acc0) - 4240usize];
+        [::std::mem::offset_of!(mjModel_, actuator_acc0) - 4712usize];
     ["Offset of field: mjModel_::actuator_length0"]
-        [::std::mem::offset_of!(mjModel_, actuator_length0) - 4248usize];
+        [::std::mem::offset_of!(mjModel_, actuator_length0) - 4720usize];
     ["Offset of field: mjModel_::actuator_lengthrange"]
-        [::std::mem::offset_of!(mjModel_, actuator_lengthrange) - 4256usize];
+        [::std::mem::offset_of!(mjModel_, actuator_lengthrange) - 4728usize];
     ["Offset of field: mjModel_::actuator_user"]
-        [::std::mem::offset_of!(mjModel_, actuator_user) - 4264usize];
+        [::std::mem::offset_of!(mjModel_, actuator_user) - 4736usize];
     ["Offset of field: mjModel_::actuator_plugin"]
-        [::std::mem::offset_of!(mjModel_, actuator_plugin) - 4272usize];
+        [::std::mem::offset_of!(mjModel_, actuator_plugin) - 4744usize];
     ["Offset of field: mjModel_::sensor_type"]
-        [::std::mem::offset_of!(mjModel_, sensor_type) - 4280usize];
+        [::std::mem::offset_of!(mjModel_, sensor_type) - 4752usize];
     ["Offset of field: mjModel_::sensor_datatype"]
-        [::std::mem::offset_of!(mjModel_, sensor_datatype) - 4288usize];
+        [::std::mem::offset_of!(mjModel_, sensor_datatype) - 4760usize];
     ["Offset of field: mjModel_::sensor_needstage"]
-        [::std::mem::offset_of!(mjModel_, sensor_needstage) - 4296usize];
+        [::std::mem::offset_of!(mjModel_, sensor_needstage) - 4768usize];
     ["Offset of field: mjModel_::sensor_objtype"]
-        [::std::mem::offset_of!(mjModel_, sensor_objtype) - 4304usize];
+        [::std::mem::offset_of!(mjModel_, sensor_objtype) - 4776usize];
     ["Offset of field: mjModel_::sensor_objid"]
-        [::std::mem::offset_of!(mjModel_, sensor_objid) - 4312usize];
+        [::std::mem::offset_of!(mjModel_, sensor_objid) - 4784usize];
     ["Offset of field: mjModel_::sensor_reftype"]
-        [::std::mem::offset_of!(mjModel_, sensor_reftype) - 4320usize];
+        [::std::mem::offset_of!(mjModel_, sensor_reftype) - 4792usize];
     ["Offset of field: mjModel_::sensor_refid"]
-        [::std::mem::offset_of!(mjModel_, sensor_refid) - 4328usize];
+        [::std::mem::offset_of!(mjModel_, sensor_refid) - 4800usize];
     ["Offset of field: mjModel_::sensor_intprm"]
-        [::std::mem::offset_of!(mjModel_, sensor_intprm) - 4336usize];
+        [::std::mem::offset_of!(mjModel_, sensor_intprm) - 4808usize];
     ["Offset of field: mjModel_::sensor_dim"]
-        [::std::mem::offset_of!(mjModel_, sensor_dim) - 4344usize];
+        [::std::mem::offset_of!(mjModel_, sensor_dim) - 4816usize];
     ["Offset of field: mjModel_::sensor_adr"]
-        [::std::mem::offset_of!(mjModel_, sensor_adr) - 4352usize];
+        [::std::mem::offset_of!(mjModel_, sensor_adr) - 4824usize];
     ["Offset of field: mjModel_::sensor_cutoff"]
-        [::std::mem::offset_of!(mjModel_, sensor_cutoff) - 4360usize];
+        [::std::mem::offset_of!(mjModel_, sensor_cutoff) - 4832usize];
     ["Offset of field: mjModel_::sensor_noise"]
-        [::std::mem::offset_of!(mjModel_, sensor_noise) - 4368usize];
+        [::std::mem::offset_of!(mjModel_, sensor_noise) - 4840usize];
+    ["Offset of field: mjModel_::sensor_history"]
+        [::std::mem::offset_of!(mjModel_, sensor_history) - 4848usize];
+    ["Offset of field: mjModel_::sensor_historyadr"]
+        [::std::mem::offset_of!(mjModel_, sensor_historyadr) - 4856usize];
+    ["Offset of field: mjModel_::sensor_delay"]
+        [::std::mem::offset_of!(mjModel_, sensor_delay) - 4864usize];
+    ["Offset of field: mjModel_::sensor_interval"]
+        [::std::mem::offset_of!(mjModel_, sensor_interval) - 4872usize];
     ["Offset of field: mjModel_::sensor_user"]
-        [::std::mem::offset_of!(mjModel_, sensor_user) - 4376usize];
+        [::std::mem::offset_of!(mjModel_, sensor_user) - 4880usize];
     ["Offset of field: mjModel_::sensor_plugin"]
-        [::std::mem::offset_of!(mjModel_, sensor_plugin) - 4384usize];
-    ["Offset of field: mjModel_::plugin"][::std::mem::offset_of!(mjModel_, plugin) - 4392usize];
+        [::std::mem::offset_of!(mjModel_, sensor_plugin) - 4888usize];
+    ["Offset of field: mjModel_::plugin"][::std::mem::offset_of!(mjModel_, plugin) - 4896usize];
     ["Offset of field: mjModel_::plugin_stateadr"]
-        [::std::mem::offset_of!(mjModel_, plugin_stateadr) - 4400usize];
+        [::std::mem::offset_of!(mjModel_, plugin_stateadr) - 4904usize];
     ["Offset of field: mjModel_::plugin_statenum"]
-        [::std::mem::offset_of!(mjModel_, plugin_statenum) - 4408usize];
+        [::std::mem::offset_of!(mjModel_, plugin_statenum) - 4912usize];
     ["Offset of field: mjModel_::plugin_attr"]
-        [::std::mem::offset_of!(mjModel_, plugin_attr) - 4416usize];
+        [::std::mem::offset_of!(mjModel_, plugin_attr) - 4920usize];
     ["Offset of field: mjModel_::plugin_attradr"]
-        [::std::mem::offset_of!(mjModel_, plugin_attradr) - 4424usize];
+        [::std::mem::offset_of!(mjModel_, plugin_attradr) - 4928usize];
     ["Offset of field: mjModel_::numeric_adr"]
-        [::std::mem::offset_of!(mjModel_, numeric_adr) - 4432usize];
+        [::std::mem::offset_of!(mjModel_, numeric_adr) - 4936usize];
     ["Offset of field: mjModel_::numeric_size"]
-        [::std::mem::offset_of!(mjModel_, numeric_size) - 4440usize];
+        [::std::mem::offset_of!(mjModel_, numeric_size) - 4944usize];
     ["Offset of field: mjModel_::numeric_data"]
-        [::std::mem::offset_of!(mjModel_, numeric_data) - 4448usize];
-    ["Offset of field: mjModel_::text_adr"][::std::mem::offset_of!(mjModel_, text_adr) - 4456usize];
+        [::std::mem::offset_of!(mjModel_, numeric_data) - 4952usize];
+    ["Offset of field: mjModel_::text_adr"][::std::mem::offset_of!(mjModel_, text_adr) - 4960usize];
     ["Offset of field: mjModel_::text_size"]
-        [::std::mem::offset_of!(mjModel_, text_size) - 4464usize];
+        [::std::mem::offset_of!(mjModel_, text_size) - 4968usize];
     ["Offset of field: mjModel_::text_data"]
-        [::std::mem::offset_of!(mjModel_, text_data) - 4472usize];
+        [::std::mem::offset_of!(mjModel_, text_data) - 4976usize];
     ["Offset of field: mjModel_::tuple_adr"]
-        [::std::mem::offset_of!(mjModel_, tuple_adr) - 4480usize];
+        [::std::mem::offset_of!(mjModel_, tuple_adr) - 4984usize];
     ["Offset of field: mjModel_::tuple_size"]
-        [::std::mem::offset_of!(mjModel_, tuple_size) - 4488usize];
+        [::std::mem::offset_of!(mjModel_, tuple_size) - 4992usize];
     ["Offset of field: mjModel_::tuple_objtype"]
-        [::std::mem::offset_of!(mjModel_, tuple_objtype) - 4496usize];
+        [::std::mem::offset_of!(mjModel_, tuple_objtype) - 5000usize];
     ["Offset of field: mjModel_::tuple_objid"]
-        [::std::mem::offset_of!(mjModel_, tuple_objid) - 4504usize];
+        [::std::mem::offset_of!(mjModel_, tuple_objid) - 5008usize];
     ["Offset of field: mjModel_::tuple_objprm"]
-        [::std::mem::offset_of!(mjModel_, tuple_objprm) - 4512usize];
-    ["Offset of field: mjModel_::key_time"][::std::mem::offset_of!(mjModel_, key_time) - 4520usize];
-    ["Offset of field: mjModel_::key_qpos"][::std::mem::offset_of!(mjModel_, key_qpos) - 4528usize];
-    ["Offset of field: mjModel_::key_qvel"][::std::mem::offset_of!(mjModel_, key_qvel) - 4536usize];
-    ["Offset of field: mjModel_::key_act"][::std::mem::offset_of!(mjModel_, key_act) - 4544usize];
-    ["Offset of field: mjModel_::key_mpos"][::std::mem::offset_of!(mjModel_, key_mpos) - 4552usize];
+        [::std::mem::offset_of!(mjModel_, tuple_objprm) - 5016usize];
+    ["Offset of field: mjModel_::key_time"][::std::mem::offset_of!(mjModel_, key_time) - 5024usize];
+    ["Offset of field: mjModel_::key_qpos"][::std::mem::offset_of!(mjModel_, key_qpos) - 5032usize];
+    ["Offset of field: mjModel_::key_qvel"][::std::mem::offset_of!(mjModel_, key_qvel) - 5040usize];
+    ["Offset of field: mjModel_::key_act"][::std::mem::offset_of!(mjModel_, key_act) - 5048usize];
+    ["Offset of field: mjModel_::key_mpos"][::std::mem::offset_of!(mjModel_, key_mpos) - 5056usize];
     ["Offset of field: mjModel_::key_mquat"]
-        [::std::mem::offset_of!(mjModel_, key_mquat) - 4560usize];
-    ["Offset of field: mjModel_::key_ctrl"][::std::mem::offset_of!(mjModel_, key_ctrl) - 4568usize];
+        [::std::mem::offset_of!(mjModel_, key_mquat) - 5064usize];
+    ["Offset of field: mjModel_::key_ctrl"][::std::mem::offset_of!(mjModel_, key_ctrl) - 5072usize];
     ["Offset of field: mjModel_::name_bodyadr"]
-        [::std::mem::offset_of!(mjModel_, name_bodyadr) - 4576usize];
+        [::std::mem::offset_of!(mjModel_, name_bodyadr) - 5080usize];
     ["Offset of field: mjModel_::name_jntadr"]
-        [::std::mem::offset_of!(mjModel_, name_jntadr) - 4584usize];
+        [::std::mem::offset_of!(mjModel_, name_jntadr) - 5088usize];
     ["Offset of field: mjModel_::name_geomadr"]
-        [::std::mem::offset_of!(mjModel_, name_geomadr) - 4592usize];
+        [::std::mem::offset_of!(mjModel_, name_geomadr) - 5096usize];
     ["Offset of field: mjModel_::name_siteadr"]
-        [::std::mem::offset_of!(mjModel_, name_siteadr) - 4600usize];
+        [::std::mem::offset_of!(mjModel_, name_siteadr) - 5104usize];
     ["Offset of field: mjModel_::name_camadr"]
-        [::std::mem::offset_of!(mjModel_, name_camadr) - 4608usize];
+        [::std::mem::offset_of!(mjModel_, name_camadr) - 5112usize];
     ["Offset of field: mjModel_::name_lightadr"]
-        [::std::mem::offset_of!(mjModel_, name_lightadr) - 4616usize];
+        [::std::mem::offset_of!(mjModel_, name_lightadr) - 5120usize];
     ["Offset of field: mjModel_::name_flexadr"]
-        [::std::mem::offset_of!(mjModel_, name_flexadr) - 4624usize];
+        [::std::mem::offset_of!(mjModel_, name_flexadr) - 5128usize];
     ["Offset of field: mjModel_::name_meshadr"]
-        [::std::mem::offset_of!(mjModel_, name_meshadr) - 4632usize];
+        [::std::mem::offset_of!(mjModel_, name_meshadr) - 5136usize];
     ["Offset of field: mjModel_::name_skinadr"]
-        [::std::mem::offset_of!(mjModel_, name_skinadr) - 4640usize];
+        [::std::mem::offset_of!(mjModel_, name_skinadr) - 5144usize];
     ["Offset of field: mjModel_::name_hfieldadr"]
-        [::std::mem::offset_of!(mjModel_, name_hfieldadr) - 4648usize];
+        [::std::mem::offset_of!(mjModel_, name_hfieldadr) - 5152usize];
     ["Offset of field: mjModel_::name_texadr"]
-        [::std::mem::offset_of!(mjModel_, name_texadr) - 4656usize];
+        [::std::mem::offset_of!(mjModel_, name_texadr) - 5160usize];
     ["Offset of field: mjModel_::name_matadr"]
-        [::std::mem::offset_of!(mjModel_, name_matadr) - 4664usize];
+        [::std::mem::offset_of!(mjModel_, name_matadr) - 5168usize];
     ["Offset of field: mjModel_::name_pairadr"]
-        [::std::mem::offset_of!(mjModel_, name_pairadr) - 4672usize];
+        [::std::mem::offset_of!(mjModel_, name_pairadr) - 5176usize];
     ["Offset of field: mjModel_::name_excludeadr"]
-        [::std::mem::offset_of!(mjModel_, name_excludeadr) - 4680usize];
+        [::std::mem::offset_of!(mjModel_, name_excludeadr) - 5184usize];
     ["Offset of field: mjModel_::name_eqadr"]
-        [::std::mem::offset_of!(mjModel_, name_eqadr) - 4688usize];
+        [::std::mem::offset_of!(mjModel_, name_eqadr) - 5192usize];
     ["Offset of field: mjModel_::name_tendonadr"]
-        [::std::mem::offset_of!(mjModel_, name_tendonadr) - 4696usize];
+        [::std::mem::offset_of!(mjModel_, name_tendonadr) - 5200usize];
     ["Offset of field: mjModel_::name_actuatoradr"]
-        [::std::mem::offset_of!(mjModel_, name_actuatoradr) - 4704usize];
+        [::std::mem::offset_of!(mjModel_, name_actuatoradr) - 5208usize];
     ["Offset of field: mjModel_::name_sensoradr"]
-        [::std::mem::offset_of!(mjModel_, name_sensoradr) - 4712usize];
+        [::std::mem::offset_of!(mjModel_, name_sensoradr) - 5216usize];
     ["Offset of field: mjModel_::name_numericadr"]
-        [::std::mem::offset_of!(mjModel_, name_numericadr) - 4720usize];
+        [::std::mem::offset_of!(mjModel_, name_numericadr) - 5224usize];
     ["Offset of field: mjModel_::name_textadr"]
-        [::std::mem::offset_of!(mjModel_, name_textadr) - 4728usize];
+        [::std::mem::offset_of!(mjModel_, name_textadr) - 5232usize];
     ["Offset of field: mjModel_::name_tupleadr"]
-        [::std::mem::offset_of!(mjModel_, name_tupleadr) - 4736usize];
+        [::std::mem::offset_of!(mjModel_, name_tupleadr) - 5240usize];
     ["Offset of field: mjModel_::name_keyadr"]
-        [::std::mem::offset_of!(mjModel_, name_keyadr) - 4744usize];
+        [::std::mem::offset_of!(mjModel_, name_keyadr) - 5248usize];
     ["Offset of field: mjModel_::name_pluginadr"]
-        [::std::mem::offset_of!(mjModel_, name_pluginadr) - 4752usize];
-    ["Offset of field: mjModel_::names"][::std::mem::offset_of!(mjModel_, names) - 4760usize];
+        [::std::mem::offset_of!(mjModel_, name_pluginadr) - 5256usize];
+    ["Offset of field: mjModel_::names"][::std::mem::offset_of!(mjModel_, names) - 5264usize];
     ["Offset of field: mjModel_::names_map"]
-        [::std::mem::offset_of!(mjModel_, names_map) - 4768usize];
-    ["Offset of field: mjModel_::paths"][::std::mem::offset_of!(mjModel_, paths) - 4776usize];
-    ["Offset of field: mjModel_::B_rownnz"][::std::mem::offset_of!(mjModel_, B_rownnz) - 4784usize];
-    ["Offset of field: mjModel_::B_rowadr"][::std::mem::offset_of!(mjModel_, B_rowadr) - 4792usize];
-    ["Offset of field: mjModel_::B_colind"][::std::mem::offset_of!(mjModel_, B_colind) - 4800usize];
-    ["Offset of field: mjModel_::M_rownnz"][::std::mem::offset_of!(mjModel_, M_rownnz) - 4808usize];
-    ["Offset of field: mjModel_::M_rowadr"][::std::mem::offset_of!(mjModel_, M_rowadr) - 4816usize];
-    ["Offset of field: mjModel_::M_colind"][::std::mem::offset_of!(mjModel_, M_colind) - 4824usize];
-    ["Offset of field: mjModel_::mapM2M"][::std::mem::offset_of!(mjModel_, mapM2M) - 4832usize];
-    ["Offset of field: mjModel_::D_rownnz"][::std::mem::offset_of!(mjModel_, D_rownnz) - 4840usize];
-    ["Offset of field: mjModel_::D_rowadr"][::std::mem::offset_of!(mjModel_, D_rowadr) - 4848usize];
-    ["Offset of field: mjModel_::D_diag"][::std::mem::offset_of!(mjModel_, D_diag) - 4856usize];
-    ["Offset of field: mjModel_::D_colind"][::std::mem::offset_of!(mjModel_, D_colind) - 4864usize];
-    ["Offset of field: mjModel_::mapM2D"][::std::mem::offset_of!(mjModel_, mapM2D) - 4872usize];
-    ["Offset of field: mjModel_::mapD2M"][::std::mem::offset_of!(mjModel_, mapD2M) - 4880usize];
+        [::std::mem::offset_of!(mjModel_, names_map) - 5272usize];
+    ["Offset of field: mjModel_::paths"][::std::mem::offset_of!(mjModel_, paths) - 5280usize];
+    ["Offset of field: mjModel_::B_rownnz"][::std::mem::offset_of!(mjModel_, B_rownnz) - 5288usize];
+    ["Offset of field: mjModel_::B_rowadr"][::std::mem::offset_of!(mjModel_, B_rowadr) - 5296usize];
+    ["Offset of field: mjModel_::B_colind"][::std::mem::offset_of!(mjModel_, B_colind) - 5304usize];
+    ["Offset of field: mjModel_::M_rownnz"][::std::mem::offset_of!(mjModel_, M_rownnz) - 5312usize];
+    ["Offset of field: mjModel_::M_rowadr"][::std::mem::offset_of!(mjModel_, M_rowadr) - 5320usize];
+    ["Offset of field: mjModel_::M_colind"][::std::mem::offset_of!(mjModel_, M_colind) - 5328usize];
+    ["Offset of field: mjModel_::mapM2M"][::std::mem::offset_of!(mjModel_, mapM2M) - 5336usize];
+    ["Offset of field: mjModel_::D_rownnz"][::std::mem::offset_of!(mjModel_, D_rownnz) - 5344usize];
+    ["Offset of field: mjModel_::D_rowadr"][::std::mem::offset_of!(mjModel_, D_rowadr) - 5352usize];
+    ["Offset of field: mjModel_::D_diag"][::std::mem::offset_of!(mjModel_, D_diag) - 5360usize];
+    ["Offset of field: mjModel_::D_colind"][::std::mem::offset_of!(mjModel_, D_colind) - 5368usize];
+    ["Offset of field: mjModel_::mapM2D"][::std::mem::offset_of!(mjModel_, mapM2D) - 5376usize];
+    ["Offset of field: mjModel_::mapD2M"][::std::mem::offset_of!(mjModel_, mapD2M) - 5384usize];
     ["Offset of field: mjModel_::signature"]
-        [::std::mem::offset_of!(mjModel_, signature) - 4888usize];
+        [::std::mem::offset_of!(mjModel_, signature) - 5392usize];
 };
 pub type mjModel = mjModel_;
 pub const mjtTaskStatus__mjTASK_NEW: mjtTaskStatus_ = 0;
@@ -6607,20 +6815,21 @@ pub const mjtState__mjSTATE_TIME: mjtState_ = 1;
 pub const mjtState__mjSTATE_QPOS: mjtState_ = 2;
 pub const mjtState__mjSTATE_QVEL: mjtState_ = 4;
 pub const mjtState__mjSTATE_ACT: mjtState_ = 8;
-pub const mjtState__mjSTATE_WARMSTART: mjtState_ = 16;
-pub const mjtState__mjSTATE_CTRL: mjtState_ = 32;
-pub const mjtState__mjSTATE_QFRC_APPLIED: mjtState_ = 64;
-pub const mjtState__mjSTATE_XFRC_APPLIED: mjtState_ = 128;
-pub const mjtState__mjSTATE_EQ_ACTIVE: mjtState_ = 256;
-pub const mjtState__mjSTATE_MOCAP_POS: mjtState_ = 512;
-pub const mjtState__mjSTATE_MOCAP_QUAT: mjtState_ = 1024;
-pub const mjtState__mjSTATE_USERDATA: mjtState_ = 2048;
-pub const mjtState__mjSTATE_PLUGIN: mjtState_ = 4096;
-pub const mjtState__mjNSTATE: mjtState_ = 13;
-pub const mjtState__mjSTATE_PHYSICS: mjtState_ = 14;
-pub const mjtState__mjSTATE_FULLPHYSICS: mjtState_ = 4111;
-pub const mjtState__mjSTATE_USER: mjtState_ = 4064;
-pub const mjtState__mjSTATE_INTEGRATION: mjtState_ = 8191;
+pub const mjtState__mjSTATE_HISTORY: mjtState_ = 16;
+pub const mjtState__mjSTATE_WARMSTART: mjtState_ = 32;
+pub const mjtState__mjSTATE_CTRL: mjtState_ = 64;
+pub const mjtState__mjSTATE_QFRC_APPLIED: mjtState_ = 128;
+pub const mjtState__mjSTATE_XFRC_APPLIED: mjtState_ = 256;
+pub const mjtState__mjSTATE_EQ_ACTIVE: mjtState_ = 512;
+pub const mjtState__mjSTATE_MOCAP_POS: mjtState_ = 1024;
+pub const mjtState__mjSTATE_MOCAP_QUAT: mjtState_ = 2048;
+pub const mjtState__mjSTATE_USERDATA: mjtState_ = 4096;
+pub const mjtState__mjSTATE_PLUGIN: mjtState_ = 8192;
+pub const mjtState__mjNSTATE: mjtState_ = 14;
+pub const mjtState__mjSTATE_PHYSICS: mjtState_ = 30;
+pub const mjtState__mjSTATE_FULLPHYSICS: mjtState_ = 8223;
+pub const mjtState__mjSTATE_USER: mjtState_ = 8128;
+pub const mjtState__mjSTATE_INTEGRATION: mjtState_ = 16383;
 pub type mjtState_ = ::std::os::raw::c_uint;
 pub use self::mjtState_ as mjtState;
 pub const mjtConstraint__mjCNSTR_EQUALITY: mjtConstraint_ = 0;
@@ -6823,6 +7032,10 @@ pub struct mjData_ {
     pub nbody_awake: ::std::os::raw::c_int,
     pub nparent_awake: ::std::os::raw::c_int,
     pub nv_awake: ::std::os::raw::c_int,
+    pub flg_energypos: mjtByte,
+    pub flg_energyvel: mjtByte,
+    pub flg_subtreevel: mjtByte,
+    pub flg_rnepost: mjtByte,
     pub time: mjtNum,
     pub energy: [mjtNum; 2usize],
     pub buffer: *mut ::std::os::raw::c_void,
@@ -6830,6 +7043,7 @@ pub struct mjData_ {
     pub qpos: *mut mjtNum,
     pub qvel: *mut mjtNum,
     pub act: *mut mjtNum,
+    pub history: *mut mjtNum,
     pub qacc_warmstart: *mut mjtNum,
     pub plugin_state: *mut mjtNum,
     pub ctrl: *mut mjtNum,
@@ -6867,12 +7081,11 @@ pub struct mjData_ {
     pub flexelem_aabb: *mut mjtNum,
     pub flexedge_J: *mut mjtNum,
     pub flexedge_length: *mut mjtNum,
+    pub flexvert_J: *mut mjtNum,
+    pub flexvert_length: *mut mjtNum,
     pub bvh_aabb_dyn: *mut mjtNum,
     pub ten_wrapadr: *mut ::std::os::raw::c_int,
     pub ten_wrapnum: *mut ::std::os::raw::c_int,
-    pub ten_J_rownnz: *mut ::std::os::raw::c_int,
-    pub ten_J_rowadr: *mut ::std::os::raw::c_int,
-    pub ten_J_colind: *mut ::std::os::raw::c_int,
     pub ten_J: *mut mjtNum,
     pub ten_length: *mut mjtNum,
     pub wrap_obj: *mut ::std::os::raw::c_int,
@@ -7032,6 +7245,14 @@ const _: () = {
     ["Offset of field: mjData_::nparent_awake"]
         [::std::mem::offset_of!(mjData_, nparent_awake) - 161620usize];
     ["Offset of field: mjData_::nv_awake"][::std::mem::offset_of!(mjData_, nv_awake) - 161624usize];
+    ["Offset of field: mjData_::flg_energypos"]
+        [::std::mem::offset_of!(mjData_, flg_energypos) - 161628usize];
+    ["Offset of field: mjData_::flg_energyvel"]
+        [::std::mem::offset_of!(mjData_, flg_energyvel) - 161629usize];
+    ["Offset of field: mjData_::flg_subtreevel"]
+        [::std::mem::offset_of!(mjData_, flg_subtreevel) - 161630usize];
+    ["Offset of field: mjData_::flg_rnepost"]
+        [::std::mem::offset_of!(mjData_, flg_rnepost) - 161631usize];
     ["Offset of field: mjData_::time"][::std::mem::offset_of!(mjData_, time) - 161632usize];
     ["Offset of field: mjData_::energy"][::std::mem::offset_of!(mjData_, energy) - 161640usize];
     ["Offset of field: mjData_::buffer"][::std::mem::offset_of!(mjData_, buffer) - 161656usize];
@@ -7039,76 +7260,75 @@ const _: () = {
     ["Offset of field: mjData_::qpos"][::std::mem::offset_of!(mjData_, qpos) - 161672usize];
     ["Offset of field: mjData_::qvel"][::std::mem::offset_of!(mjData_, qvel) - 161680usize];
     ["Offset of field: mjData_::act"][::std::mem::offset_of!(mjData_, act) - 161688usize];
+    ["Offset of field: mjData_::history"][::std::mem::offset_of!(mjData_, history) - 161696usize];
     ["Offset of field: mjData_::qacc_warmstart"]
-        [::std::mem::offset_of!(mjData_, qacc_warmstart) - 161696usize];
+        [::std::mem::offset_of!(mjData_, qacc_warmstart) - 161704usize];
     ["Offset of field: mjData_::plugin_state"]
-        [::std::mem::offset_of!(mjData_, plugin_state) - 161704usize];
-    ["Offset of field: mjData_::ctrl"][::std::mem::offset_of!(mjData_, ctrl) - 161712usize];
+        [::std::mem::offset_of!(mjData_, plugin_state) - 161712usize];
+    ["Offset of field: mjData_::ctrl"][::std::mem::offset_of!(mjData_, ctrl) - 161720usize];
     ["Offset of field: mjData_::qfrc_applied"]
-        [::std::mem::offset_of!(mjData_, qfrc_applied) - 161720usize];
+        [::std::mem::offset_of!(mjData_, qfrc_applied) - 161728usize];
     ["Offset of field: mjData_::xfrc_applied"]
-        [::std::mem::offset_of!(mjData_, xfrc_applied) - 161728usize];
+        [::std::mem::offset_of!(mjData_, xfrc_applied) - 161736usize];
     ["Offset of field: mjData_::eq_active"]
-        [::std::mem::offset_of!(mjData_, eq_active) - 161736usize];
+        [::std::mem::offset_of!(mjData_, eq_active) - 161744usize];
     ["Offset of field: mjData_::mocap_pos"]
-        [::std::mem::offset_of!(mjData_, mocap_pos) - 161744usize];
+        [::std::mem::offset_of!(mjData_, mocap_pos) - 161752usize];
     ["Offset of field: mjData_::mocap_quat"]
-        [::std::mem::offset_of!(mjData_, mocap_quat) - 161752usize];
-    ["Offset of field: mjData_::qacc"][::std::mem::offset_of!(mjData_, qacc) - 161760usize];
-    ["Offset of field: mjData_::act_dot"][::std::mem::offset_of!(mjData_, act_dot) - 161768usize];
-    ["Offset of field: mjData_::userdata"][::std::mem::offset_of!(mjData_, userdata) - 161776usize];
+        [::std::mem::offset_of!(mjData_, mocap_quat) - 161760usize];
+    ["Offset of field: mjData_::qacc"][::std::mem::offset_of!(mjData_, qacc) - 161768usize];
+    ["Offset of field: mjData_::act_dot"][::std::mem::offset_of!(mjData_, act_dot) - 161776usize];
+    ["Offset of field: mjData_::userdata"][::std::mem::offset_of!(mjData_, userdata) - 161784usize];
     ["Offset of field: mjData_::sensordata"]
-        [::std::mem::offset_of!(mjData_, sensordata) - 161784usize];
+        [::std::mem::offset_of!(mjData_, sensordata) - 161792usize];
     ["Offset of field: mjData_::tree_asleep"]
-        [::std::mem::offset_of!(mjData_, tree_asleep) - 161792usize];
-    ["Offset of field: mjData_::plugin"][::std::mem::offset_of!(mjData_, plugin) - 161800usize];
+        [::std::mem::offset_of!(mjData_, tree_asleep) - 161800usize];
+    ["Offset of field: mjData_::plugin"][::std::mem::offset_of!(mjData_, plugin) - 161808usize];
     ["Offset of field: mjData_::plugin_data"]
-        [::std::mem::offset_of!(mjData_, plugin_data) - 161808usize];
-    ["Offset of field: mjData_::xpos"][::std::mem::offset_of!(mjData_, xpos) - 161816usize];
-    ["Offset of field: mjData_::xquat"][::std::mem::offset_of!(mjData_, xquat) - 161824usize];
-    ["Offset of field: mjData_::xmat"][::std::mem::offset_of!(mjData_, xmat) - 161832usize];
-    ["Offset of field: mjData_::xipos"][::std::mem::offset_of!(mjData_, xipos) - 161840usize];
-    ["Offset of field: mjData_::ximat"][::std::mem::offset_of!(mjData_, ximat) - 161848usize];
-    ["Offset of field: mjData_::xanchor"][::std::mem::offset_of!(mjData_, xanchor) - 161856usize];
-    ["Offset of field: mjData_::xaxis"][::std::mem::offset_of!(mjData_, xaxis) - 161864usize];
+        [::std::mem::offset_of!(mjData_, plugin_data) - 161816usize];
+    ["Offset of field: mjData_::xpos"][::std::mem::offset_of!(mjData_, xpos) - 161824usize];
+    ["Offset of field: mjData_::xquat"][::std::mem::offset_of!(mjData_, xquat) - 161832usize];
+    ["Offset of field: mjData_::xmat"][::std::mem::offset_of!(mjData_, xmat) - 161840usize];
+    ["Offset of field: mjData_::xipos"][::std::mem::offset_of!(mjData_, xipos) - 161848usize];
+    ["Offset of field: mjData_::ximat"][::std::mem::offset_of!(mjData_, ximat) - 161856usize];
+    ["Offset of field: mjData_::xanchor"][::std::mem::offset_of!(mjData_, xanchor) - 161864usize];
+    ["Offset of field: mjData_::xaxis"][::std::mem::offset_of!(mjData_, xaxis) - 161872usize];
     ["Offset of field: mjData_::geom_xpos"]
-        [::std::mem::offset_of!(mjData_, geom_xpos) - 161872usize];
+        [::std::mem::offset_of!(mjData_, geom_xpos) - 161880usize];
     ["Offset of field: mjData_::geom_xmat"]
-        [::std::mem::offset_of!(mjData_, geom_xmat) - 161880usize];
+        [::std::mem::offset_of!(mjData_, geom_xmat) - 161888usize];
     ["Offset of field: mjData_::site_xpos"]
-        [::std::mem::offset_of!(mjData_, site_xpos) - 161888usize];
+        [::std::mem::offset_of!(mjData_, site_xpos) - 161896usize];
     ["Offset of field: mjData_::site_xmat"]
-        [::std::mem::offset_of!(mjData_, site_xmat) - 161896usize];
-    ["Offset of field: mjData_::cam_xpos"][::std::mem::offset_of!(mjData_, cam_xpos) - 161904usize];
-    ["Offset of field: mjData_::cam_xmat"][::std::mem::offset_of!(mjData_, cam_xmat) - 161912usize];
+        [::std::mem::offset_of!(mjData_, site_xmat) - 161904usize];
+    ["Offset of field: mjData_::cam_xpos"][::std::mem::offset_of!(mjData_, cam_xpos) - 161912usize];
+    ["Offset of field: mjData_::cam_xmat"][::std::mem::offset_of!(mjData_, cam_xmat) - 161920usize];
     ["Offset of field: mjData_::light_xpos"]
-        [::std::mem::offset_of!(mjData_, light_xpos) - 161920usize];
+        [::std::mem::offset_of!(mjData_, light_xpos) - 161928usize];
     ["Offset of field: mjData_::light_xdir"]
-        [::std::mem::offset_of!(mjData_, light_xdir) - 161928usize];
+        [::std::mem::offset_of!(mjData_, light_xdir) - 161936usize];
     ["Offset of field: mjData_::subtree_com"]
-        [::std::mem::offset_of!(mjData_, subtree_com) - 161936usize];
-    ["Offset of field: mjData_::cdof"][::std::mem::offset_of!(mjData_, cdof) - 161944usize];
-    ["Offset of field: mjData_::cinert"][::std::mem::offset_of!(mjData_, cinert) - 161952usize];
+        [::std::mem::offset_of!(mjData_, subtree_com) - 161944usize];
+    ["Offset of field: mjData_::cdof"][::std::mem::offset_of!(mjData_, cdof) - 161952usize];
+    ["Offset of field: mjData_::cinert"][::std::mem::offset_of!(mjData_, cinert) - 161960usize];
     ["Offset of field: mjData_::flexvert_xpos"]
-        [::std::mem::offset_of!(mjData_, flexvert_xpos) - 161960usize];
+        [::std::mem::offset_of!(mjData_, flexvert_xpos) - 161968usize];
     ["Offset of field: mjData_::flexelem_aabb"]
-        [::std::mem::offset_of!(mjData_, flexelem_aabb) - 161968usize];
+        [::std::mem::offset_of!(mjData_, flexelem_aabb) - 161976usize];
     ["Offset of field: mjData_::flexedge_J"]
-        [::std::mem::offset_of!(mjData_, flexedge_J) - 161976usize];
+        [::std::mem::offset_of!(mjData_, flexedge_J) - 161984usize];
     ["Offset of field: mjData_::flexedge_length"]
-        [::std::mem::offset_of!(mjData_, flexedge_length) - 161984usize];
+        [::std::mem::offset_of!(mjData_, flexedge_length) - 161992usize];
+    ["Offset of field: mjData_::flexvert_J"]
+        [::std::mem::offset_of!(mjData_, flexvert_J) - 162000usize];
+    ["Offset of field: mjData_::flexvert_length"]
+        [::std::mem::offset_of!(mjData_, flexvert_length) - 162008usize];
     ["Offset of field: mjData_::bvh_aabb_dyn"]
-        [::std::mem::offset_of!(mjData_, bvh_aabb_dyn) - 161992usize];
+        [::std::mem::offset_of!(mjData_, bvh_aabb_dyn) - 162016usize];
     ["Offset of field: mjData_::ten_wrapadr"]
-        [::std::mem::offset_of!(mjData_, ten_wrapadr) - 162000usize];
+        [::std::mem::offset_of!(mjData_, ten_wrapadr) - 162024usize];
     ["Offset of field: mjData_::ten_wrapnum"]
-        [::std::mem::offset_of!(mjData_, ten_wrapnum) - 162008usize];
-    ["Offset of field: mjData_::ten_J_rownnz"]
-        [::std::mem::offset_of!(mjData_, ten_J_rownnz) - 162016usize];
-    ["Offset of field: mjData_::ten_J_rowadr"]
-        [::std::mem::offset_of!(mjData_, ten_J_rowadr) - 162024usize];
-    ["Offset of field: mjData_::ten_J_colind"]
-        [::std::mem::offset_of!(mjData_, ten_J_colind) - 162032usize];
+        [::std::mem::offset_of!(mjData_, ten_wrapnum) - 162032usize];
     ["Offset of field: mjData_::ten_J"][::std::mem::offset_of!(mjData_, ten_J) - 162040usize];
     ["Offset of field: mjData_::ten_length"]
         [::std::mem::offset_of!(mjData_, ten_length) - 162048usize];
@@ -7970,6 +8190,7 @@ pub struct mjsFlex_ {
     pub gap: f64,
     pub dim: ::std::os::raw::c_int,
     pub radius: f64,
+    pub size: [f64; 3usize],
     pub internal: mjtByte,
     pub flatskin: mjtByte,
     pub selfcollide: ::std::os::raw::c_int,
@@ -7997,7 +8218,7 @@ pub struct mjsFlex_ {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of mjsFlex_"][::std::mem::size_of::<mjsFlex_>() - 312usize];
+    ["Size of mjsFlex_"][::std::mem::size_of::<mjsFlex_>() - 336usize];
     ["Alignment of mjsFlex_"][::std::mem::align_of::<mjsFlex_>() - 8usize];
     ["Offset of field: mjsFlex_::element"][::std::mem::offset_of!(mjsFlex_, element) - 0usize];
     ["Offset of field: mjsFlex_::contype"][::std::mem::offset_of!(mjsFlex_, contype) - 8usize];
@@ -8013,38 +8234,39 @@ const _: () = {
     ["Offset of field: mjsFlex_::gap"][::std::mem::offset_of!(mjsFlex_, gap) - 120usize];
     ["Offset of field: mjsFlex_::dim"][::std::mem::offset_of!(mjsFlex_, dim) - 128usize];
     ["Offset of field: mjsFlex_::radius"][::std::mem::offset_of!(mjsFlex_, radius) - 136usize];
-    ["Offset of field: mjsFlex_::internal"][::std::mem::offset_of!(mjsFlex_, internal) - 144usize];
-    ["Offset of field: mjsFlex_::flatskin"][::std::mem::offset_of!(mjsFlex_, flatskin) - 145usize];
+    ["Offset of field: mjsFlex_::size"][::std::mem::offset_of!(mjsFlex_, size) - 144usize];
+    ["Offset of field: mjsFlex_::internal"][::std::mem::offset_of!(mjsFlex_, internal) - 168usize];
+    ["Offset of field: mjsFlex_::flatskin"][::std::mem::offset_of!(mjsFlex_, flatskin) - 169usize];
     ["Offset of field: mjsFlex_::selfcollide"]
-        [::std::mem::offset_of!(mjsFlex_, selfcollide) - 148usize];
+        [::std::mem::offset_of!(mjsFlex_, selfcollide) - 172usize];
     ["Offset of field: mjsFlex_::vertcollide"]
-        [::std::mem::offset_of!(mjsFlex_, vertcollide) - 152usize];
-    ["Offset of field: mjsFlex_::passive"][::std::mem::offset_of!(mjsFlex_, passive) - 156usize];
+        [::std::mem::offset_of!(mjsFlex_, vertcollide) - 176usize];
+    ["Offset of field: mjsFlex_::passive"][::std::mem::offset_of!(mjsFlex_, passive) - 180usize];
     ["Offset of field: mjsFlex_::activelayers"]
-        [::std::mem::offset_of!(mjsFlex_, activelayers) - 160usize];
-    ["Offset of field: mjsFlex_::group"][::std::mem::offset_of!(mjsFlex_, group) - 164usize];
+        [::std::mem::offset_of!(mjsFlex_, activelayers) - 184usize];
+    ["Offset of field: mjsFlex_::group"][::std::mem::offset_of!(mjsFlex_, group) - 188usize];
     ["Offset of field: mjsFlex_::edgestiffness"]
-        [::std::mem::offset_of!(mjsFlex_, edgestiffness) - 168usize];
+        [::std::mem::offset_of!(mjsFlex_, edgestiffness) - 192usize];
     ["Offset of field: mjsFlex_::edgedamping"]
-        [::std::mem::offset_of!(mjsFlex_, edgedamping) - 176usize];
-    ["Offset of field: mjsFlex_::rgba"][::std::mem::offset_of!(mjsFlex_, rgba) - 184usize];
-    ["Offset of field: mjsFlex_::material"][::std::mem::offset_of!(mjsFlex_, material) - 200usize];
-    ["Offset of field: mjsFlex_::young"][::std::mem::offset_of!(mjsFlex_, young) - 208usize];
-    ["Offset of field: mjsFlex_::poisson"][::std::mem::offset_of!(mjsFlex_, poisson) - 216usize];
-    ["Offset of field: mjsFlex_::damping"][::std::mem::offset_of!(mjsFlex_, damping) - 224usize];
+        [::std::mem::offset_of!(mjsFlex_, edgedamping) - 200usize];
+    ["Offset of field: mjsFlex_::rgba"][::std::mem::offset_of!(mjsFlex_, rgba) - 208usize];
+    ["Offset of field: mjsFlex_::material"][::std::mem::offset_of!(mjsFlex_, material) - 224usize];
+    ["Offset of field: mjsFlex_::young"][::std::mem::offset_of!(mjsFlex_, young) - 232usize];
+    ["Offset of field: mjsFlex_::poisson"][::std::mem::offset_of!(mjsFlex_, poisson) - 240usize];
+    ["Offset of field: mjsFlex_::damping"][::std::mem::offset_of!(mjsFlex_, damping) - 248usize];
     ["Offset of field: mjsFlex_::thickness"]
-        [::std::mem::offset_of!(mjsFlex_, thickness) - 232usize];
+        [::std::mem::offset_of!(mjsFlex_, thickness) - 256usize];
     ["Offset of field: mjsFlex_::elastic2d"]
-        [::std::mem::offset_of!(mjsFlex_, elastic2d) - 240usize];
-    ["Offset of field: mjsFlex_::nodebody"][::std::mem::offset_of!(mjsFlex_, nodebody) - 248usize];
-    ["Offset of field: mjsFlex_::vertbody"][::std::mem::offset_of!(mjsFlex_, vertbody) - 256usize];
-    ["Offset of field: mjsFlex_::node"][::std::mem::offset_of!(mjsFlex_, node) - 264usize];
-    ["Offset of field: mjsFlex_::vert"][::std::mem::offset_of!(mjsFlex_, vert) - 272usize];
-    ["Offset of field: mjsFlex_::elem"][::std::mem::offset_of!(mjsFlex_, elem) - 280usize];
-    ["Offset of field: mjsFlex_::texcoord"][::std::mem::offset_of!(mjsFlex_, texcoord) - 288usize];
+        [::std::mem::offset_of!(mjsFlex_, elastic2d) - 264usize];
+    ["Offset of field: mjsFlex_::nodebody"][::std::mem::offset_of!(mjsFlex_, nodebody) - 272usize];
+    ["Offset of field: mjsFlex_::vertbody"][::std::mem::offset_of!(mjsFlex_, vertbody) - 280usize];
+    ["Offset of field: mjsFlex_::node"][::std::mem::offset_of!(mjsFlex_, node) - 288usize];
+    ["Offset of field: mjsFlex_::vert"][::std::mem::offset_of!(mjsFlex_, vert) - 296usize];
+    ["Offset of field: mjsFlex_::elem"][::std::mem::offset_of!(mjsFlex_, elem) - 304usize];
+    ["Offset of field: mjsFlex_::texcoord"][::std::mem::offset_of!(mjsFlex_, texcoord) - 312usize];
     ["Offset of field: mjsFlex_::elemtexcoord"]
-        [::std::mem::offset_of!(mjsFlex_, elemtexcoord) - 296usize];
-    ["Offset of field: mjsFlex_::info"][::std::mem::offset_of!(mjsFlex_, info) - 304usize];
+        [::std::mem::offset_of!(mjsFlex_, elemtexcoord) - 320usize];
+    ["Offset of field: mjsFlex_::info"][::std::mem::offset_of!(mjsFlex_, info) - 328usize];
 };
 pub type mjsFlex = mjsFlex_;
 #[repr(C)]
@@ -8476,13 +8698,16 @@ pub struct mjsActuator_ {
     pub actlimited: ::std::os::raw::c_int,
     pub actrange: [f64; 2usize],
     pub group: ::std::os::raw::c_int,
+    pub nsample: ::std::os::raw::c_int,
+    pub interp: ::std::os::raw::c_int,
+    pub delay: f64,
     pub userdata: *mut mjDoubleVec,
     pub plugin: mjsPlugin,
     pub info: *mut mjString,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of mjsActuator_"][::std::mem::size_of::<mjsActuator_>() - 528usize];
+    ["Size of mjsActuator_"][::std::mem::size_of::<mjsActuator_>() - 544usize];
     ["Alignment of mjsActuator_"][::std::mem::align_of::<mjsActuator_>() - 8usize];
     ["Offset of field: mjsActuator_::element"]
         [::std::mem::offset_of!(mjsActuator_, element) - 0usize];
@@ -8531,11 +8756,17 @@ const _: () = {
         [::std::mem::offset_of!(mjsActuator_, actrange) - 448usize];
     ["Offset of field: mjsActuator_::group"]
         [::std::mem::offset_of!(mjsActuator_, group) - 464usize];
+    ["Offset of field: mjsActuator_::nsample"]
+        [::std::mem::offset_of!(mjsActuator_, nsample) - 468usize];
+    ["Offset of field: mjsActuator_::interp"]
+        [::std::mem::offset_of!(mjsActuator_, interp) - 472usize];
+    ["Offset of field: mjsActuator_::delay"]
+        [::std::mem::offset_of!(mjsActuator_, delay) - 480usize];
     ["Offset of field: mjsActuator_::userdata"]
-        [::std::mem::offset_of!(mjsActuator_, userdata) - 472usize];
+        [::std::mem::offset_of!(mjsActuator_, userdata) - 488usize];
     ["Offset of field: mjsActuator_::plugin"]
-        [::std::mem::offset_of!(mjsActuator_, plugin) - 480usize];
-    ["Offset of field: mjsActuator_::info"][::std::mem::offset_of!(mjsActuator_, info) - 520usize];
+        [::std::mem::offset_of!(mjsActuator_, plugin) - 496usize];
+    ["Offset of field: mjsActuator_::info"][::std::mem::offset_of!(mjsActuator_, info) - 536usize];
 };
 pub type mjsActuator = mjsActuator_;
 #[repr(C)]
@@ -8553,13 +8784,17 @@ pub struct mjsSensor_ {
     pub dim: ::std::os::raw::c_int,
     pub cutoff: f64,
     pub noise: f64,
+    pub nsample: ::std::os::raw::c_int,
+    pub interp: ::std::os::raw::c_int,
+    pub delay: f64,
+    pub interval: [f64; 2usize],
     pub userdata: *mut mjDoubleVec,
     pub plugin: mjsPlugin,
     pub info: *mut mjString,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of mjsSensor_"][::std::mem::size_of::<mjsSensor_>() - 136usize];
+    ["Size of mjsSensor_"][::std::mem::size_of::<mjsSensor_>() - 168usize];
     ["Alignment of mjsSensor_"][::std::mem::align_of::<mjsSensor_>() - 8usize];
     ["Offset of field: mjsSensor_::element"][::std::mem::offset_of!(mjsSensor_, element) - 0usize];
     ["Offset of field: mjsSensor_::type_"][::std::mem::offset_of!(mjsSensor_, type_) - 8usize];
@@ -8575,10 +8810,15 @@ const _: () = {
     ["Offset of field: mjsSensor_::dim"][::std::mem::offset_of!(mjsSensor_, dim) - 60usize];
     ["Offset of field: mjsSensor_::cutoff"][::std::mem::offset_of!(mjsSensor_, cutoff) - 64usize];
     ["Offset of field: mjsSensor_::noise"][::std::mem::offset_of!(mjsSensor_, noise) - 72usize];
+    ["Offset of field: mjsSensor_::nsample"][::std::mem::offset_of!(mjsSensor_, nsample) - 80usize];
+    ["Offset of field: mjsSensor_::interp"][::std::mem::offset_of!(mjsSensor_, interp) - 84usize];
+    ["Offset of field: mjsSensor_::delay"][::std::mem::offset_of!(mjsSensor_, delay) - 88usize];
+    ["Offset of field: mjsSensor_::interval"]
+        [::std::mem::offset_of!(mjsSensor_, interval) - 96usize];
     ["Offset of field: mjsSensor_::userdata"]
-        [::std::mem::offset_of!(mjsSensor_, userdata) - 80usize];
-    ["Offset of field: mjsSensor_::plugin"][::std::mem::offset_of!(mjsSensor_, plugin) - 88usize];
-    ["Offset of field: mjsSensor_::info"][::std::mem::offset_of!(mjsSensor_, info) - 128usize];
+        [::std::mem::offset_of!(mjsSensor_, userdata) - 112usize];
+    ["Offset of field: mjsSensor_::plugin"][::std::mem::offset_of!(mjsSensor_, plugin) - 120usize];
+    ["Offset of field: mjsSensor_::info"][::std::mem::offset_of!(mjsSensor_, info) - 160usize];
 };
 pub type mjsSensor = mjsSensor_;
 #[repr(C)]
@@ -9288,19 +9528,21 @@ pub type mjvFigure = mjvFigure_;
 pub struct mjResource_ {
     pub name: *mut ::std::os::raw::c_char,
     pub data: *mut ::std::os::raw::c_void,
+    pub vfs: *mut mjVFS,
     pub timestamp: [::std::os::raw::c_char; 512usize],
     pub provider: *const mjpResourceProvider,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of mjResource_"][::std::mem::size_of::<mjResource_>() - 536usize];
+    ["Size of mjResource_"][::std::mem::size_of::<mjResource_>() - 544usize];
     ["Alignment of mjResource_"][::std::mem::align_of::<mjResource_>() - 8usize];
     ["Offset of field: mjResource_::name"][::std::mem::offset_of!(mjResource_, name) - 0usize];
     ["Offset of field: mjResource_::data"][::std::mem::offset_of!(mjResource_, data) - 8usize];
+    ["Offset of field: mjResource_::vfs"][::std::mem::offset_of!(mjResource_, vfs) - 16usize];
     ["Offset of field: mjResource_::timestamp"]
-        [::std::mem::offset_of!(mjResource_, timestamp) - 16usize];
+        [::std::mem::offset_of!(mjResource_, timestamp) - 24usize];
     ["Offset of field: mjResource_::provider"]
-        [::std::mem::offset_of!(mjResource_, provider) - 528usize];
+        [::std::mem::offset_of!(mjResource_, provider) - 536usize];
 };
 pub type mjResource = mjResource_;
 pub type mjfOpenResource =
@@ -9312,6 +9554,10 @@ pub type mjfReadResource = ::std::option::Option<
     ) -> ::std::os::raw::c_int,
 >;
 pub type mjfCloseResource = ::std::option::Option<unsafe extern "C" fn(resource: *mut mjResource)>;
+pub type mjfMountResource =
+    ::std::option::Option<unsafe extern "C" fn(resource: *mut mjResource) -> ::std::os::raw::c_int>;
+pub type mjfUnmountResource =
+    ::std::option::Option<unsafe extern "C" fn(resource: *mut mjResource) -> ::std::os::raw::c_int>;
 pub type mjfResourceModified = ::std::option::Option<
     unsafe extern "C" fn(
         resource: *const mjResource,
@@ -9325,12 +9571,14 @@ pub struct mjpResourceProvider {
     pub open: mjfOpenResource,
     pub read: mjfReadResource,
     pub close: mjfCloseResource,
+    pub mount: mjfMountResource,
+    pub unmount: mjfUnmountResource,
     pub modified: mjfResourceModified,
     pub data: *mut ::std::os::raw::c_void,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of mjpResourceProvider"][::std::mem::size_of::<mjpResourceProvider>() - 48usize];
+    ["Size of mjpResourceProvider"][::std::mem::size_of::<mjpResourceProvider>() - 64usize];
     ["Alignment of mjpResourceProvider"][::std::mem::align_of::<mjpResourceProvider>() - 8usize];
     ["Offset of field: mjpResourceProvider::prefix"]
         [::std::mem::offset_of!(mjpResourceProvider, prefix) - 0usize];
@@ -9340,10 +9588,14 @@ const _: () = {
         [::std::mem::offset_of!(mjpResourceProvider, read) - 16usize];
     ["Offset of field: mjpResourceProvider::close"]
         [::std::mem::offset_of!(mjpResourceProvider, close) - 24usize];
+    ["Offset of field: mjpResourceProvider::mount"]
+        [::std::mem::offset_of!(mjpResourceProvider, mount) - 32usize];
+    ["Offset of field: mjpResourceProvider::unmount"]
+        [::std::mem::offset_of!(mjpResourceProvider, unmount) - 40usize];
     ["Offset of field: mjpResourceProvider::modified"]
-        [::std::mem::offset_of!(mjpResourceProvider, modified) - 32usize];
+        [::std::mem::offset_of!(mjpResourceProvider, modified) - 48usize];
     ["Offset of field: mjpResourceProvider::data"]
-        [::std::mem::offset_of!(mjpResourceProvider, data) - 40usize];
+        [::std::mem::offset_of!(mjpResourceProvider, data) - 56usize];
 };
 pub type mjfDecode = ::std::option::Option<
     unsafe extern "C" fn(resource: *mut mjResource, vfs: *const mjVFS) -> *mut mjSpec,
@@ -10343,6 +10595,19 @@ unsafe extern "C" {
     pub fn mj_defaultVFS(vfs: *mut mjVFS);
 }
 unsafe extern "C" {
+    pub fn mj_mountVFS(
+        vfs: *mut mjVFS,
+        filepath: *const ::std::os::raw::c_char,
+        provider: *const mjpResourceProvider,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn mj_unmountVFS(
+        vfs: *mut mjVFS,
+        filename: *const ::std::os::raw::c_char,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
     pub fn mj_addFileVFS(
         vfs: *mut mjVFS,
         directory: *const ::std::os::raw::c_char,
@@ -10518,7 +10783,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn mj_loadModel(filename: *const ::std::os::raw::c_char, vfs: *const mjVFS)
-    -> *mut mjModel;
+        -> *mut mjModel;
 }
 unsafe extern "C" {
     pub fn mj_loadModelBuffer(
@@ -10856,6 +11121,44 @@ unsafe extern "C" {
         src: *const mjData,
         dst: *mut mjData,
         sig: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn mj_readCtrl(
+        m: *const mjModel,
+        d: *const mjData,
+        id: ::std::os::raw::c_int,
+        time: mjtNum,
+        interp: ::std::os::raw::c_int,
+    ) -> mjtNum;
+}
+unsafe extern "C" {
+    pub fn mj_readSensor(
+        m: *const mjModel,
+        d: *const mjData,
+        id: ::std::os::raw::c_int,
+        time: mjtNum,
+        result: *mut mjtNum,
+        interp: ::std::os::raw::c_int,
+    ) -> *const mjtNum;
+}
+unsafe extern "C" {
+    pub fn mj_initCtrlHistory(
+        m: *const mjModel,
+        d: *mut mjData,
+        id: ::std::os::raw::c_int,
+        times: *const mjtNum,
+        values: *const mjtNum,
+    );
+}
+unsafe extern "C" {
+    pub fn mj_initSensorHistory(
+        m: *const mjModel,
+        d: *mut mjData,
+        id: ::std::os::raw::c_int,
+        times: *const mjtNum,
+        values: *const mjtNum,
+        phase: mjtNum,
     );
 }
 unsafe extern "C" {
@@ -12259,7 +12562,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn mjp_getResourceProviderAtSlot(slot: ::std::os::raw::c_int)
-    -> *const mjpResourceProvider;
+        -> *const mjpResourceProvider;
 }
 unsafe extern "C" {
     pub fn mjp_registerDecoder(decoder: *const mjpDecoder);
@@ -12272,6 +12575,44 @@ unsafe extern "C" {
         resource: *const mjResource,
         content_type: *const ::std::os::raw::c_char,
     ) -> *const mjpDecoder;
+}
+unsafe extern "C" {
+    pub fn mju_openResource(
+        dir: *const ::std::os::raw::c_char,
+        name: *const ::std::os::raw::c_char,
+        vfs: *const mjVFS,
+        error: *mut ::std::os::raw::c_char,
+        nerror: usize,
+    ) -> *mut mjResource;
+}
+unsafe extern "C" {
+    pub fn mju_closeResource(resource: *mut mjResource);
+}
+unsafe extern "C" {
+    pub fn mju_readResource(
+        resource: *mut mjResource,
+        buffer: *mut *const ::std::os::raw::c_void,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn mju_getResourceDir(
+        resource: *mut mjResource,
+        dir: *mut *const ::std::os::raw::c_char,
+        ndir: *mut ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn mju_isModifiedResource(
+        resource: *const mjResource,
+        timestamp: *const ::std::os::raw::c_char,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn mju_decodeResource(
+        resource: *mut mjResource,
+        content_type: *const ::std::os::raw::c_char,
+        vfs: *const mjVFS,
+    ) -> *mut mjSpec;
 }
 unsafe extern "C" {
     pub fn mju_threadPoolCreate(number_of_threads: usize) -> *mut mjThreadPool;

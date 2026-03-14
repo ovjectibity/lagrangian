@@ -259,7 +259,7 @@ pub unsafe fn create_model(
             };
 
             let geom = Geom {
-                name: get_geom_name(m, i),
+                name: get_geom_name(m, i as i32),
                 pos: Some(
                     std::slice::from_raw_parts(geom_pos_ptr, 3)
                         .iter()
@@ -288,7 +288,7 @@ pub unsafe fn create_model(
         for i in 1..(*m).nbody {
             // Skip world body at index 0
             let parent_id = (*m).body_parentid.add(i as usize).read();
-            children_by_body.entry(parent_id).or_default().push(i);
+            children_by_body.entry(parent_id).or_default().push(i as i32);
         }
 
         let world_root = build_body_recursive(m, d, 0, &geoms_by_body, &children_by_body);
@@ -417,7 +417,6 @@ pub unsafe fn load_test_model(file_name: String) -> Option<WorldBody> {
 pub fn test_mujoco(model_name: String) {
     let mut error_buffer = [0i8; 1024];
     unsafe {
-        // let model_file_name = "/Users/avi/Documents/manual/lagrangian/app/assets/slider_crank.xml";
         let c_model_file_name = CString::new(model_name).expect("String contained null bytes");
         let model: *mut mujoco::mjModel = mujoco::mj_loadXML(
             c_model_file_name.as_ptr(),
