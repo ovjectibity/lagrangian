@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-AWS_ENV_FILE="${REPO_ROOT}/.aws-env"
+AWS_ENV_FILE="${REPO_ROOT}/.envrc"
 
 CREATE_REPO=0
 PURGE_REPO_IMAGES=0
