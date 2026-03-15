@@ -329,6 +329,11 @@ pub unsafe fn load_model(
 ) -> Option<(*mut mujoco::mjModel, *mut mujoco::mjData)> {
     let mut error_buffer = [0i8; 1024];
     unsafe {
+        let mujoco_lib_path = std::env::var("MUJOCO_LIB_PATH")
+            .expect("Expected MUJOCO_LIB_PATH to be set");
+        let stl_plugin_path = CString::new(format!("{}/libstl_decoder.dylib", mujoco_lib_path))
+            .expect("String contained null bytes");
+        mujoco::mj_loadPluginLibrary(stl_plugin_path.as_ptr());
         let c_model_file_name = CString::new(model_name).expect("String contained null bytes");
         let model: *mut mujoco::mjModel = mujoco::mj_loadXML(
             c_model_file_name.as_ptr(),

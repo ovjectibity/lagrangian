@@ -138,6 +138,8 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
     let mut testing_tasks = HashMap::new();
     let mut workflow_runtime: Option<WorkflowRuntime> = None;
     let mut loaded_model_path: Option<String> = None;
+    let test_mjcf_model_path = env::var("TEST_MJCF_MODEL").
+        expect("Expected test mjcf model path to be set");
     ws.channel(move |mut stream| {
         Box::pin(async move {
             loop {
@@ -163,8 +165,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                         //     "/Users/avi/Documents/manual/lagrangian/app/assets/universal_robots_ur10e/ur10e.xml".
                                         //     to_string());
                                         simulator::load_test_model(
-                                            "/Users/khushi/Documents/projects/lagrangian/app/assets/trossen_vx300s/vx300s.xml".
-                                            to_string());
+                                            test_mjcf_model_path.clone());
                                     }
                                     if let Some(wb) = world_body {
                                         let response_message =
@@ -190,16 +191,14 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                     //Setup the map ID of the model
                                     //Pass id to the simulator thread as well
                                     simulator::spawn_simulator(
-                                        "/Users/khushi/Documents/projects/lagrangian/app/assets/trossen_vx300s/vx300s.xml"
-                                        .to_string(),
+                                        test_mjcf_model_path.clone(),
                                         tx_simul.clone());
                                 } else {
                                     match serde_json::from_str::<clientmessages::ServerMessage>(&text) {
                                         Ok(m) => {
                                             match m {
                                                 clientmessages::ServerMessage::LoadModelMessage => {
-                                                    let model_path = "/Users/khushi/Documents/projects/lagrangian/app/assets/trossen_vx300s/vx300s.xml"
-                                                        .to_string();
+                                                    let model_path = test_mjcf_model_path.clone();
                                                     match WorkflowRuntime::load(model_path.clone()) {
                                                         Ok(runtime) => {
                                                             println!("Loaded shared workflow runtime");
@@ -505,6 +504,8 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
 
 #[launch]
 fn rocket() -> _ {
+    let client_dist_dir = env::var("CLIENT_DIST_DIR").
+        expect("Expected test mjcf model path to be set");
     // renderer::render();
     rocket::build()
         // 1. API Routes
@@ -514,7 +515,7 @@ fn rocket() -> _ {
         // 'rank = 1' tries to match exact files first
         .mount(
             "/",
-            FileServer::from("/Users/khushi/Documents/projects/lagrangian/client/dist").rank(1),
+            FileServer::from(client_dist_dir).rank(1),
         )
 
     // 3. Fallback (for client-side routing)
