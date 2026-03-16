@@ -446,8 +446,8 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                         };
                     },
                     Some(msg) = rx_train.recv() => {
-                        // println!("Sending training updates to client {:?}",msg);
-                        println!("Sending testing updates to client");
+                        println!("Sending training updates to client {:?}",msg);
+                        // println!("Sending training updates to client");
                         match msg {
                             workermessages::TrainingTaskMessage::TrainingUpdates(m) => {
                                 let response_message =
@@ -470,8 +470,8 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                         }
                     },
                     Some(msg) = rx_test.recv() => {
-                        // println!("Sending testing updates to client {:?}",msg);
-                        println!("Sending testing updates to client");
+                        println!("Sending testing updates to client {:?}",msg);
+                        // println!("Sending testing updates to client");
                         match msg {
                             workermessages::TestingTaskMessage::StartSimulation(_) => {},
                             workermessages::TestingTaskMessage::StopSimulation(m) => {

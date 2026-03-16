@@ -3,7 +3,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+import logging
 from typing import Any, Callable, Sequence
+
+logger = logging.getLogger(__name__)
 
 import jax
 import jax.numpy as jnp
@@ -247,7 +250,13 @@ class PPOTrainer:
         )
 
     def gen_trajectories(self, num_trajs: int) -> list[Trajectory]:
-        return [self.gen_trajectory() for _ in range(num_trajs)]
+        trajs = []
+        for i in range(num_trajs):
+            logger.info("gen_trajectories: starting traj %s/%s", i + 1, num_trajs)
+            traj = self.gen_trajectory()
+            logger.info("gen_trajectories: completed traj %s/%s", i + 1, num_trajs)
+            trajs.append(traj)
+        return trajs
 
     def compute_gae(self, traj: Trajectory) -> Array:
         advs: list[float] = []

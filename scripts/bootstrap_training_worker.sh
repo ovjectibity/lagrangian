@@ -24,6 +24,7 @@ cat >/etc/lagrangian-worker.env <<'ENV_EOF'
 WS_HOST=0.0.0.0
 WS_PORT=__WORKER_PORT__
 WORKER_SHARED_SECRET=__WORKER_SHARED_SECRET__
+WS_PING_TIMEOUT_SECONDS=600
 ENV_EOF
 
 docker run -d --restart unless-stopped \

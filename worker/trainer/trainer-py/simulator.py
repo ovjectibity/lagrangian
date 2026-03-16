@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import jax
 import jax.numpy as jnp
@@ -96,13 +99,21 @@ class MjxSimulator(Simulator):
         if (model_path is None and mjcf is None) or (model_path is not None and mjcf is not None):
             raise ValueError("Provide exactly one of model_path or mjcf")
         if mjcf is not None:
+            logger.info("MjxSimulator: loading model from XML string")
             self._model = mujoco.MjModel.from_xml_string(mjcf)
         else:
+            logger.info("MjxSimulator: loading model from path: %s", model_path)
             self._model = mujoco.MjModel.from_xml_path(model_path)
+        logger.info("MjxSimulator: model loaded (nq=%s nu=%s nv=%s)", self._model.nq, self._model.nu, self._model.nv)
+        logger.info("MjxSimulator: creating MjData")
         self._data = mujoco.MjData(self._model)
+        logger.info("MjxSimulator: running mj_forward")
         mujoco.mj_forward(self._model, self._data)
+        logger.info("MjxSimulator: calling mjx.put_model")
         self._mjx_model = mjx.put_model(self._model)
+        logger.info("MjxSimulator: calling mjx.put_data")
         self._mjx_data = mjx.put_data(self._model, self._data)
+        logger.info("MjxSimulator: init complete")
         self.target_position: list[float] = self._get_actuated_qpos_targets()
 
     def _sync_cpu_from_mjx(self) -> None:
