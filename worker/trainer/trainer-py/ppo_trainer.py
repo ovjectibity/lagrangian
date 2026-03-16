@@ -189,21 +189,27 @@ class PPOTrainer:
         return self.simulator.nu()
 
     def gen_trajectory(self) -> Trajectory:
+        logger.info("gen_trajectory: start (traj_depth=%s)", self.traj_depth)
         action_output_size = self.get_action_output_size()
         wstates: list[Array] = []
         model_outputs: list[Array] = []
         model_output_samples: list[Array] = []
         rewards: list[float] = []
         self.simulator.reset_state()
-        for _ in range(self.traj_depth):
+        logger.info("gen_trajectory: reset_state done, entering step loop")
+        for step in range(self.traj_depth):
+            # if step % 10 == 0:
+            logger.info("gen_trajectory: step %s/%s", step, self.traj_depth)
             wstate = jnp.asarray(self.simulator.get_model_state())
             cstate = jnp.asarray(self.simulator.get_model_cartesian_state())
+            logger.info("gen_trajectory: step %s/%s. Got the wstate & cstate")
             action_gaussian_params = jnp.asarray(self.model.get_policy_output(wstate))
             action_gaussian_mean = action_gaussian_params[:action_output_size]
             action_gaussian_stdev = jnp.exp(action_gaussian_params[action_output_size:])
             self._rng_key, eps_key = random.split(self._rng_key)
             eps = random.normal(eps_key, shape=(action_output_size,))
             sampled_action = action_gaussian_mean + eps * action_gaussian_stdev
+            logger.info("gen_trajectory: step %s/%s. Got the policy output")
             output_mode = self.model.get_control_policy_output_mode()
             if output_mode == ControlPolicyOutputMode.TargetTorques:
                 controls = sampled_action
@@ -215,7 +221,9 @@ class PPOTrainer:
                 )
             else:
                 raise ValueError(f"Unsupported control mode: {output_mode}")
+            logger.info("gen_trajectory: step %s/%s. Got the output control. Running forward_dyn now")
             self.simulator.forward_dyn(jnp.asarray(controls))
+            logger.info("gen_trajectory: step %s/%s. Ran the forward_dyn. Getting reward now")
             cstate_next = jnp.asarray(self.simulator.get_model_cartesian_state())
             contact_pairs = self.simulator.get_contact_body_index_pairs()
             reward = float(
@@ -226,18 +234,22 @@ class PPOTrainer:
                     contact_pairs,
                 )
             )
+            logger.info("gen_trajectory: step %s/%s. Got reward now")
             rewards.append(reward)
             wstates.append(wstate)
             model_outputs.append(action_gaussian_params)
             model_output_samples.append(sampled_action)
+        logger.info("gen_trajectory: step loop done, computing terminal value")
         wstate_end = jnp.asarray(self.simulator.get_model_state())
         wstates.append(wstate_end)
         v_terminal = float(self.model.get_value_output(wstates[-1]))
+        logger.info("gen_trajectory: computing rtg and log probs")
         rtgs = self.compute_rtg(rewards, v_terminal)
         action_sample_log_probs = self.compute_action_log_probs(
             jnp.stack(model_output_samples),
             jnp.stack(model_outputs),
         )
+        logger.info("gen_trajectory: done")
         return Trajectory(
             world_states=wstates,
             model_outputs=model_outputs,
