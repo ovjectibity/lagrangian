@@ -341,7 +341,7 @@ impl TrainingWorkerController {
             .run_instances()
             .image_id(self.config.ami_id.clone())
             // .instance_type(InstanceType::G4dnXlarge)
-            .instance_type(InstanceType::C7iFlexLarge)
+            .instance_type(InstanceType::M7iFlexLarge)
             .min_count(1)
             .max_count(1)
             .user_data(user_data_base64)

@@ -264,14 +264,12 @@ class MjxSimulator(Simulator):
         return int(self._model.nv)
 
     def forward_dyn(self, controls: Array) -> None:
-        ctrl_vals = self._array_to_list(controls, self.nu(), "Control")
-        self._mjx_data = self._mjx_data.replace(ctrl=jnp.asarray(ctrl_vals))
+        self._mjx_data = self._mjx_data.replace(ctrl=controls.reshape(self.nu()))
         self._mjx_data = mjx.step(self._mjx_model, self._mjx_data)
 
     def inverse_dyn(self, acc: Array) -> Array:
-        acc_vals = self._array_to_list(acc, self.nv(), "Acceleration")
         self._sync_cpu_from_mjx()
-        self._data.qacc[: self.nv()] = np.asarray(acc_vals, dtype=np.float64)
+        self._data.qacc[: self.nv()] = np.asarray(jax.device_get(acc), dtype=np.float64).reshape(self.nv())
         mujoco.mj_inverse(self._model, self._data)
         return jnp.asarray(np.asarray(self._data.qfrc_inverse[: self.nv()], dtype=np.float64))
 
