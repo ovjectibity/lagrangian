@@ -27,9 +27,9 @@ from commondef.remoteworkermessages import (
     StopTrainingMessage,
     TrainingRemoteWorkerServerMessageTypes,
 )
-from commondef.training import PPOTrainingMethod
+from commondef.training import PPOTrainingMethod, TrainingAccelerationMode
 from samples.arm import ArmModel
-from simulator import MjxSimulator
+from simulator import MjxSimulator, MujocoSimulator, Simulator
 from training import CallbackTrainingTaskSink, TrainingWorkflow
 
 logger = logging.getLogger(__name__)
@@ -37,8 +37,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class WorkerRuntime:
-    simulator: MjxSimulator
+    simulator: Simulator
     model: ArmModel
+    model_path: str | None = None
+    mjcf: str | None = None
     model_tmpdir: tempfile.TemporaryDirectory | None = None
 
 
@@ -86,7 +88,7 @@ def _extract_presented_secret(websocket: Any) -> str | None:
     return None
 
 
-def _build_default_model(simulator: MjxSimulator) -> ArmModel:
+def _build_default_model(simulator: Simulator) -> ArmModel:
     input_dim = simulator.nq() + simulator.nv()
     policy_output_dim = simulator.nu() * 2
     hidden_dim = 256
@@ -116,7 +118,7 @@ def _build_default_model(simulator: MjxSimulator) -> ArmModel:
 
 
 def _build_model_for_training(
-    simulator: MjxSimulator,
+    simulator: Simulator,
     params: PPOTrainingMethod,
 ) -> ArmModel:
     control_params = params.control_model.content
@@ -241,27 +243,31 @@ async def handle_connection(
                     # DEBUG: use minimal model to test put_model performance
                     # _MINIMAL_MJCF = '<mujoco><worldbody><body><geom type="sphere" size="0.1"/></body></worldbody></mujoco>'
                     # simulator = MjxSimulator(mjcf=_MINIMAL_MJCF)
+                    resolved_model_path: str | None = None
+                    resolved_mjcf: str | None = None
                     if load_msg.model_zip_base64 and load_msg.mjcf_entrypoint:
-                        model_tmpdir, model_path = _extract_model_bundle_to_tempdir(
+                        model_tmpdir, resolved_model_path = _extract_model_bundle_to_tempdir(
                             model_zip_base64=load_msg.model_zip_base64,
                             mjcf_entrypoint=load_msg.mjcf_entrypoint,
                         )
-                        simulator = MjxSimulator(model_path=model_path)
                         logger.info(
-                            "Loaded model bundle from zip for training_id=%s (entrypoint=%s)",
+                            "Extracted model bundle from zip for training_id=%s (entrypoint=%s)",
                             load_msg.id,
                             load_msg.mjcf_entrypoint,
                         )
                     else:
-                        simulator = MjxSimulator(mjcf=load_msg.mjcf)
+                        resolved_mjcf = load_msg.mjcf
                         logger.info(
-                            "Loaded model from raw MJCF fallback for training_id=%s",
+                            "Using raw MJCF for training_id=%s",
                             load_msg.id,
                         )
+                    simulator = MjxSimulator(model_path=resolved_model_path, mjcf=resolved_mjcf)
                     model = _build_default_model(simulator)
                     runtime = WorkerRuntime(
                         simulator=simulator,
                         model=model,
+                        model_path=resolved_model_path,
+                        mjcf=resolved_mjcf,
                         model_tmpdir=model_tmpdir,
                     )
                     await send_queue.put(
@@ -304,6 +310,18 @@ async def handle_connection(
                         )
                     )
                     continue
+
+                acceleration_mode = start_msg.training_controller.acceleration_mode
+                if acceleration_mode == TrainingAccelerationMode.MLCPUSimulationCPU:
+                    logger.info("Using MujocoSimulator (CPU) for training_id=%s", training_id)
+                    runtime.simulator = MujocoSimulator(
+                        model_path=runtime.model_path, mjcf=runtime.mjcf
+                    )
+                else:
+                    logger.info("Using MjxSimulator (MJX) for training_id=%s acceleration_mode=%s", training_id, acceleration_mode)
+                    runtime.simulator = MjxSimulator(
+                        model_path=runtime.model_path, mjcf=runtime.mjcf
+                    )
 
                 ppo_params = start_msg.training_workflow.content
                 runtime.model = _build_model_for_training(runtime.simulator, ppo_params)

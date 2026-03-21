@@ -4,19 +4,21 @@
 from __future__ import annotations
 
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Literal, Optional, Union
-from commondef.training import TrainingMethod, TrainingMetrics
+
 
 class LoadModelMessage(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     mjcf: str
-    model_zip_base64: Optional[str] = None
-    mjcf_entrypoint: Optional[str] = None
+    model_zip_base_64: Optional[str] = Field(alias="model_zip_base64", default=None)
+    mjcf_entrypoint: Optional[str] = Field(default=None)
 
 class StartTrainingMessage(BaseModel):
     id: str
-    training_workflow: TrainingMethod
+    training_controller: TrainingJobController
 
 class StopTrainingMessage(BaseModel):
     id: str

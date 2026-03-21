@@ -166,7 +166,7 @@ export const TrainingJobControllerNode: WorkflowNode = {
         { label: "AllOnServer", value: "AllOnServer" },
         { label: "MLGPUSimulationCPU", value: "MLGPUSimulationCPU" },
         { label: "MLGPUSimulationGPU", value: "MLGPUSimulationGPU" },
-        { label: "MLCPUSimulationGPU", value: "MLCPUSimulationGPU" },
+        { label: "MLCPUSimulationCPU", value: "MLCPUSimulationCPU" },
       ],
     },
     {

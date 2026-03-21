@@ -76,7 +76,7 @@ pub struct MetricsData {
 pub enum TrainingAccelerationMode {
     MLGPUSimulationCPU,
     MLGPUSimulationGPU,
-    MLCPUSimulationGPU,
+    MLCPUSimulationCPU,
     AllOnServer,
 }
 

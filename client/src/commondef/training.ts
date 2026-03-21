@@ -43,7 +43,7 @@ export type TrainingMethod =
 export enum TrainingAccelerationMode {
 	MLGPUSimulationCPU = "MLGPUSimulationCPU",
 	MLGPUSimulationGPU = "MLGPUSimulationGPU",
-	MLCPUSimulationGPU = "MLCPUSimulationGPU",
+	MLCPUSimulationCPU = "MLCPUSimulationCPU",
 	AllOnServer = "AllOnServer",
 }
 
