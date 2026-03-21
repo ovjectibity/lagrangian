@@ -180,8 +180,14 @@ def _log_message_payload(msg: str, training_id: str = "system") -> dict[str, Any
         "type": "TrainingUpdatesMessage",
         "content": {
             "id": training_id,
-            "metrics": [],
-            "logs": [msg],
+            "updates": [
+                {
+                    "training_run_state": {"type": "PPOTrainingRunState", "content": {"epoch_index": 0, "update_index": 0}},
+                    "logs": [msg],
+                    "metrics": [],
+                    "checkpoints": [],
+                }
+            ],
         },
     }
 
@@ -312,7 +318,8 @@ async def handle_connection(
                     )
                     continue
 
-                acceleration_mode = start_msg.training_controller.acceleration_mode
+                training_controller = start_msg.training_graph.training_job_controller
+                acceleration_mode = training_controller.acceleration_mode
                 if acceleration_mode == TrainingAccelerationMode.MLCPUSIMULATIONCPU:
                     logger.info("Using MujocoSimulator (CPU) for training_id=%s", training_id)
                     runtime.simulator = MujocoSimulator(
@@ -324,11 +331,11 @@ async def handle_connection(
                         model_path=runtime.model_path, mjcf=runtime.mjcf
                     )
 
-                ppo_params = start_msg.training_controller.training_method.content
+                ppo_params = training_controller.training_method.content
                 runtime.model = _build_model_for_training(runtime.simulator, ppo_params)
                 workflow = TrainingWorkflow(
                     training_id=training_id,
-                    training_controller=start_msg.training_controller,
+                    training_controller=training_controller,
                     simulator=runtime.simulator,
                     model=runtime.model,
                 )

@@ -240,7 +240,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                 clientmessages::ServerMessage::StartTrainingMessage(t) => {
                                                     println!("Start training ask from client {:?}",t);
                                                     let training_id = t.id.clone();
-                                                    let training_controller = t.training_controller;
+                                                    let training_controller = t.training_graph.training_job_controller;
                                                     match (
                                                         &training_controller.acceleration_mode,
                                                         &training_controller.training_method,
@@ -342,8 +342,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                                                 workermessages::TrainingTaskMessage::TrainingUpdates(
                                                                                     clientmessages::TrainingUpdatesMessage {
                                                                                         id: update.id.clone(),
-                                                                                        metrics: update.metrics.clone(),
-                                                                                        logs: update.logs.clone(),
+                                                                                        updates: update.updates.clone(),
                                                                                     },
                                                                                 ),
                                                                             );

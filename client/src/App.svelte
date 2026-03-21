@@ -442,8 +442,10 @@
             }
           } else if (clientMessage.type === 'TrainingUpdatesMessage') {
             if (clientMessage.content.id === trainingTaskId) {
-              appendTrainingMetrics(clientMessage.content.metrics);
-              appendTrainingLogs(clientMessage.content.logs);
+              for (const update of clientMessage.content.updates) {
+                appendTrainingMetrics(update.metrics);
+                appendTrainingLogs(update.logs);
+              }
             }
           } else if (clientMessage.type === 'StopTrainingMessage') {
             isTrainingRunning = false;

@@ -8,19 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Literal, Optional, Union
 
 
-class TrainingStateTypes(str, Enum):
-    PPO_TRAINING_STATE = "PPOTrainingState"
-
-class TrainingStatePPOTrainingState(BaseModel):
-    type: Literal[TrainingStateTypes.PPO_TRAINING_STATE] = TrainingStateTypes.PPO_TRAINING_STATE
-    content: PPOTrainingState
-
-TrainingState = TrainingStatePPOTrainingState
 class Checkpoint(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     model_zip_base_64: Optional[str] = Field(alias="model_zip_base64", default=None)
-    training_state: TrainingState
+    model_zip_path: Optional[str] = Field(default=None)
 
 class FFNModel(BaseModel):
     num_hidden_layers: int
@@ -65,7 +57,7 @@ class PPOTrainingMethod(BaseModel):
     control_model: ControlModel
     value_model: ValueModel
 
-class PPOTrainingState(BaseModel):
+class PPOTrainingRunState(BaseModel):
     epoch_index: int
     update_index: int
 
@@ -103,6 +95,17 @@ class TrainingJobController(BaseModel):
     compute_instance: ComputeInstance
     checkpoint_frequency: CheckpointFrequency
 
+class TrainingGraph(BaseModel):
+    training_job_controller: TrainingJobController
+
+class TrainingRunStateTypes(str, Enum):
+    PPO_TRAINING_RUN_STATE = "PPOTrainingRunState"
+
+class TrainingRunStatePPOTrainingRunState(BaseModel):
+    type: Literal[TrainingRunStateTypes.PPO_TRAINING_RUN_STATE] = TrainingRunStateTypes.PPO_TRAINING_RUN_STATE
+    content: PPOTrainingRunState
+
+TrainingRunState = TrainingRunStatePPOTrainingRunState
 class TrainingMetricsTypes(str, Enum):
     MEAN_REWARD = "MeanReward"
     MEAN_POLICY_LOSS = "MeanPolicyLoss"
@@ -136,3 +139,19 @@ class TrainingMetricsValueGradientNorm(BaseModel):
     content: MetricsData
 
 TrainingMetrics = Union[TrainingMetricsMeanReward, TrainingMetricsMeanPolicyLoss, TrainingMetricsValueLoss, TrainingMetricsMeanEntropy, TrainingMetricsPolicyGradientNorm, TrainingMetricsValueGradientNorm]
+class TrainingUpdate(BaseModel):
+    training_run_state: TrainingRunState
+    logs: List[str]
+    metrics: List[TrainingMetrics]
+    checkpoints: List[Checkpoint]
+
+class TrainingExperimentRun(BaseModel):
+    experiment_id: str
+    run_id: str
+    training_graph: TrainingGraph
+    training_update: List[TrainingUpdate]
+
+class TrainingExperiment(BaseModel):
+    experiment_id: str
+    experiment_runs: List[TrainingExperimentRun]
+

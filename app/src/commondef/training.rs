@@ -96,6 +96,12 @@ pub struct TrainingJobController {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct TrainingGraph {
+    pub training_job_controller: TrainingJobController
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum CheckpointFrequency {
@@ -108,19 +114,44 @@ pub enum CheckpointFrequency {
 #[typeshare]
 pub struct Checkpoint {
     pub model_zip_base64: Option<String>,
-    pub training_state: TrainingState
+    pub model_zip_path: Option<String>
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
-pub enum TrainingState {
-    PPOTrainingState(PPOTrainingState)
+pub enum TrainingRunState {
+    PPOTrainingRunState(PPOTrainingRunState)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
-pub struct PPOTrainingState {
+pub struct PPOTrainingRunState {
     pub epoch_index: i32,
     pub update_index: i32
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct TrainingExperiment {
+    pub experiment_id: String, 
+    pub experiment_runs: Vec<TrainingExperimentRun>
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct TrainingExperimentRun {
+    pub experiment_id: String, 
+    pub run_id: String,
+    pub training_graph: TrainingGraph,
+    pub training_update: Vec<TrainingUpdate>
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct TrainingUpdate {
+    pub training_run_state: TrainingRunState,
+    pub logs: Vec<String>,
+    pub metrics: Vec<TrainingMetrics>,
+    pub checkpoints: Vec<Checkpoint>,
 }

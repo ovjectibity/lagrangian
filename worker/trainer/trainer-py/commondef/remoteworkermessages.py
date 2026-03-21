@@ -18,16 +18,14 @@ class LoadModelMessage(BaseModel):
 
 class StartTrainingMessage(BaseModel):
     id: str
-    training_controller: TrainingJobController
+    training_graph: TrainingGraph
 
 class StopTrainingMessage(BaseModel):
     id: str
 
 class TrainingUpdatesMessage(BaseModel):
     id: str
-    metrics: List[TrainingMetrics]
-    logs: List[str]
-    checkpoints: List[Checkpoint]
+    updates: List[TrainingUpdate]
 
 class TrainingRemoteWorkerClientMessageTypes(str, Enum):
     TRAINING_UPDATES_MESSAGE = "TrainingUpdatesMessage"

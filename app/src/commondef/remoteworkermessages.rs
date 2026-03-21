@@ -1,7 +1,7 @@
 use serde;
 use typeshare::typeshare;
 
-use crate::commondef::training::{TrainingJobController, TrainingMetrics, Checkpoint};
+use crate::commondef::training::{TrainingGraph, TrainingUpdate};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
@@ -16,7 +16,7 @@ pub enum TrainingRemoteWorkerServerMessage {
 #[typeshare]
 pub struct StartTrainingMessage {
     pub id: String,
-    pub training_controller: TrainingJobController,
+    pub training_graph: TrainingGraph,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -46,7 +46,5 @@ pub struct LoadModelMessage {
 #[typeshare]
 pub struct TrainingUpdatesMessage {
     pub id: String,
-    pub metrics: Vec<TrainingMetrics>,
-    pub logs: Vec<String>,
-    pub checkpoints: Vec<Checkpoint>
+    pub updates: Vec<TrainingUpdate>
 }

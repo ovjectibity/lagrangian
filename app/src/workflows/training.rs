@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use rocket::tokio::sync::mpsc;
 
 use crate::commondef::clientmessages::{StopTrainingMessage, TrainingUpdatesMessage};
-use crate::commondef::training::{MetricsData, PPOTrainingMethod, TrainingMetrics};
+use crate::commondef::training::{MetricsData, PPOTrainingMethod, PPOTrainingRunState, TrainingMetrics, TrainingRunState, TrainingUpdate};
 use crate::commondef::workermessages::TrainingTaskMessage;
 use crate::plugin::Simulator;
 use crate::plugin::ppo_trainer::{PPOTrainedModel, PPOTrainer};
@@ -20,13 +20,18 @@ impl TrainingWorkflow {
     fn log_and_send_blocking(
         tx: &mpsc::Sender<TrainingTaskMessage>,
         training_id: String,
+        training_run_state: TrainingRunState,
         msg: String,
     ) {
         println!("{msg}");
         let log_update = TrainingTaskMessage::TrainingUpdates(TrainingUpdatesMessage {
             id: training_id,
-            metrics: vec![],
-            logs: vec![msg],
+            updates: vec![TrainingUpdate {
+                training_run_state,
+                logs: vec![msg],
+                metrics: vec![],
+                checkpoints: vec![],
+            }],
         });
         let _ = tx.blocking_send(log_update);
     }
@@ -63,9 +68,14 @@ impl TrainingWorkflow {
     pub fn run_training_blocking(&mut self, tx: mpsc::Sender<TrainingTaskMessage>) {
         let params = &self.params;
         for i in 0..params.num_epochs {
+            let epoch_state = TrainingRunState::PPOTrainingRunState(PPOTrainingRunState {
+                epoch_index: i,
+                update_index: 0,
+            });
             Self::log_and_send_blocking(
                 &tx,
                 self.id.clone(),
+                epoch_state,
                 format!("Running the training epoch {i}"),
             );
             let trajs = self.trainer.gen_trajectories(params.num_trajs);
@@ -101,17 +111,25 @@ impl TrainingWorkflow {
                 x_axis: update_steps,
                 y_axis: runtime_info.value_gradient_norm().to_vec(),
             });
+            let epoch_end_state = TrainingRunState::PPOTrainingRunState(PPOTrainingRunState {
+                epoch_index: i,
+                update_index: num_updates as i32 - 1,
+            });
             let update = TrainingTaskMessage::TrainingUpdates(TrainingUpdatesMessage {
                 id: self.id.clone(),
-                metrics: vec![
-                    mean_entropy_m,
-                    mean_reward_m,
-                    mean_policy_loss_m,
-                    mean_value_loss_m,
-                    policy_grad_norm_m,
-                    value_grad_norm_m,
-                ],
-                logs: vec![],
+                updates: vec![TrainingUpdate {
+                    training_run_state: epoch_end_state,
+                    logs: vec![],
+                    metrics: vec![
+                        mean_entropy_m,
+                        mean_reward_m,
+                        mean_policy_loss_m,
+                        mean_value_loss_m,
+                        policy_grad_norm_m,
+                        value_grad_norm_m,
+                    ],
+                    checkpoints: vec![],
+                }],
             });
             let _ = tx.blocking_send(update);
         }

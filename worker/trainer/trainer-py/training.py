@@ -21,7 +21,7 @@ from commondef.training import (
     CheckpointFrequencyTypes,
     MetricsData,
     PPOTrainingMethod,
-    PPOTrainingState,
+    PPOTrainingRunState,
     TrainingAccelerationMode,
     TrainingJobController,
     TrainingMetricsMeanEntropy,
@@ -30,7 +30,9 @@ from commondef.training import (
     TrainingMetricsPolicyGradientNorm,
     TrainingMetricsValueGradientNorm,
     TrainingMetricsValueLoss,
-    TrainingStatePPOTrainingState,
+    TrainingRunState,
+    TrainingRunStatePPOTrainingRunState,
+    TrainingUpdate,
 )
 from ppo_trainer import PPOTrainer, PPOTrainedModel
 from simulator import Simulator
@@ -109,9 +111,16 @@ class TrainingWorkflow:
         tx.send_training_updates(
             TrainingUpdatesMessage(
                 id=training_id,
-                metrics=[],
-                logs=[msg],
-                checkpoints=[],
+                updates=[
+                    TrainingUpdate(
+                        training_run_state=TrainingRunStatePPOTrainingRunState(
+                            content=PPOTrainingRunState(epoch_index=0, update_index=0)
+                        ),
+                        logs=[msg],
+                        metrics=[],
+                        checkpoints=[],
+                    )
+                ],
             )
         )
 
@@ -137,21 +146,23 @@ class TrainingWorkflow:
                     zf.write(fpath, arcname=os.path.relpath(fpath, base))
         model_zip_base64 = base64.b64encode(buf.getvalue()).decode()
 
-        checkpoint = Checkpoint(
-            model_zip_base64=model_zip_base64,
-            training_state=TrainingStatePPOTrainingState(
-                content=PPOTrainingState(
-                    epoch_index=epoch_index,
-                    update_index=update_index,
-                )
-            ),
-        )
+        checkpoint = Checkpoint(model_zip_base_64=model_zip_base64)
         tx.send_training_updates(
             TrainingUpdatesMessage(
                 id=self.id,
-                metrics=[],
-                logs=[],
-                checkpoints=[checkpoint],
+                updates=[
+                    TrainingUpdate(
+                        training_run_state=TrainingRunStatePPOTrainingRunState(
+                            content=PPOTrainingRunState(
+                                epoch_index=epoch_index,
+                                update_index=update_index,
+                            )
+                        ),
+                        logs=[],
+                        metrics=[],
+                        checkpoints=[checkpoint],
+                    )
+                ],
             )
         )
         logger.info("Checkpoint sent: training_id=%s epoch=%s update=%s", self.id, epoch_index, update_index)
@@ -293,16 +304,26 @@ class TrainingWorkflow:
             tx.send_training_updates(
                 TrainingUpdatesMessage(
                     id=self.id,
-                    metrics=[
-                        mean_entropy_m,
-                        mean_reward_m,
-                        mean_policy_loss_m,
-                        mean_value_loss_m,
-                        policy_grad_norm_m,
-                        value_grad_norm_m,
+                    updates=[
+                        TrainingUpdate(
+                            training_run_state=TrainingRunStatePPOTrainingRunState(
+                                content=PPOTrainingRunState(
+                                    epoch_index=i,
+                                    update_index=num_updates - 1,
+                                )
+                            ),
+                            logs=[],
+                            metrics=[
+                                mean_entropy_m,
+                                mean_reward_m,
+                                mean_policy_loss_m,
+                                mean_value_loss_m,
+                                policy_grad_norm_m,
+                                value_grad_norm_m,
+                            ],
+                            checkpoints=[],
+                        )
                     ],
-                    logs=[],
-                    checkpoints=[],
                 )
             )
 
