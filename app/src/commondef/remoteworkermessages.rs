@@ -1,7 +1,7 @@
 use serde;
 use typeshare::typeshare;
 
-use crate::commondef::training::{TrainingJobController, TrainingMetrics};
+use crate::commondef::training::{TrainingJobController, TrainingMetrics, Checkpoint};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
@@ -48,6 +48,5 @@ pub struct TrainingUpdatesMessage {
     pub id: String,
     pub metrics: Vec<TrainingMetrics>,
     pub logs: Vec<String>,
-    // Add this, 
-    // pub checkpoints: 
+    pub checkpoints: Vec<Checkpoint>
 }

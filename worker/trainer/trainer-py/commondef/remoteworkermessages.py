@@ -7,7 +7,6 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Literal, Optional, Union
 
-from commondef.training import TrainingJobController, TrainingMetrics
 
 class LoadModelMessage(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -28,6 +27,7 @@ class TrainingUpdatesMessage(BaseModel):
     id: str
     metrics: List[TrainingMetrics]
     logs: List[str]
+    checkpoints: List[Checkpoint]
 
 class TrainingRemoteWorkerClientMessageTypes(str, Enum):
     TRAINING_UPDATES_MESSAGE = "TrainingUpdatesMessage"

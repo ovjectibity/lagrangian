@@ -5,8 +5,22 @@ from __future__ import annotations
 
 from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Literal, Union
+from typing import List, Literal, Optional, Union
 
+
+class TrainingStateTypes(str, Enum):
+    PPO_TRAINING_STATE = "PPOTrainingState"
+
+class TrainingStatePPOTrainingState(BaseModel):
+    type: Literal[TrainingStateTypes.PPO_TRAINING_STATE] = TrainingStateTypes.PPO_TRAINING_STATE
+    content: PPOTrainingState
+
+TrainingState = TrainingStatePPOTrainingState
+class Checkpoint(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    model_zip_base_64: Optional[str] = Field(alias="model_zip_base64", default=None)
+    training_state: TrainingState
 
 class FFNModel(BaseModel):
     num_hidden_layers: int
@@ -50,6 +64,10 @@ class PPOTrainingMethod(BaseModel):
     reward_function: RewardSystem
     control_model: ControlModel
     value_model: ValueModel
+
+class PPOTrainingState(BaseModel):
+    epoch_index: int
+    update_index: int
 
 class TrainingMethodTypes(str, Enum):
     PPO = "PPO"

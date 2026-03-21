@@ -103,3 +103,24 @@ pub enum CheckpointFrequency {
     PostUpdate(i32),
     // PostMinibatch(i64)
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct Checkpoint {
+    pub model_zip_base64: Option<String>,
+    pub training_state: TrainingState
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum TrainingState {
+    PPOTrainingState(PPOTrainingState)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct PPOTrainingState {
+    pub epoch_index: i32,
+    pub update_index: i32
+}

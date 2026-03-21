@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import base64
+import io
 import logging
 import os
+import zipfile
 from typing import Any, Callable
 
 import orbax.checkpoint as ocp
@@ -14,9 +17,11 @@ from commondef.remoteworkermessages import (
     TrainingUpdatesMessage,
 )
 from commondef.training import (
+    Checkpoint,
     CheckpointFrequencyTypes,
     MetricsData,
     PPOTrainingMethod,
+    PPOTrainingState,
     TrainingAccelerationMode,
     TrainingJobController,
     TrainingMetricsMeanEntropy,
@@ -25,6 +30,7 @@ from commondef.training import (
     TrainingMetricsPolicyGradientNorm,
     TrainingMetricsValueGradientNorm,
     TrainingMetricsValueLoss,
+    TrainingStatePPOTrainingState,
 )
 from ppo_trainer import PPOTrainer, PPOTrainedModel
 from simulator import Simulator
@@ -105,16 +111,50 @@ class TrainingWorkflow:
                 id=training_id,
                 metrics=[],
                 logs=[msg],
+                checkpoints=[],
             )
         )
 
-    def _save_checkpoint(self, label: str) -> None:
+    def _save_and_send_checkpoint(
+        self,
+        tx: TrainingTaskSink,
+        label: str,
+        epoch_index: int,
+        update_index: int,
+    ) -> None:
         base = os.path.join(self._ckpt_dir, label)
         self._checkpointer.save(os.path.join(base, "policy"),     self.model.get_policy_store())
         self._checkpointer.save(os.path.join(base, "value"),      self.model.get_value_store())
         self._checkpointer.save(os.path.join(base, "policy_opt"), self.trainer.policy_opt)
         self._checkpointer.save(os.path.join(base, "value_opt"),  self.trainer.value_opt)
         logger.info("Checkpoint saved: training_id=%s label=%s", self.id, label)
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for dirpath, _, filenames in os.walk(base):
+                for fname in filenames:
+                    fpath = os.path.join(dirpath, fname)
+                    zf.write(fpath, arcname=os.path.relpath(fpath, base))
+        model_zip_base64 = base64.b64encode(buf.getvalue()).decode()
+
+        checkpoint = Checkpoint(
+            model_zip_base64=model_zip_base64,
+            training_state=TrainingStatePPOTrainingState(
+                content=PPOTrainingState(
+                    epoch_index=epoch_index,
+                    update_index=update_index,
+                )
+            ),
+        )
+        tx.send_training_updates(
+            TrainingUpdatesMessage(
+                id=self.id,
+                metrics=[],
+                logs=[],
+                checkpoints=[checkpoint],
+            )
+        )
+        logger.info("Checkpoint sent: training_id=%s epoch=%s update=%s", self.id, epoch_index, update_index)
 
     def _is_gpu_training(self) -> bool:
         mode = self.training_controller.acceleration_mode
@@ -170,11 +210,21 @@ class TrainingWorkflow:
                     freq.type == CheckpointFrequencyTypes.POST_UPDATE
                     and self.params.num_updates % freq.content == 0
                 ):
-                    self._save_checkpoint(f"epoch_{i}_updates")
+                    self._save_and_send_checkpoint(
+                        tx,
+                        label=f"epoch_{i}_updates",
+                        epoch_index=i,
+                        update_index=self.params.num_updates - 1,
+                    )
             else:
                 def _post_update_cb(update_idx: int) -> None:
                     if (update_idx + 1) % freq.content == 0:
-                        self._save_checkpoint(f"epoch_{i}_update_{update_idx}")
+                        self._save_and_send_checkpoint(
+                            tx,
+                            label=f"epoch_{i}_update_{update_idx}",
+                            epoch_index=i,
+                            update_index=update_idx,
+                        )
 
                 post_update_callback = (
                     _post_update_cb
@@ -190,7 +240,12 @@ class TrainingWorkflow:
                 freq.type == CheckpointFrequencyTypes.POST_EPOCH
                 and (i + 1) % freq.content == 0
             ):
-                self._save_checkpoint(f"epoch_{i}")
+                self._save_and_send_checkpoint(
+                    tx,
+                    label=f"epoch_{i}",
+                    epoch_index=i,
+                    update_index=self.params.num_updates - 1,
+                )
             logger.info(
                 "Epoch completed: id=%s epoch=%s mean_reward=%.6f mean_entropy=%.6f",
                 self.id,
@@ -247,6 +302,7 @@ class TrainingWorkflow:
                         value_grad_norm_m,
                     ],
                     logs=[],
+                    checkpoints=[],
                 )
             )
 
