@@ -242,13 +242,14 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                     let training_id = t.id.clone();
                                                     let training_controller = t.training_controller;
                                                     match (
-                                                        training_controller.acceleration_mode,
-                                                        training_controller.training_method,
+                                                        &training_controller.acceleration_mode,
+                                                        &training_controller.training_method,
                                                     ) {
                                                         (
                                                             commondef::training::TrainingAccelerationMode::AllOnServer,
                                                             commondef::training::TrainingMethod::PPO(ppomethod),
                                                         ) => {
+                                                        let ppomethod = ppomethod.clone();
                                                             if workflow_runtime.is_none() {
                                                                 println!("LoadModelMessage must be sent before StartTrainingMessage");
                                                                 continue;
@@ -279,7 +280,8 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                             });
                                                             training_tasks.insert(training_id, h);
                                                         }
-                                                        (_, training_method) => {
+                                                        (_, _) => {
+                                                            let training_controller_c = training_controller;
                                                             let model_path = match loaded_model_path.clone() {
                                                                 Some(path) => path,
                                                                 None => {
@@ -332,7 +334,7 @@ fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
                                                                 let result = worker
                                                                     .run_training_job(
                                                                         id_c.clone(),
-                                                                        training_method,
+                                                                        training_controller_c,
                                                                         Some(model_path.clone()),
                                                                         mjcf,
                                                                         move |update| {

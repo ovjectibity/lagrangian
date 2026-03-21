@@ -62,7 +62,7 @@ TrainingMethod = TrainingMethodPPO
 class TrainingAccelerationMode(str, Enum):
     MLGPUSIMULATIONCPU = "MLGPUSimulationCPU"
     MLGPUSIMULATIONGPU = "MLGPUSimulationGPU"
-    MLCPUSIMULATIONGPU = "MLCPUSimulationGPU"
+    MLCPUSIMULATIONCPU = "MLCPUSimulationCPU"
     ALLONSERVER = "AllOnServer"
 class ComputeInstance(str, Enum):
     AWSG4DN = "AWSG4dn"

@@ -245,9 +245,9 @@ async def handle_connection(
                     # simulator = MjxSimulator(mjcf=_MINIMAL_MJCF)
                     resolved_model_path: str | None = None
                     resolved_mjcf: str | None = None
-                    if load_msg.model_zip_base64 and load_msg.mjcf_entrypoint:
+                    if load_msg.model_zip_base_64 and load_msg.mjcf_entrypoint:
                         model_tmpdir, resolved_model_path = _extract_model_bundle_to_tempdir(
-                            model_zip_base64=load_msg.model_zip_base64,
+                            model_zip_base64=load_msg.model_zip_base_64,
                             mjcf_entrypoint=load_msg.mjcf_entrypoint,
                         )
                         logger.info(
@@ -312,7 +312,7 @@ async def handle_connection(
                     continue
 
                 acceleration_mode = start_msg.training_controller.acceleration_mode
-                if acceleration_mode == TrainingAccelerationMode.MLCPUSimulationCPU:
+                if acceleration_mode == TrainingAccelerationMode.MLCPUSIMULATIONCPU:
                     logger.info("Using MujocoSimulator (CPU) for training_id=%s", training_id)
                     runtime.simulator = MujocoSimulator(
                         model_path=runtime.model_path, mjcf=runtime.mjcf
@@ -323,7 +323,7 @@ async def handle_connection(
                         model_path=runtime.model_path, mjcf=runtime.mjcf
                     )
 
-                ppo_params = start_msg.training_workflow.content
+                ppo_params = start_msg.training_controller.training_method.content
                 runtime.model = _build_model_for_training(runtime.simulator, ppo_params)
                 workflow = TrainingWorkflow(
                     training_id=training_id,

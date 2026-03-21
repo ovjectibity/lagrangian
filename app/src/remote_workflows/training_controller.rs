@@ -34,7 +34,7 @@ use crate::commondef::remoteworkermessages::{
     LoadModelMessage, StartTrainingMessage, StopTrainingMessage, TrainingRemoteWorkerClientMessage,
     TrainingRemoteWorkerServerMessage, TrainingUpdatesMessage,
 };
-use crate::commondef::training::TrainingMethod;
+use crate::commondef::training::TrainingJobController;
 
 type DynError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, DynError>;
@@ -208,7 +208,7 @@ impl TrainingWorkerController {
     pub async fn run_training_job<F>(
         &mut self,
         training_id: String,
-        training_workflow: TrainingMethod,
+        training_controller: TrainingJobController,
         model_path: Option<String>,
         mjcf: String,
         mut on_update: F,
@@ -243,7 +243,7 @@ impl TrainingWorkerController {
         self.send_to_worker(&TrainingRemoteWorkerServerMessage::StartTrainingMessage(
             StartTrainingMessage {
                 id: training_id.clone(),
-                training_workflow,
+                training_controller,
             },
         ))
         .await?;
