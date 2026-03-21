@@ -1,5 +1,5 @@
-jax[cuda13]
-jax
+# jax[cuda13]
+jax==0.9.1
 websockets
 pydantic
 mujoco-mjx

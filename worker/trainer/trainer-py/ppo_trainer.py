@@ -188,6 +188,7 @@ class PPOTrainer:
     def get_action_output_size(self) -> int:
         return self.simulator.nu()
 
+    #Parallelise rollouts here using vmap: 
     def gen_trajectory(self) -> Trajectory:
         logger.info("gen_trajectory: start (traj_depth=%s)", self.traj_depth)
         action_output_size = self.get_action_output_size()

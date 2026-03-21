@@ -1,3 +1,6 @@
+import os
+os.environ["JAX_LOG_COMPILES"] = "0"
+
 import asyncio
 import base64
 import hmac
@@ -235,6 +238,9 @@ async def handle_connection(
                     if runtime is not None and runtime.model_tmpdir is not None:
                         runtime.model_tmpdir.cleanup()
                     model_tmpdir: tempfile.TemporaryDirectory | None = None
+                    # DEBUG: use minimal model to test put_model performance
+                    # _MINIMAL_MJCF = '<mujoco><worldbody><body><geom type="sphere" size="0.1"/></body></worldbody></mujoco>'
+                    # simulator = MjxSimulator(mjcf=_MINIMAL_MJCF)
                     if load_msg.model_zip_base64 and load_msg.mjcf_entrypoint:
                         model_tmpdir, model_path = _extract_model_bundle_to_tempdir(
                             model_zip_base64=load_msg.model_zip_base64,
