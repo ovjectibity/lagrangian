@@ -114,6 +114,7 @@ def _build_default_model(simulator: Simulator) -> ArmModel:
         val_estimator=value,
         pol_store=policy_store,
         val_estimator_store=value_store,
+        nbody=simulator.nbody(),
     )
 
 
@@ -139,12 +140,12 @@ def _build_model_for_training(
         add_softmax=False,
         control_policy=False,
     )
-    _ = simulator
     return ArmModel.init_ppo_trained_model(
         policy=policy,
         val_estimator=value,
         pol_store=policy_store,
         val_estimator_store=value_store,
+        nbody=simulator.nbody(),
     )
 
 

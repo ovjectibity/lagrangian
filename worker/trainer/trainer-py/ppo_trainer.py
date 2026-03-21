@@ -119,6 +119,20 @@ class PPOTrainedModel(ABC):
     def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
         pass
 
+    @abstractmethod
+    def get_pure_policy_fn(self) -> Callable[[Params, Array], Array]:
+        """Returns a pure, JAX-traceable policy function: (params, state) -> gaussian_params."""
+        pass
+
+    @abstractmethod
+    def get_pure_reward_fn(self) -> Callable[[Array, Array, Array, Array], Array]:
+        """Returns a pure, JAX-traceable reward function.
+
+        Signature: (cstate, cstate_next, action, contact_matrix) -> scalar reward
+        where contact_matrix is a float32 [nbody, nbody] array with 1.0 for active contacts.
+        """
+        pass
+
 
 # Backward compatible name requested by prompt text.
 PPoTrainedModel = PPOTrainedModel
@@ -188,7 +202,58 @@ class PPOTrainer:
     def get_action_output_size(self) -> int:
         return self.simulator.nu()
 
-    #Parallelise rollouts here using vmap: 
+    def gen_trajectory_step(
+        self,
+        wstate: Array,
+        cstate: Array,
+        rng_key: Array,
+        policy_fn: Callable[[Params, Array], Array],
+        policy_store: Params,
+        output_mode: ControlPolicyOutputMode,
+        reward_fn: Callable[[Array, Array, Array, list[tuple[int, int]] | None], float],
+        simulator_step_fn: Callable[[Array], tuple[Array, Array, list[tuple[int, int]]]],
+    ) -> tuple[Array, Array, Array, Array, float, Array]:
+        """Pure functional single trajectory step.
+
+        Args:
+            wstate: current world state (joint positions + velocities)
+            cstate: current cartesian state (body xpos + xquat)
+            rng_key: JAX RNG key for action sampling
+            policy_fn: callable (params, state) -> gaussian_params
+            policy_store: policy network parameters
+            output_mode: how to interpret policy output as controls
+            reward_fn: callable (cstate, cstate_next, action, contact_pairs) -> float
+            simulator_step_fn: callable (controls) -> (wstate_next, cstate_next, contact_pairs)
+
+        Returns:
+            (wstate_next, cstate_next, model_output, model_output_sample, reward, rng_key_next)
+        """
+        action_output_size = self.get_action_output_size()
+
+        action_gaussian_params = jnp.asarray(policy_fn(policy_store, wstate))
+        action_gaussian_mean = action_gaussian_params[:action_output_size]
+        action_gaussian_stdev = jnp.exp(action_gaussian_params[action_output_size:])
+
+        rng_key_next, eps_key = random.split(rng_key)
+        eps = random.normal(eps_key, shape=(action_output_size,))
+        sampled_action = action_gaussian_mean + eps * action_gaussian_stdev
+
+        if output_mode == ControlPolicyOutputMode.TargetTorques:
+            controls = sampled_action
+        elif output_mode == ControlPolicyOutputMode.TargetPositions:
+            controls = sampled_action
+        elif output_mode == ControlPolicyOutputMode.TargetVelocities:
+            controls = sampled_action
+        else:
+            raise ValueError(f"Unsupported control mode: {output_mode}")
+
+        wstate_next, cstate_next, contact_pairs = simulator_step_fn(controls)
+
+        reward = reward_fn(cstate, cstate_next, sampled_action, contact_pairs)
+
+        return wstate_next, cstate_next, action_gaussian_params, sampled_action, reward, rng_key_next
+
+    #Parallelise rollouts here using vmap:
     def gen_trajectory(self) -> Trajectory:
         logger.info("gen_trajectory: start (traj_depth=%s)", self.traj_depth)
         action_output_size = self.get_action_output_size()
@@ -370,35 +435,44 @@ class PPOTrainer:
         return self.get_value_function_objective(trajs, value_store)
 
     def train_an_epoch(self, trajs: Sequence[Trajectory]) -> PPOTrainerRuntimeInfo:
+        logger.info("train_an_epoch: computing GAEs for %s trajs", len(trajs))
         gae_v = [self.compute_gae(traj) for traj in trajs]
         gaes = jnp.stack(gae_v)
         gae_mean = jnp.mean(gaes)
         gae_std = jnp.std(gaes)
         gaes = (gaes - gae_mean) / (gae_std + 1e-8)
+        logger.info("train_an_epoch: GAE mean=%.4f std=%.4f", float(gae_mean), float(gae_std))
         mean_policy_loss: list[float] = []
         mean_value_loss: list[float] = []
         policy_gradient_norm: list[float] = []
         value_gradient_norm: list[float] = []
-        for _ in range(self.num_updates):
+        for update_idx in range(self.num_updates):
+            logger.info("train_an_epoch: update %s/%s — computing policy loss", update_idx + 1, self.num_updates)
             policy_store = self.model.get_policy_store()
             policy_loss_fn = lambda p: self.get_mean_policy_loss(trajs, gaes, p)
             policy_loss, policy_grads = jax.value_and_grad(policy_loss_fn)(policy_store)
             mean_policy_loss.append(float(policy_loss))
-            policy_gradient_norm.append(self.get_gradient_norm(policy_grads))
+            p_grad_norm = self.get_gradient_norm(policy_grads)
+            policy_gradient_norm.append(p_grad_norm)
+            logger.info("train_an_epoch: update %s/%s — policy_loss=%.6f grad_norm=%.6f", update_idx + 1, self.num_updates, float(policy_loss), p_grad_norm)
             policy_store, self.policy_opt = self._adam_step(
                 policy_store, policy_grads, self.policy_opt
             )
             self.model.get_policy_store_mut().update(policy_store)
 
+            logger.info("train_an_epoch: update %s/%s — computing value loss", update_idx + 1, self.num_updates)
             value_store = self.model.get_value_store()
             value_loss_fn = lambda v: self.get_mean_value_loss(trajs, v)
             value_loss, value_grads = jax.value_and_grad(value_loss_fn)(value_store)
             mean_value_loss.append(float(value_loss))
-            value_gradient_norm.append(self.get_gradient_norm(value_grads))
+            v_grad_norm = self.get_gradient_norm(value_grads)
+            value_gradient_norm.append(v_grad_norm)
+            logger.info("train_an_epoch: update %s/%s — value_loss=%.6f grad_norm=%.6f", update_idx + 1, self.num_updates, float(value_loss), v_grad_norm)
             value_store, self.value_opt = self._adam_step(
                 value_store, value_grads, self.value_opt
             )
             self.model.get_value_store_mut().update(value_store)
+        logger.info("train_an_epoch: done")
         return PPOTrainerRuntimeInfo(
             mean_policy_loss,
             mean_value_loss,

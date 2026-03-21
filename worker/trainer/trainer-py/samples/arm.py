@@ -18,12 +18,14 @@ class ArmModel(PPOTrainedModel):
         value: Callable[[Params, Array], Array],
         policy_store: Params,
         value_store: Params,
+        nbody: int = 0,
     ) -> None:
         self.control_output_mode = ControlPolicyOutputMode.TargetPositions
         self.policy = policy
         self.value = value
         self.policy_store = policy_store
         self.value_store = value_store
+        self.nbody = nbody
         self.bq = 7
         self.target_cube_body_index = 3
         self.start_center_xy = (0.35, 0.22)
@@ -114,12 +116,14 @@ class ArmModel(PPOTrainedModel):
         val_estimator: Callable[[Params, Array], Array],
         pol_store: Params,
         val_estimator_store: Params,
+        nbody: int = 0,
     ) -> ArmModel:
         return cls(
             policy=policy,
             value=val_estimator,
             policy_store=pol_store,
             value_store=val_estimator_store,
+            nbody=nbody,
         )
 
     def forward_policy_impl(self, state: Array) -> Array:
@@ -341,3 +345,110 @@ class ArmModel(PPOTrainedModel):
 
     def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
         return self.control_output_mode
+
+    def get_pure_policy_fn(self) -> Callable[[Params, Array], Array]:
+        return self.policy
+
+    def get_pure_reward_fn(self) -> Callable[[Array, Array, Array, Array], Array]:
+        target_cube_body_index = self.target_cube_body_index
+        left_finger_body_index = 12
+        right_finger_body_index = 13
+        gripper_prop_body_index = 11
+        gripper_body_index = 10
+        left_box_body_index = 1
+        right_box_body_index = 2
+        target_center_xy = self.target_center_xy
+        left_box_start = (0.35, 0.22, 0.0)
+        right_box_start = (0.35, -0.22, 0.0)
+        w_prog = 10.0
+        w_gripper_above = 2.0
+        w_gripper_below = 4.0
+        w_gripper_down = 1.5
+        w_box_move = 20.0
+        w_cube_drop = 20.0
+        w_grip_contact = 20.0
+        w_cube_contact_clean = 70.0
+        cube_drop_z_threshold = 0.10
+        gripper_xy_reward_radius = 0.035
+        z_clearance = 0.03
+        z_sat_k = 4.0
+
+        def _get_body_pos_jax(cstate: Array, body_index: int, nbody: int) -> tuple[Array, Array, Array]:
+            x = cstate[body_index * 3]
+            y = cstate[body_index * 3 + 1]
+            z = cstate[body_index * 3 + 2]
+            return x, y, z
+
+        def _get_body_quat_jax(cstate: Array, body_index: int, nbody: int) -> tuple[Array, Array, Array, Array]:
+            quat_offset = nbody * 3 + body_index * 4
+            return cstate[quat_offset], cstate[quat_offset + 1], cstate[quat_offset + 2], cstate[quat_offset + 3]
+
+        def pure_reward(cstate: Array, cstate_next: Array, action: Array, contact_matrix: Array) -> Array:
+            nbody = contact_matrix.shape[0]
+
+            next_cx, next_cy, next_cz = _get_body_pos_jax(cstate_next, target_cube_body_index, nbody)
+            next_cube_dx = next_cx - target_center_xy[0]
+            next_cube_dy = next_cy - target_center_xy[1]
+            next_cube_dist = jnp.sqrt(next_cube_dx ** 2 + next_cube_dy ** 2)
+
+            prev_cx, prev_cy, _ = _get_body_pos_jax(cstate, target_cube_body_index, nbody)
+            prev_cube_dx = prev_cx - target_center_xy[0]
+            prev_cube_dy = prev_cy - target_center_xy[1]
+            prev_cube_dist = jnp.sqrt(prev_cube_dx ** 2 + prev_cube_dy ** 2)
+            _ = (prev_cube_dist - next_cube_dist) * w_prog
+
+            gripper_next_x, gripper_next_y, gripper_next_z = _get_body_pos_jax(cstate_next, gripper_body_index, nbody)
+            gripper_xy_dist = jnp.sqrt((gripper_next_x - next_cx) ** 2 + (gripper_next_y - next_cy) ** 2)
+            gripper_xy = -w_gripper_above * gripper_xy_dist
+
+            z_gap = gripper_next_z - next_cz
+            z_above = jnp.maximum(z_gap, 0.0)
+            z_below = jnp.maximum(jnp.abs(z_gap) - z_clearance, 0.0) * jnp.where(z_gap < 0.0, 1.0, 0.0)
+            r_above_z = w_gripper_above * jnp.exp(-z_sat_k * z_above)
+            p_below_z = -w_gripper_below * z_below
+            r_gripper_above = jnp.where(
+                gripper_xy_dist <= gripper_xy_reward_radius,
+                p_below_z + r_above_z,
+                p_below_z,
+            )
+
+            qw, qx, qy, qz = _get_body_quat_jax(cstate_next, gripper_body_index, nbody)
+            gripper_x_world_z = 2.0 * (qx * qz - qw * qy)
+            down_alignment = jnp.clip(-gripper_x_world_z, 0.0, 1.0)
+            r_gripper_down = w_gripper_down * down_alignment
+
+            left_contact = contact_matrix[target_cube_body_index, left_finger_body_index]
+            right_contact = contact_matrix[target_cube_body_index, right_finger_body_index]
+            prop_contact = contact_matrix[target_cube_body_index, gripper_prop_body_index]
+            # sum of all cube contacts minus allowed ones — if nonzero, cube has disallowed contacts
+            cube_row = contact_matrix[target_cube_body_index]
+            allowed_mask = jnp.zeros_like(cube_row).at[left_finger_body_index].set(1.0).at[right_finger_body_index].set(1.0).at[gripper_prop_body_index].set(1.0)
+            disallowed_contacts = jnp.sum(cube_row * (1.0 - allowed_mask))
+            has_disallowed = disallowed_contacts > 0.0
+            contact_count = left_contact + right_contact + prop_contact
+            r_grip_contact = w_grip_contact * contact_count
+            r_cube_contact_clean = jnp.where(
+                (contact_count > 0.0) & ~has_disallowed,
+                w_cube_contact_clean,
+                0.0,
+            )
+
+            left_x, left_y, _ = _get_body_pos_jax(cstate_next, left_box_body_index, nbody)
+            right_x, right_y, _ = _get_body_pos_jax(cstate_next, right_box_body_index, nbody)
+            left_disp = jnp.sqrt((left_x - left_box_start[0]) ** 2 + (left_y - left_box_start[1]) ** 2)
+            right_disp = jnp.sqrt((right_x - right_box_start[0]) ** 2 + (right_y - right_box_start[1]) ** 2)
+            r_box_moved = -w_box_move * (left_disp + right_disp)
+
+            p_cube_drop = jnp.where(next_cz < cube_drop_z_threshold, -w_cube_drop, 0.0)
+
+            return (
+                r_gripper_above
+                + r_gripper_down
+                + gripper_xy
+                + r_box_moved
+                + p_cube_drop
+                + r_grip_contact
+                + r_cube_contact_clean
+            )
+
+        return pure_reward

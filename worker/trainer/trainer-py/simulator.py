@@ -40,6 +40,10 @@ class Simulator(ABC):
         pass
 
     @abstractmethod
+    def nbody(self) -> int:
+        pass
+
+    @abstractmethod
     def forward_dyn(self, controls: Array) -> None:
         pass
 
@@ -262,6 +266,9 @@ class MjxSimulator(Simulator):
 
     def nv(self) -> int:
         return int(self._model.nv)
+
+    def nbody(self) -> int:
+        return int(self._model.nbody)
 
     def forward_dyn(self, controls: Array) -> None:
         print("Controls array is: ",controls)
@@ -569,6 +576,9 @@ class MujocoSimulator(Simulator):
 
     def nv(self) -> int:
         return int(self._model.nv)
+
+    def nbody(self) -> int:
+        return int(self._model.nbody)
 
     def forward_dyn(self, controls: Array) -> None:
         ctrl_vals = np.asarray(jax.device_get(controls), dtype=np.float64).reshape(-1).tolist()
