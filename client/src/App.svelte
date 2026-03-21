@@ -301,7 +301,9 @@
       type: 'StartTrainingMessage',
       content: {
         id: trainingTaskId,
-        training_controller: buildTrainingController(),
+        training_graph: {
+          training_job_controller: buildTrainingController(),
+        },
       },
     });
     if (wasSent) {
