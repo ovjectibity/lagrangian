@@ -13,6 +13,8 @@ from commondef.remoteworkermessages import (
 from commondef.training import (
     MetricsData,
     PPOTrainingMethod,
+    TrainingAccelerationMode,
+    TrainingJobController,
     TrainingMetricsMeanEntropy,
     TrainingMetricsMeanPolicyLoss,
     TrainingMetricsMeanReward,
@@ -58,28 +60,30 @@ class TrainingWorkflow:
     def __init__(
         self,
         training_id: str,
-        params: PPOTrainingMethod,
+        training_controller: TrainingJobController,
         simulator: Simulator,
         model: PPOTrainedModel,
     ) -> None:
         self.id = training_id
         self.simulator = simulator
         self.model = model
-        self.params = params
-        # Mirrors app/src/workflows/training.rs values.
+        self.training_controller = training_controller
+        self.params: PPOTrainingMethod = training_controller.training_method.content
         self.trainer = PPOTrainer(
             simulator=simulator,
             model=model,
-            num_trajs=100,
-            traj_depth=10000,
-            num_updates=10,
-            epsilon=params.epsilon,
+            num_trajs=self.params.num_trajs,
+            traj_depth=self.params.num_steps_per_traj,
+            num_updates=self.params.num_updates,
+            epsilon=self.params.epsilon,
+            gamma_lambda=(self.params.gamma, self.params.lambda_),
         )
         logger.info(
-            "TrainingWorkflow initialized: id=%s epochs=%s epsilon=%s",
+            "TrainingWorkflow initialized: id=%s epochs=%s epsilon=%s acceleration=%s",
             self.id,
             self.params.num_epochs,
             self.params.epsilon,
+            self.training_controller.acceleration_mode,
         )
 
     @staticmethod
@@ -97,12 +101,29 @@ class TrainingWorkflow:
             )
         )
 
+    def _is_gpu_training(self) -> bool:
+        mode = self.training_controller.acceleration_mode
+        return mode in (
+            TrainingAccelerationMode.MLGPUSIMULATIONCPU,
+            TrainingAccelerationMode.MLGPUSIMULATIONGPU,
+        )
+
     def run_training_blocking(
         self,
         tx: TrainingTaskSink,
         should_stop: Callable[[], bool] | None = None,
     ) -> None:
-        logger.info("Training run started: id=%s", self.id)
+        use_gpu = self._is_gpu_training()
+        logger.info("Training run started: id=%s use_gpu=%s", self.id, use_gpu)
+
+        if use_gpu:
+            import jax
+            from simulator import MjxSimulator
+            mjx_sim: MjxSimulator = self.simulator  # type: ignore[assignment]
+            mjx_sim.reset_state()
+            base_mjx_data = mjx_sim._mjx_data
+            base_rng = jax.random.PRNGKey(0)
+
         for i in range(self.params.num_epochs):
             if should_stop is not None and should_stop():
                 logger.info("Training run stop requested: id=%s epoch=%s", self.id, i)
@@ -112,10 +133,26 @@ class TrainingWorkflow:
                 self.id,
                 f"Running the training epoch {i}",
             )
-            trajs = self.trainer.gen_trajectories(10)
-            runtime_info = self.trainer.train_an_epoch(trajs)
-            mean_entropy = self.trainer.get_rollout_mean_entropy(trajs)
-            mean_reward = self.trainer.get_rollout_mean_reward(trajs)
+
+            if use_gpu:
+                base_rng, epoch_rng = jax.random.split(base_rng)
+                wstates, _, model_outputs, action_samples, rewards = (
+                    self.trainer.gen_trajectories_gpu(
+                        self.params.num_trajs,
+                        base_mjx_data,
+                        epoch_rng,
+                    )
+                )
+                runtime_info = self.trainer.train_an_epoch_gpu(
+                    wstates, action_samples, rewards, model_outputs
+                )
+                mean_entropy = 0.0  # entropy not computed in GPU path yet
+                mean_reward = float(jax.numpy.mean(rewards))
+            else:
+                trajs = self.trainer.gen_trajectories(self.params.num_trajs)
+                runtime_info = self.trainer.train_an_epoch(trajs)
+                mean_entropy = self.trainer.get_rollout_mean_entropy(trajs)
+                mean_reward = self.trainer.get_rollout_mean_reward(trajs)
             logger.info(
                 "Epoch completed: id=%s epoch=%s mean_reward=%.6f mean_entropy=%.6f",
                 self.id,

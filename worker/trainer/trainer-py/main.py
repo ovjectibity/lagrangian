@@ -328,7 +328,7 @@ async def handle_connection(
                 runtime.model = _build_model_for_training(runtime.simulator, ppo_params)
                 workflow = TrainingWorkflow(
                     training_id=training_id,
-                    params=ppo_params,
+                    training_controller=start_msg.training_controller,
                     simulator=runtime.simulator,
                     model=runtime.model,
                 )

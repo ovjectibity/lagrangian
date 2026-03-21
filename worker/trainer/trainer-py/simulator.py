@@ -276,6 +276,42 @@ class MjxSimulator(Simulator):
         self._mjx_data = self._mjx_data.replace(ctrl=controls.reshape(self.nu()))
         self._mjx_data = mjx.step(self._mjx_model, self._mjx_data)
 
+    def forward_dyn_pure(
+        self,
+        mjx_data: Any,
+        controls: Array,
+    ) -> tuple[Any, Array, Array, Array]:
+        """Pure functional step: takes mjx_data + controls, returns (mjx_data_next, wstate, cstate, contact_matrix).
+
+        contact_matrix is a float32 [nbody, nbody] array with 1.0 for active contact pairs.
+        Does not mutate self._mjx_data.
+        """
+        nq = self.nq()
+        nu = self.nu()
+        nv = self.nv()
+        nbody = self.nbody()
+        geom_bodyid = jnp.asarray(self._model.geom_bodyid)
+
+        mjx_data_next = mjx.step(self._mjx_model, mjx_data.replace(ctrl=controls.reshape(nu)))
+
+        wstate = jnp.concatenate([
+            mjx_data_next.qpos[:nq],
+            mjx_data_next.qvel[:nv],
+        ])
+        xpos = mjx_data_next.xpos[:nbody].reshape(-1)
+        xquat = mjx_data_next.xquat[:nbody].reshape(-1)
+        cstate = jnp.concatenate([xpos, xquat])
+
+        geom1 = mjx_data_next.contact.geom1
+        geom2 = mjx_data_next.contact.geom2
+        body1 = geom_bodyid[geom1]
+        body2 = geom_bodyid[geom2]
+        contact_matrix = jnp.zeros((nbody, nbody), dtype=jnp.float32)
+        contact_matrix = contact_matrix.at[body1, body2].set(1.0)
+        contact_matrix = contact_matrix.at[body2, body1].set(1.0)
+
+        return mjx_data_next, wstate, cstate, contact_matrix
+
     def inverse_dyn(self, acc: Array) -> Array:
         self._sync_cpu_from_mjx()
         self._data.qacc[: self.nv()] = np.asarray(jax.device_get(acc), dtype=np.float64).reshape(self.nv())
