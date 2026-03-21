@@ -66,10 +66,24 @@ class TrainingAccelerationMode(str, Enum):
     ALLONSERVER = "AllOnServer"
 class ComputeInstance(str, Enum):
     AWSG4DN = "AWSG4dn"
+class CheckpointFrequencyTypes(str, Enum):
+    POST_EPOCH = "PostEpoch"
+    POST_UPDATE = "PostUpdate"
+
+class CheckpointFrequencyPostEpoch(BaseModel):
+    type: Literal[CheckpointFrequencyTypes.POST_EPOCH] = CheckpointFrequencyTypes.POST_EPOCH
+    content: int
+
+class CheckpointFrequencyPostUpdate(BaseModel):
+    type: Literal[CheckpointFrequencyTypes.POST_UPDATE] = CheckpointFrequencyTypes.POST_UPDATE
+    content: int
+
+CheckpointFrequency = Union[CheckpointFrequencyPostEpoch, CheckpointFrequencyPostUpdate]
 class TrainingJobController(BaseModel):
     training_method: TrainingMethod
     acceleration_mode: TrainingAccelerationMode
     compute_instance: ComputeInstance
+    checkpoint_frequency: CheckpointFrequency
 
 class TrainingMetricsTypes(str, Enum):
     MEAN_REWARD = "MeanReward"

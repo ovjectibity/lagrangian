@@ -435,7 +435,11 @@ class PPOTrainer:
     ) -> Array:
         return self.get_value_function_objective(trajs, value_store)
 
-    def train_an_epoch(self, trajs: Sequence[Trajectory]) -> PPOTrainerRuntimeInfo:
+    def train_an_epoch(
+        self,
+        trajs: Sequence[Trajectory],
+        post_update_callback: Callable[[int], None] | None = None,
+    ) -> PPOTrainerRuntimeInfo:
         logger.info("train_an_epoch: computing GAEs for %s trajs", len(trajs))
         gae_v = [self.compute_gae(traj) for traj in trajs]
         gaes = jnp.stack(gae_v)
@@ -473,6 +477,8 @@ class PPOTrainer:
                 value_store, value_grads, self.value_opt
             )
             self.model.get_value_store_mut().update(value_store)
+            if post_update_callback is not None:
+                post_update_callback(update_idx)
         logger.info("train_an_epoch: done")
         return PPOTrainerRuntimeInfo(
             mean_policy_loss,

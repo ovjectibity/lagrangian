@@ -48,4 +48,6 @@ pub struct TrainingUpdatesMessage {
     pub id: String,
     pub metrics: Vec<TrainingMetrics>,
     pub logs: Vec<String>,
+    // Add this, 
+    // pub checkpoints: 
 }

@@ -92,4 +92,14 @@ pub struct TrainingJobController {
     pub training_method: TrainingMethod,
     pub acceleration_mode: TrainingAccelerationMode,
     pub compute_instance: ComputeInstance,
+    pub checkpoint_frequency: CheckpointFrequency
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum CheckpointFrequency {
+    PostEpoch(i32),
+    PostUpdate(i32),
+    // PostMinibatch(i64)
 }

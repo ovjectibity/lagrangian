@@ -3,3 +3,4 @@ jax==0.9.1
 websockets
 pydantic
 mujoco-mjx
+orbax-checkpoint

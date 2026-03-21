@@ -55,8 +55,8 @@ class ArmModel(PPOTrainedModel):
         output_dimension: int,
         hidden_layer_dimension: int,
         num_layers: int,
-        add_softmax: bool,
-        control_policy: bool,
+        add_softmax: bool, 
+        control_policy: bool, 
         seed: int = 0,
     ) -> tuple[Callable[[Params, Array], Array], Params]:
         if control_policy and output_dimension % 2 != 0:

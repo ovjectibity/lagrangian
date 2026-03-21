@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import logging
+import os
 from typing import Any, Callable
+
+import orbax.checkpoint as ocp
 
 from commondef.remoteworkermessages import (
     StopTrainingMessage,
@@ -11,6 +14,7 @@ from commondef.remoteworkermessages import (
     TrainingUpdatesMessage,
 )
 from commondef.training import (
+    CheckpointFrequencyTypes,
     MetricsData,
     PPOTrainingMethod,
     TrainingAccelerationMode,
@@ -78,6 +82,9 @@ class TrainingWorkflow:
             epsilon=self.params.epsilon,
             gamma_lambda=(self.params.gamma, self.params.lambda_),
         )
+        self._ckpt_dir = f"/tmp/checkpoints/{training_id}"
+        os.makedirs(self._ckpt_dir, exist_ok=True)
+        self._checkpointer = ocp.PyTreeCheckpointer()
         logger.info(
             "TrainingWorkflow initialized: id=%s epochs=%s epsilon=%s acceleration=%s",
             self.id,
@@ -100,6 +107,14 @@ class TrainingWorkflow:
                 logs=[msg],
             )
         )
+
+    def _save_checkpoint(self, label: str) -> None:
+        base = os.path.join(self._ckpt_dir, label)
+        self._checkpointer.save(os.path.join(base, "policy"),     self.model.get_policy_store())
+        self._checkpointer.save(os.path.join(base, "value"),      self.model.get_value_store())
+        self._checkpointer.save(os.path.join(base, "policy_opt"), self.trainer.policy_opt)
+        self._checkpointer.save(os.path.join(base, "value_opt"),  self.trainer.value_opt)
+        logger.info("Checkpoint saved: training_id=%s label=%s", self.id, label)
 
     def _is_gpu_training(self) -> bool:
         mode = self.training_controller.acceleration_mode
@@ -134,6 +149,8 @@ class TrainingWorkflow:
                 f"Running the training epoch {i}",
             )
 
+            freq = self.training_controller.checkpoint_frequency
+
             if use_gpu:
                 base_rng, epoch_rng = jax.random.split(base_rng)
                 wstates, _, model_outputs, action_samples, rewards = (
@@ -148,11 +165,32 @@ class TrainingWorkflow:
                 )
                 mean_entropy = 0.0  # entropy not computed in GPU path yet
                 mean_reward = float(jax.numpy.mean(rewards))
+                # PostUpdate on GPU: save after the scan completes if num_updates is a multiple of n
+                if (
+                    freq.type == CheckpointFrequencyTypes.POST_UPDATE
+                    and self.params.num_updates % freq.content == 0
+                ):
+                    self._save_checkpoint(f"epoch_{i}_updates")
             else:
+                def _post_update_cb(update_idx: int) -> None:
+                    if (update_idx + 1) % freq.content == 0:
+                        self._save_checkpoint(f"epoch_{i}_update_{update_idx}")
+
+                post_update_callback = (
+                    _post_update_cb
+                    if freq.type == CheckpointFrequencyTypes.POST_UPDATE
+                    else None
+                )
                 trajs = self.trainer.gen_trajectories(self.params.num_trajs)
-                runtime_info = self.trainer.train_an_epoch(trajs)
+                runtime_info = self.trainer.train_an_epoch(trajs, post_update_callback)
                 mean_entropy = self.trainer.get_rollout_mean_entropy(trajs)
                 mean_reward = self.trainer.get_rollout_mean_reward(trajs)
+
+            if (
+                freq.type == CheckpointFrequencyTypes.POST_EPOCH
+                and (i + 1) % freq.content == 0
+            ):
+                self._save_checkpoint(f"epoch_{i}")
             logger.info(
                 "Epoch completed: id=%s epoch=%s mean_reward=%.6f mean_entropy=%.6f",
                 self.id,
