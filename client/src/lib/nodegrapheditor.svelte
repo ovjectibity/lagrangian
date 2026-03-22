@@ -4,7 +4,7 @@
     WorkflowEdge,
     WorkflowNode,
     WorkflowNodeSetting,
-  } from "../commondef/workflowgraph";
+  } from "../workflows/workflowgraph";
 
   const { nodes = [], edges = [], onOpenRewardEditor } = $props<{
     nodes?: WorkflowNode[];

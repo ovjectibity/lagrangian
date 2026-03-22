@@ -10,17 +10,10 @@
   import PlayPauseCta from './lib/playpausecta.svelte';
   import RewardEditor from './lib/rewardeditor.svelte';
   import TrainingRuntimeDashboard from './lib/trainingruntimedashboard.svelte';
-  import { SimulationParametersNode, TrainingGraphNodes } from './commondef/workflowgraph';
   import type { TabbedTab } from './lib/tabbedcontainer.svelte';
   import type { WorldBody } from './commondef/model';
-  import type { SimulationParams } from './commondef/testing';
   import type {
-    ComputeInstance,
-    FFNModel,
     MetricsData,
-    TrainingAccelerationMode,
-    TrainingJobController,
-    TrainingMethod,
     TrainingMetrics,
   } from './commondef/training';
   import type {
@@ -28,6 +21,9 @@
     ModelForward,
     ServerMessage,
   } from './commondef/messages';
+  import { buildTrainingController,
+    buildSimulationParams
+   } from './workflows/workflowgraph';
 
   let websocket: WebSocket | null = null;
   const trainingTaskId = 'training-task-1';
@@ -197,87 +193,6 @@
     selectedEditorTabId = 'model-editor';
   };
 
-  const getNodeSettingValue = (
-    nodeId: string,
-    settingKey: string,
-  ): number | string | undefined => {
-    const node = TrainingGraphNodes.find((workflowNode) => workflowNode.id === nodeId);
-    return node?.settings?.find((setting) => setting.key === settingKey)?.value;
-  };
-
-  const getNumericSetting = (
-    nodeId: string,
-    settingKey: string,
-    fallbackValue: number,
-  ): number => {
-    const value = getNodeSettingValue(nodeId, settingKey);
-    return typeof value === 'number' ? value : fallbackValue;
-  };
-
-  const getStringSetting = (
-    nodeId: string,
-    settingKey: string,
-    fallbackValue: string,
-  ): string => {
-    const value = getNodeSettingValue(nodeId, settingKey);
-    return typeof value === 'string' ? value : fallbackValue;
-  };
-
-  const buildFfnModel = (nodeId: string): FFNModel => {
-    return {
-      num_hidden_layers: getNumericSetting(nodeId, 'num_hidden_layers', 2),
-      hidden_layer_dim: getNumericSetting(nodeId, 'hidden_layer_dim', 128),
-      output_dim: getNumericSetting(nodeId, 'output_dim', 1),
-      input_dim: getNumericSetting(nodeId, 'input_dim', 58),
-    };
-  };
-
-  const buildTrainingWorkflow = (): TrainingMethod => {
-    return {
-      type: 'PPO',
-      content: {
-        num_trajs: getNumericSetting('training-method', 'num_trajs', 10),
-        num_steps_per_traj: getNumericSetting('training-method', 'num_steps_per_traj', 10000),
-        num_epochs: getNumericSetting('training-method', 'num_epochs', 10),
-        num_updates: getNumericSetting('training-method', 'num_updates', 10),
-        epsilon: getNumericSetting('training-method', 'epsilon', 0.2),
-        gamma: getNumericSetting('training-method', 'gamma', 0.99),
-        lambda: getNumericSetting('training-method', 'lambda', 0.95),
-        reward_function: {
-          reward_function_code: getStringSetting(
-            'reward-function',
-            'function_code',
-            '',
-          ),
-        },
-        control_model: {
-          type: 'FFN',
-          content: buildFfnModel('control-model'),
-        },
-        value_model: {
-          type: 'FFN',
-          content: buildFfnModel('value-model'),
-        },
-      },
-    };
-  };
-
-  const buildTrainingController = (): TrainingJobController => {
-    return {
-      training_method: buildTrainingWorkflow(),
-      acceleration_mode: getStringSetting(
-        'training-job-controller',
-        'acceleration_mode',
-        'AllOnServer',
-      ) as TrainingAccelerationMode,
-      compute_instance: getStringSetting(
-        'training-job-controller',
-        'compute_instance',
-        'AWSG4dn',
-      ) as ComputeInstance,
-    };
-  };
-
   const sendServerMessage = (message: ServerMessage): boolean => {
     if (!websocket || websocket.readyState !== WebSocket.OPEN) {
       console.warn('WebSocket is not connected. Could not send message:', message.type);
@@ -329,25 +244,6 @@
       return;
     }
     startTraining();
-  };
-
-  const buildSimulationParams = (): SimulationParams => {
-    
-    return {
-      policy_id: 'default-policy',
-      num_timesteps: 
-        SimulationParametersNode.settings?.find(
-          (node) => node.key === "num_timesteps")?.value as number,
-      control_model: {
-        type: 'FFN',
-        content: {
-          num_hidden_layers: 3,
-          hidden_layer_dim: 128,
-          output_dim: 58,
-          input_dim: 58,
-        },
-      },
-    };
   };
 
   const startTesting = () => {

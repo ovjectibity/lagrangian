@@ -1,7 +1,7 @@
 <script lang="ts">
   import NodeGraphEditor from "./nodegrapheditor.svelte";
-  import { TestingGraphEdges, TestingGraphNodes } from "../commondef/workflowgraph";
-  import type { WorkflowEdge, WorkflowNode } from "../commondef/workflowgraph";
+  import { TestingGraphEdges, TestingGraphNodes } from "../workflows/workflowgraph";
+  import type { WorkflowEdge, WorkflowNode } from "../workflows/workflowgraph";
 
   const testingNodes: WorkflowNode[] = TestingGraphNodes;
   const testingEdges: WorkflowEdge[] = TestingGraphEdges;
