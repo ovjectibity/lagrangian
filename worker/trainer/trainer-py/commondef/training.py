@@ -147,11 +147,17 @@ class TrainingUpdate(BaseModel):
 
 class TrainingExperimentRun(BaseModel):
     experiment_id: str
+    run_name: str
     run_id: str
+    created_at: str
+    run_start_at: str
+    run_end_at: str
     training_graph: TrainingGraph
     training_update: List[TrainingUpdate]
 
 class TrainingExperiment(BaseModel):
     experiment_id: str
+    experiment_name: str
+    created_at: str
     experiment_runs: List[TrainingExperimentRun]
 

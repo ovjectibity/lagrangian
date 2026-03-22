@@ -129,8 +129,8 @@ fn api_hello() -> &'static str {
     "Hello from Rocket!"
 }
 
-#[get("/viewport")]
-fn viewport_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
+#[get("/workloads")]
+fn workloads_channel(ws: ws::WebSocket) -> ws::Channel<'static> {
     let (tx_simul, mut rx_simul) = mpsc::channel::<workermessages::SimulatorThreadMessage>(32);
     let (tx_test, mut rx_test) = mpsc::channel::<workermessages::TestingTaskMessage>(32);
     let (tx_train, mut rx_train) = mpsc::channel::<workermessages::TrainingTaskMessage>(32);
@@ -510,7 +510,7 @@ fn rocket() -> _ {
     // renderer::render();
     rocket::build()
         // 1. API Routes
-        .mount("/api", routes![api_hello, viewport_channel])
+        .mount("/api", routes![api_hello, workloads_channel])
         // 2. Static Files (JS/CSS/Images)
         // Serve the 'dist' folder at the root path "/"
         // 'rank = 1' tries to match exact files first

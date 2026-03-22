@@ -7,6 +7,7 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Literal, Optional, Union
 
+from commondef.training import TrainingGraph, TrainingUpdate
 
 class LoadModelMessage(BaseModel):
     model_config = ConfigDict(populate_by_name=True)

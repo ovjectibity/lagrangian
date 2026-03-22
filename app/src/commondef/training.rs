@@ -135,6 +135,8 @@ pub struct PPOTrainingRunState {
 #[typeshare]
 pub struct TrainingExperiment {
     pub experiment_id: String, 
+    pub experiment_name: String, 
+    pub created_at: String, 
     pub experiment_runs: Vec<TrainingExperimentRun>
 }
 
@@ -142,7 +144,11 @@ pub struct TrainingExperiment {
 #[typeshare]
 pub struct TrainingExperimentRun {
     pub experiment_id: String, 
+    pub run_name: String, 
     pub run_id: String,
+    pub created_at: String, 
+    pub run_start_at: String, 
+    pub run_end_at: String, 
     pub training_graph: TrainingGraph,
     pub training_update: Vec<TrainingUpdate>
 }

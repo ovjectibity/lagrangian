@@ -8,12 +8,15 @@
   import TrainingGraphEditor from './lib/traininggrapheditor.svelte';
   import TestingGraphEditor from './lib/testinggrapheditor.svelte';
   import PlayPauseCta from './lib/playpausecta.svelte';
+  import Breadcrumb from './lib/breadcrumb.svelte';
   import RewardEditor from './lib/rewardeditor.svelte';
   import TrainingRuntimeDashboard from './lib/trainingruntimedashboard.svelte';
+  import TrainingExperimentsTable from './lib/trainingexperimentstable.svelte';
   import type { TabbedTab } from './lib/tabbedcontainer.svelte';
   import type { WorldBody } from './commondef/model';
   import type {
     MetricsData,
+    TrainingExperiment,
     TrainingMetrics,
   } from './commondef/training';
   import type {
@@ -128,6 +131,21 @@
   }
 
   let editorTabs = $derived<TabbedTab[]>([
+    ...(selectedMode === 'Testing'
+      ? [
+          {
+            id: 'testing-graph',
+            name: 'Testing setup',
+            component: TestingGraphEditor
+          } satisfies TabbedTab
+        ]
+      : [
+          {
+            id: 'training-experiments',
+            name: 'Experiments',
+            component: TrainingExperimentsTable,
+          } satisfies TabbedTab,
+        ]),
     {
       id: 'model-editor',
       name: 'Model Editor',
@@ -140,13 +158,7 @@
       }
     },
     ...(selectedMode === 'Testing'
-      ? [
-          {
-            id: 'testing-graph',
-            name: 'Testing setup',
-            component: TestingGraphEditor
-          } satisfies TabbedTab
-        ]
+      ? []
       : [
           {
             id: 'training-graph',
@@ -163,7 +175,7 @@
           } satisfies TabbedTab,
           {
             id: 'training-runtime-dashboard',
-            name: 'Training runtime dashboard',
+            name: 'Training dashboard',
             component: TrainingRuntimeDashboard,
             props: {
               metricsByType: trainingMetricsByType
@@ -314,7 +326,7 @@
   };
 
   onMount(() => {
-    websocket = new WebSocket("ws://localhost:8000/api/viewport");
+    websocket = new WebSocket("ws://localhost:8000/api/workloads");
     websocket.binaryType = 'arraybuffer'; // Important for receiving binary data
 
     websocket.onopen = () => {
@@ -442,6 +454,7 @@
       />
     </div>
     {#if selectedMode === 'Training'}
+      <Breadcrumb />
       <PlayPauseCta
         isRunning={isTrainingRunning}
         isDisabled={isTrainingActionDisabled}
