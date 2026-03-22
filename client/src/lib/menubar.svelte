@@ -1,47 +1,38 @@
 <script lang="ts">
-  import DropdownList from './dropdownlist.svelte';
-  import { onMount, onDestroy } from 'svelte';
+  import type { NeoMenuItem } from '@dvcol/neo-svelte';
+
+  import { NeoThemeProvider, NeoButtonGroup, NeoButton, NeoMenu } from '@dvcol/neo-svelte';
 
   const { onImport } = $props<{
     onImport?: () => void;
   }>();
 
-  let showFileMenu = $state(false);
-  let menuContainer: HTMLDivElement;
+  let fileMenuOpen = $state(false);
 
-  function toggleFileMenu() {
-    showFileMenu = !showFileMenu;
-  }
+  const fileMenuItems: NeoMenuItem[] = [
+    { value: 'Import', label: 'Import' },
+  ];
 
-  const handleFileMenuSelect = (item: string): void => {
-    showFileMenu = false;
-    if (item === 'Import') {
+  const handleFileMenuSelect = (item: NeoMenuItem): void => {
+    fileMenuOpen = false;
+    if (item.value === 'Import') {
       onImport?.();
     }
   };
-
-  function handleClickOutside(event: MouseEvent) {
-    if (menuContainer && !menuContainer.contains(event.target as Node)) {
-      showFileMenu = false;
-    }
-  }
-
-  onMount(() => {
-    document.addEventListener('click', handleClickOutside);
-  });
-
-  onDestroy(() => {
-    document.removeEventListener('click', handleClickOutside);
-  });
 </script>
 
-<div class="menu-bar">
-  <div class="menu-bar-item" style="position: relative;" bind:this={menuContainer}>
-    <button class="menu-button" onclick={toggleFileMenu}>File</button>
-    <DropdownList
-      items={['Import']}
-      show={showFileMenu}
+<NeoThemeProvider target="self">
+  <NeoButtonGroup class="menubar-button-group" rounded={false}>
+    <NeoMenu
+      items={fileMenuItems}
+      bind:open={fileMenuOpen}
+      openOnHover={false}
+      portal={false}
+      placement="bottom-start"
+      rounded="2px"
       onSelect={handleFileMenuSelect}
-    />
-  </div>
-</div>
+    >
+      <NeoButton toggle bind:checked={fileMenuOpen}>File</NeoButton>
+    </NeoMenu>
+  </NeoButtonGroup>
+</NeoThemeProvider>
