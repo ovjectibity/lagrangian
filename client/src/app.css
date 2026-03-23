@@ -197,8 +197,8 @@ h1 {
   font-size: 13px !important;
 }
 
-.menubar-button-group .neo-tooltip {
-  font-size: 13px;
+.menubar-popselect-tooltip .neo-button {
+  font-size: 13px !important;
 }
 
 .mode-menu {

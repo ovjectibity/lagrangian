@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { NeoMenuItem } from '@dvcol/neo-svelte';
+  import type { NeoListSelectEvent } from '@dvcol/neo-svelte';
 
-  import { NeoThemeProvider, NeoButtonGroup, NeoButton, NeoMenu } from '@dvcol/neo-svelte';
+  import { NeoThemeProvider, NeoButtonGroup, NeoButton, NeoPopSelect } from '@dvcol/neo-svelte';
 
   const { onImport } = $props<{
     onImport?: () => void;
@@ -9,30 +9,30 @@
 
   let fileMenuOpen = $state(false);
 
-  const fileMenuItems: NeoMenuItem[] = [
-    { value: 'Import', label: 'Import' },
-  ];
+  const fileMenuItems = ['Import'];
 
-  const handleFileMenuSelect = (item: NeoMenuItem): void => {
+  const handleFileMenuSelect = (event: NeoListSelectEvent): void => {
     fileMenuOpen = false;
-    if (item.value === 'Import') {
-      onImport?.();
-    }
+    const selected = Array.isArray(event.current) ? event.current[0] : event.current;
+    if (selected?.item?.value === 'Import') onImport?.();
   };
 </script>
 
 <NeoThemeProvider target="self">
-  <NeoButtonGroup class="menubar-button-group" rounded={false}>
-    <NeoMenu
-      items={fileMenuItems}
-      bind:open={fileMenuOpen}
-      openOnHover={false}
-      portal={false}
-      placement="bottom-start"
-      rounded="2px"
-      onSelect={handleFileMenuSelect}
-    >
-      <NeoButton toggle bind:checked={fileMenuOpen}>File</NeoButton>
-    </NeoMenu>
-  </NeoButtonGroup>
+  <NeoPopSelect
+    items={fileMenuItems}
+    bind:open={fileMenuOpen}
+    openOnHover={false}
+    openOnClick={false}
+    onSelect={handleFileMenuSelect}
+    width={{ max: '120px' }}
+    tooltipProps={{ placement: 'bottom-start', portal: false, borderless: true, class: 'menubar-popselect-tooltip' }}
+    // buttonProps={{ style: '--neo-btn-padding: 0.25rem 0.75rem' }}
+  >
+    {#snippet children(_floating, toggle)}
+      <NeoButtonGroup class="menubar-button-group" rounded={false} style="--neo-btn-padding: 0.25rem 0.75rem">
+        <NeoButton onclick={() => toggle()}>File</NeoButton>
+      </NeoButtonGroup>
+    {/snippet}
+  </NeoPopSelect>
 </NeoThemeProvider>
