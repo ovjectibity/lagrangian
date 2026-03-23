@@ -181,10 +181,10 @@ h1 {
 }
 
 .menubar-button-group {
-  height: 30px !important;
+  height: 40px !important;
   width: 100% !important;
   margin: 1px !important;
-  padding: 0 !important;
+  padding: 5px !important;
   align-items: stretch !important;
   justify-content: flex-start !important;
   border-radius: var(--neo-border-radius) !important;
