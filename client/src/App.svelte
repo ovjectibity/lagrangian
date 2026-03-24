@@ -3,6 +3,7 @@
   import Viewport from './lib/viewport.svelte';
   import MenuBar from './lib/menubar.svelte';
   import DropdownList from './lib/dropdownlist.svelte';
+  import ModeSelector from './lib/modeselector.svelte';
   import TabbedContainer from './lib/tabbedcontainer.svelte';
   import Logger from './lib/logger.svelte';
   import TrainingGraphEditor from './lib/traininggrapheditor.svelte';
@@ -441,18 +442,11 @@
 
 <div class="main-container">
   <div class="topbar-container">
-    <div class="mode-menu" bind:this={modeMenuContainer}>
-      <button class="menu-button" onclick={toggleModeMenu}>
-        {selectedMode}
-      </button>
-      <DropdownList
-        items={modeOptions}
-        show={showModeMenu}
-        onSelect={selectMode}
-        selectedItem={selectedMode}
-        position="bottom-left"
-      />
-    </div>
+    <ModeSelector
+      options={modeOptions}
+      selected={selectedMode}
+      onSelect={selectMode}
+    />
     {#if selectedMode === 'Training'}
       <Breadcrumb />
       <PlayPauseCta

@@ -26,10 +26,10 @@
     openOnClick={false}
     onSelect={handleFileMenuSelect}
     width={{ max: '120px' }}
-    tooltipProps={{ placement: 'bottom-start', portal: false, borderless: true, class: 'menubar-popselect-tooltip' }}
+    tooltipProps={{ placement: 'bottom-start', portal: false, borderless: true, class: 'topbar-popselect-tooltip' }}
   >
     {#snippet children(_floating, toggle)}
-      <NeoButtonGroup class="menubar-button-group" rounded={false}>
+      <NeoButtonGroup class="topbar-button-group menubar-button-group" pressed>
         <NeoButton onclick={() => toggle()}>File</NeoButton>
       </NeoButtonGroup>
     {/snippet}
