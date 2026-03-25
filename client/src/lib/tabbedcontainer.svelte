@@ -33,7 +33,7 @@
 
   $effect(() => {
     if (activeTabId) {
-      const exists = tabs.some((tab) => tab.id === activeTabId);
+      const exists = tabs.some((tab: any) => tab.id === activeTabId);
       if (exists && activeTabId !== internalActiveTabId) {
         internalActiveTabId = activeTabId;
       }
@@ -41,7 +41,7 @@
   });
 
   $effect(() => {
-    if (!internalActiveTabId || !tabs.some((tab) => tab.id === internalActiveTabId)) {
+    if (!internalActiveTabId || !tabs.some((tab: any) => tab.id === internalActiveTabId)) {
       internalActiveTabId = tabs[0]?.id;
     }
   });
@@ -64,7 +64,7 @@
   };
 
   let activeTab = $derived(
-    tabs.find((tab) => tab.id === internalActiveTabId) ?? tabs[0]
+    tabs.find((tab: any) => tab.id === internalActiveTabId) ?? tabs[0]
   );
 </script>
 
