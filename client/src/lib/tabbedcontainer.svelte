@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import type { NeoListSelectEvent } from '@dvcol/neo-svelte';
+  import type { Component } from 'svelte';
 
-  import DropdownList from "./dropdownlist.svelte";
-  import type { Component } from "svelte";
+  import { NeoThemeProvider, NeoTabs, NeoTab, NeoTabsCard, NeoTabPanel, NeoPopSelect, NeoButton } from '@dvcol/neo-svelte';
 
   export type TabbedTab = {
     id: string;
@@ -15,9 +15,9 @@
     tabs,
     showTabChannel = false,
     tabChannelOptions = [],
-    selectedTabChannel = "",
+    selectedTabChannel = '',
     onTabChannelChange,
-    activeTabId = "",
+    activeTabId = '',
     onTabChange,
   } = $props<{
     tabs: TabbedTab[];
@@ -29,120 +29,88 @@
     onTabChange?: (tabId: string) => void;
   }>();
 
-  let internalActiveTabId = $state('');
-  let activeTab = $derived(
-    tabs.find((tab: TabbedTab) => tab.id === internalActiveTabId) ?? tabs[0]
-  );
-  let showTabChannelMenu = $state(false);
-  let tabChannelMenuContainer = $state<HTMLDivElement | undefined>(undefined);
+  let internalActiveTabId = $state<string | undefined>(undefined);
 
   $effect(() => {
-    if (activeTab && activeTab.id !== internalActiveTabId) {
-      internalActiveTabId = activeTab.id;
-    }
-    const activeExists = tabs.some((tab: TabbedTab) => tab.id === internalActiveTabId);
-    if (!activeExists) {
-      internalActiveTabId = tabs[0]?.id ?? '';
-      if (internalActiveTabId) {
-        onTabChange?.(internalActiveTabId);
+    if (activeTabId) {
+      const exists = tabs.some((tab) => tab.id === activeTabId);
+      if (exists && activeTabId !== internalActiveTabId) {
+        internalActiveTabId = activeTabId;
       }
     }
   });
 
   $effect(() => {
-    if (!activeTabId) {
-      return;
-    }
-    const controlledExists = tabs.some((tab: TabbedTab) => tab.id === activeTabId);
-    if (!controlledExists) {
-      return;
-    }
-    if (activeTabId !== internalActiveTabId) {
-      internalActiveTabId = activeTabId;
+    if (!internalActiveTabId || !tabs.some((tab) => tab.id === internalActiveTabId)) {
+      internalActiveTabId = tabs[0]?.id;
     }
   });
 
-  const selectTab = (tabId: string) => {
-    internalActiveTabId = tabId;
-    onTabChange?.(tabId);
-  };
-
-  const toggleTabChannelMenu = () => {
-    showTabChannelMenu = !showTabChannelMenu;
-  };
-
-  const selectTabChannel = (channel: string) => {
-    onTabChannelChange?.(channel);
-    showTabChannelMenu = false;
-  };
-
-  const handleClickOutside = (event: MouseEvent) => {
-    if (!showTabChannelMenu || !showTabChannel) {
-      return;
-    }
-    if (
-      tabChannelMenuContainer &&
-      !tabChannelMenuContainer.contains(event.target as Node)
-    ) {
-      showTabChannelMenu = false;
+  const handleTabChange = (tabId: string | number | undefined) => {
+    if (tabId && typeof tabId === 'string') {
+      internalActiveTabId = tabId;
+      onTabChange?.(tabId);
     }
   };
 
-  const handleEscape = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
-      showTabChannelMenu = false;
+  let tabChannelOpen = $state(false);
+
+  const handleTabChannelSelect = (event: NeoListSelectEvent): void => {
+    tabChannelOpen = false;
+    const selected = Array.isArray(event.current) ? event.current[0] : event.current;
+    if (selected?.item?.value) {
+      onTabChannelChange?.(selected.item.value as string);
     }
   };
 
-  onMount(() => {
-    document.addEventListener("click", handleClickOutside);
-    window.addEventListener("keydown", handleEscape);
-  });
-
-  onDestroy(() => {
-    document.removeEventListener("click", handleClickOutside);
-    window.removeEventListener("keydown", handleEscape);
-  });
+  let activeTab = $derived(
+    tabs.find((tab) => tab.id === internalActiveTabId) ?? tabs[0]
+  );
 </script>
 
-<div class="tabbed-container">
-  <div class="tabbed-tabs">
-    <div class="tabbed-tabs-left">
-      {#each tabs as tab}
-        <button
-          class={`tabbed-tab ${internalActiveTabId === tab.id ? 'active' : ''}`}
-          onclick={() => selectTab(tab.id)}
-        >
-          {tab.name}
-        </button>
-      {/each}
-    </div>
+{#snippet panes()}
+  <NeoTabsCard animate={false} class="tabbed-neo-card">
+    {#each tabs as tab (tab.id)}
+      <NeoTabPanel tabId={tab.id}>
+        {#if tab.component}
+          {@const ActiveComponent = tab.component}
+          <ActiveComponent {...(tab.props ?? {})} />
+        {/if}
+      </NeoTabPanel>
+    {/each}
+  </NeoTabsCard>
+{/snippet}
+
+<NeoThemeProvider target="self">
+  <NeoTabs
+    class="tabbed-neo-tabs"
+    {panes}
+    active={internalActiveTabId}
+    onchange={handleTabChange}
+    pressed
+    slide={false}
+    toggle={false}
+  >
+    {#each tabs as tab (tab.id)}
+      <NeoTab tabId={tab.id}>{tab.name}</NeoTab>
+    {/each}
+
     {#if showTabChannel}
-      <div class="tabbed-tabs-right">
-        <div
-          class="mode-menu tab-channel-menu"
-          bind:this={tabChannelMenuContainer}
-        >
-          <button class="menu-button" onclick={toggleTabChannelMenu}>
-            {selectedTabChannel}
-          </button>
-          <DropdownList
-            items={tabChannelOptions}
-            show={showTabChannelMenu}
-            onSelect={selectTabChannel}
-            selectedItem={selectedTabChannel}
-            position="bottom-right"
-          />
-        </div>
-      </div>
+      <div class="tabbed-channel-spacer"></div>
+      <NeoPopSelect
+        items={tabChannelOptions}
+        bind:open={tabChannelOpen}
+        openOnHover={false}
+        openOnClick={false}
+        onSelect={handleTabChannelSelect}
+        width={{ min: '120px' }}
+        tooltipProps={{ placement: 'bottom-end', portal: false, borderless: true, class: 'topbar-popselect-tooltip' }}
+        buttonProps={{ style: 'font-size: 13px' }}
+      >
+        {#snippet children(_floating, toggle)}
+          <NeoButton onclick={() => toggle()}>{selectedTabChannel}</NeoButton>
+        {/snippet}
+      </NeoPopSelect>
     {/if}
-  </div>
-  <div class="tabbed-content">
-    {#if activeTab}
-      {#if activeTab.component}
-        {@const ActiveComponent = activeTab.component}
-        <ActiveComponent {...(activeTab.props ?? {})} />
-      {/if}
-    {/if}
-  </div>
-</div>
+  </NeoTabs>
+</NeoThemeProvider>
