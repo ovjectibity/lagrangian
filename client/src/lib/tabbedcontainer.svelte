@@ -87,8 +87,9 @@
     {panes}
     active={internalActiveTabId}
     onchange={handleTabChange}
+    elevation={-2}
+    slideElevation={2}
     pressed
-    slide={false}
     toggle={false}
   >
     {#each tabs as tab (tab.id)}
