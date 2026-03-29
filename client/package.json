@@ -23,7 +23,6 @@
     "vite": "npm:rolldown-vite@^7.2.5"
   },
   "dependencies": {
-    "@dvcol/neo-svelte": "^1.2.0",
     "@types/three": "^0.182.0",
     "three": "^0.182.0",
     "sass-embedded": "^1.98.0"
