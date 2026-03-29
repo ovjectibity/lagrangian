@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { NeoThemeProvider, NeoButtonGroup, NeoButton } from '@dvcol/neo-svelte';
-
   const {
     isRunning = false,
     isDisabled = false,
@@ -16,23 +14,40 @@
   }>();
 </script>
 
-<NeoThemeProvider target="self">
-  <NeoButtonGroup class="topbar-button-group topbar-cta-group" pressed>
-    <NeoButton
-      disabled={isDisabled}
-      onclick={() => onToggle?.()}
-    >
-      {#if isRunning}
-        <svg class="play-pause-cta-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <rect x="6" y="5" width="4" height="14" rx="1" />
-          <rect x="14" y="5" width="4" height="14" rx="1" />
-        </svg>
-      {:else}
-        <svg class="play-pause-cta-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M8 5.5v13a1 1 0 0 0 1.53.85l9.5-6.5a1 1 0 0 0 0-1.7l-9.5-6.5A1 1 0 0 0 8 5.5z" />
-        </svg>
-      {/if}
-      <span>{isRunning ? stopLabel : startLabel}</span>
-    </NeoButton>
-  </NeoButtonGroup>
-</NeoThemeProvider>
+<div class="topbar-item">
+  <button
+    class="topbar-button topbar-cta-button"
+    disabled={isDisabled}
+    onclick={() => onToggle?.()}
+  >
+    {#if isRunning}
+      <svg
+        class="play-pause-cta-icon"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <rect
+          x="6" y="5"
+          width="4" height="14" rx="1"
+        />
+        <rect
+          x="14" y="5"
+          width="4" height="14" rx="1"
+        />
+      </svg>
+    {:else}
+      <svg
+        class="play-pause-cta-icon"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path d="M8 5.5v13a1 1 0 0 0 1.53.85l9.5-6.5a1 1 0 0 0 0-1.7l-9.5-6.5A1 1 0 0 0 8 5.5z" />
+      </svg>
+    {/if}
+    <span>
+      {isRunning ? stopLabel : startLabel}
+    </span>
+  </button>
+</div>

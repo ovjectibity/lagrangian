@@ -3,11 +3,6 @@
     TrainingExperimentRun,
   } from "../commondef/training";
 
-  import {
-    NeoCard,
-    NeoButton,
-  } from "@dvcol/neo-svelte";
-
   const {
     run,
     isCurrent = false,
@@ -64,84 +59,75 @@
   const status = $derived(deriveStatus(run));
 </script>
 
-<NeoCard
-  class={[
-    "experiment-run-card",
-    isCurrent
-      ? "experiment-run-card--current"
-      : "",
-  ].join(" ")}
-  elevation={-2}
-  pressed
-  hover={0}
-  spacing="0"
+<div
+  class="experiment-run-card"
+  class:experiment-run-card--current={isCurrent}
 >
-  {#snippet children()}
-    <div class="experiment-run-card-body">
-      <div class="experiment-run-card-attrs">
-        <div class="experiment-run-card-row">
-          <span
-            class="experiment-run-card-label"
-          >
-            Run ID
-          </span>
-          <span
-            class="experiment-run-card-value"
-          >
-            {run.run_id}
-          </span>
-        </div>
-        <div class="experiment-run-card-row">
-          <span
-            class="experiment-run-card-label"
-          >
-            Start
-          </span>
-          <span
-            class="experiment-run-card-value"
-          >
-            {formatTimestamp(run.run_start_at)}
-          </span>
-        </div>
-        <div class="experiment-run-card-row">
-          <span
-            class="experiment-run-card-label"
-          >
-            Runtime
-          </span>
-          <span
-            class="experiment-run-card-value"
-          >
-            {computeRuntime(
-              run.run_start_at,
-              run.run_end_at
-            )}
-          </span>
-        </div>
-        <div class="experiment-run-card-row">
-          <span
-            class="experiment-run-card-label"
-          >
-            Status
-          </span>
-          <span
-            class={[
-              "experiment-run-card-value",
-              "experiment-run-card-status",
-              `experiment-run-card-status--${status.toLowerCase()}`,
-            ].join(" ")}
-          >
-            {status}
-          </span>
-        </div>
-      </div>
-      <div class="experiment-run-card-cta">
-        <NeoButton
-          onclick={() => onLoadRun?.(run)}
+  <div class="experiment-run-card-body">
+    <div class="experiment-run-card-attrs">
+      <div class="experiment-run-card-row">
+        <span
+          class="experiment-run-card-label"
         >
-          Load run
-        </NeoButton>
+          Run ID
+        </span>
+        <span
+          class="experiment-run-card-value"
+        >
+          {run.run_id}
+        </span>
+      </div>
+      <div class="experiment-run-card-row">
+        <span
+          class="experiment-run-card-label"
+        >
+          Start
+        </span>
+        <span
+          class="experiment-run-card-value"
+        >
+          {formatTimestamp(run.run_start_at)}
+        </span>
+      </div>
+      <div class="experiment-run-card-row">
+        <span
+          class="experiment-run-card-label"
+        >
+          Runtime
+        </span>
+        <span
+          class="experiment-run-card-value"
+        >
+          {computeRuntime(
+            run.run_start_at,
+            run.run_end_at
+          )}
+        </span>
+      </div>
+      <div class="experiment-run-card-row">
+        <span
+          class="experiment-run-card-label"
+        >
+          Status
+        </span>
+        <span
+          class={[
+            "experiment-run-card-value",
+            "experiment-run-card-status",
+            `experiment-run-card-status--${status.toLowerCase()}`,
+          ].join(" ")}
+        >
+          {status}
+        </span>
       </div>
     </div>
-  {/snippet}
-</NeoCard>
+    <div class="experiment-run-card-cta">
+      <button
+        class="experiment-run-card-button"
+        onclick={() => onLoadRun?.(run)}
+      >
+        Load run
+      </button>
+    </div>
+  </div>
+</div>

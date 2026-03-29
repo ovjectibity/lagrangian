@@ -80,13 +80,6 @@ h1 {
   min-height: 0;
 }
 
-.editors-tabs-pane > .neo-theme-provider,
-.logs-tabs-pane > .neo-theme-provider {
-  background-color: transparent !important;
-  width: 100%;
-  height: 100%;
-}
-
 .editors-tabs-pane .tabbed-content {
   height: 500px;
   flex: 0 0 500px;
@@ -159,29 +152,13 @@ h1 {
   gap: 8px;
 }
 
-.topbar-container > .neo-theme-provider {
-  flex-grow: 0 !important;
-  flex-shrink: 0 !important;
-  width: auto !important;
-  background-color: transparent !important;
-}
-
-.topbar-container > .neo-theme-provider:last-of-type {
-  flex-grow: 1 !important;
-}
-
-.breadcrumb {
-  margin: 1px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  height: 30px;
-  white-space: nowrap;
+.topbar-item {
+  position: relative;
   flex-shrink: 0;
-  border: 1px solid #383838;
-  border-radius: 1px;
-  background-color: #2c2c2c;
+}
+
+.topbar-item:last-child {
+  margin-left: auto;
 }
 
 .breadcrumb-segment {
@@ -189,12 +166,48 @@ h1 {
   color: #ffffff;
 }
 
-.topbar-breadcrumb-group .neo-button > div {
-  gap: 6px !important;
+.topbar-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: 100%;
+  white-space: nowrap;
+  border: 1px solid #383838;
+  background-color: #2c2c2c;
+  box-sizing: border-box;
 }
 
-.topbar-cta-group .neo-button > div {
-  gap: 6px !important;
+.topbar-button {
+  background-color: #2c2c2c;
+  border: 1px solid #383838;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.topbar-button:hover {
+  background-color: #383838;
+}
+
+.topbar-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.topbar-cta-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topbar-menu-anchor {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1001;
 }
 
 .breadcrumb-segment-placeholder {
@@ -206,36 +219,6 @@ h1 {
   font-size: 13px;
   color: #64748b;
 }
-
-.topbar-button-group {
-  height: 40px !important;
-  width: auto !important;
-  margin: 0 !important;
-  padding: 5px !important;
-  align-items: stretch !important;
-  justify-content: flex-start !important;
-  flex-shrink: 0;
-}
-
-.topbar-button-group .neo-button {
-  height: 100% !important;
-  margin: 0 !important;
-  padding: 0 0.75rem !important;
-  font-size: 13px !important;
-}
-
-.topbar-popselect-tooltip {
-  background-color: #2c2c2c !important;
-}
-
-.topbar-popselect-tooltip .neo-button {
-  font-size: 13px !important;
-}
-
-.menubar-button-group {
-  width: 100% !important;
-}
-
 
 .play-pause-cta-icon {
   width: 14px;
@@ -322,53 +305,8 @@ h1 {
   min-height: 0;
 }
 
-.tabbed-neo-tabs {
-  width: 100% !important;
-  margin: 0 !important;
-  padding: 2px !important;
-}
-
-.tabbed-neo-tabs .neo-button {
-  font-size: 13px !important;
-}
-
-.tabbed-neo-card {
-  flex: 1 !important;
-  min-height: 0 !important;
-  width: 100% !important;
-  flex-direction: column !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-.tabbed-neo-card > .neo-tab-panel {
-  flex: 1 !important;
-  min-height: 0 !important;
-  width: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
-  padding: 2px !important;
-  box-sizing: border-box !important;
-}
-
-.tabbed-neo-card > .neo-tab-panel > * {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-}
-
-.editors-tabs-pane .tabbed-neo-card {
-  height: 500px !important;
-  min-height: 500px !important;
-  max-height: 500px !important;
-}
-
-.logs-tabs-pane .tabbed-neo-card {
-  height: 100% !important;
-}
-
-.tabbed-channel-spacer {
-  flex: 1;
+.tab-channel-menu {
+  position: relative;
 }
 
 .logger-container {
@@ -692,12 +630,14 @@ h1 {
 
 .run-card-layout-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns:
+    repeat(2, 500px);
   gap: 16px;
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1;
   align-content: start;
+  justify-content: center;
   padding: 8px;
 }
 
@@ -711,11 +651,10 @@ h1 {
 
 /* Experiment run card */
 
-.run-card-layout-grid > .neo-card.neo-card {
-  width: 100%;
-  min-width: 0;
+.experiment-run-card {
+  border: 1px solid #383838;
+  background-color: #2c2c2c;
   box-sizing: border-box;
-  overflow: hidden;
 }
 
 .experiment-run-card-body {
@@ -743,11 +682,26 @@ h1 {
   font-size: 13px;
   min-width: 70px;
   margin-right: 12px;
+  text-align: left;
 }
 
 .experiment-run-card-value {
   color: #ddd;
   font-size: 13px;
+  text-align: right;
+}
+
+.experiment-run-card-button {
+  background-color: #383838;
+  border: 1px solid #484848;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 16px;
+}
+
+.experiment-run-card-button:hover {
+  background-color: #484848;
 }
 
 .experiment-run-card-status--running {

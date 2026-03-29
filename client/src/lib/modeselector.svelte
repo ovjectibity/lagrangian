@@ -1,7 +1,9 @@
 <script lang="ts">
-  import type { NeoListSelectEvent } from '@dvcol/neo-svelte';
-
-  import { NeoThemeProvider, NeoButtonGroup, NeoButton, NeoPopSelect } from '@dvcol/neo-svelte';
+  import {
+    onMount, onDestroy
+  } from 'svelte';
+  import DropdownList
+    from './dropdownlist.svelte';
 
   const {
     options,
@@ -14,28 +16,63 @@
   }>();
 
   let menuOpen = $state(false);
+  let containerEl: HTMLDivElement;
 
-  const handleSelect = (event: NeoListSelectEvent): void => {
-    menuOpen = false;
-    const current = Array.isArray(event.current) ? event.current[0] : event.current;
-    if (current?.item?.value) onSelect(current.item.value as string);
+  const toggle = (e: MouseEvent) => {
+    e.stopPropagation();
+    menuOpen = !menuOpen;
   };
+
+  const handleSelect = (
+    item: string
+  ): void => {
+    menuOpen = false;
+    onSelect(item);
+  };
+
+  const handleGlobalClick = (
+    e: MouseEvent
+  ) => {
+    if (
+      menuOpen &&
+      containerEl &&
+      !containerEl.contains(
+        e.target as Node
+      )
+    ) {
+      menuOpen = false;
+    }
+  };
+
+  onMount(() => {
+    document.addEventListener(
+      'click', handleGlobalClick
+    );
+  });
+
+  onDestroy(() => {
+    document.removeEventListener(
+      'click', handleGlobalClick
+    );
+  });
 </script>
 
-<NeoThemeProvider target="self">
-  <NeoPopSelect
-    items={options}
-    bind:open={menuOpen}
-    openOnHover={false}
-    openOnClick={false}
-    onSelect={handleSelect}
-    width={{ min: '120px' }}
-    tooltipProps={{ placement: 'bottom-start', portal: false, borderless: true, class: 'topbar-popselect-tooltip' }}
+<div
+  class="topbar-item"
+  bind:this={containerEl}
+>
+  <button
+    class="topbar-button"
+    onclick={toggle}
   >
-    {#snippet children(_floating, toggle)}
-      <NeoButtonGroup class="topbar-button-group topbar-mode-group" pressed>
-        <NeoButton onclick={() => toggle()}>{selected}</NeoButton>
-      </NeoButtonGroup>
-    {/snippet}
-  </NeoPopSelect>
-</NeoThemeProvider>
+    {selected}
+  </button>
+  <div class="topbar-menu-anchor">
+    <DropdownList
+      items={options}
+      show={menuOpen}
+      onSelect={handleSelect}
+      position="bottom-left"
+    />
+  </div>
+</div>
