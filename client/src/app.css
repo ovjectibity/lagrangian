@@ -57,11 +57,11 @@ h1 {
 }
 
 .main-container {
-  padding: 2px;
+  padding: 6px;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   box-sizing: border-box;
 }
 
@@ -75,7 +75,6 @@ h1 {
 } */
 
 .editors-tabs-pane {
-  padding: 2px;
   flex: 0 0 auto;
   min-height: 0;
 }
@@ -89,7 +88,6 @@ h1 {
 }
 
 .logs-tabs-pane {
-  padding: 2px;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -148,8 +146,8 @@ h1 {
 .topbar-container {
   display: flex;
   justify-content: flex-start;
-  padding: 2px;
   gap: 8px;
+  align-items: stretch;
 }
 
 .topbar-item {
@@ -157,8 +155,19 @@ h1 {
   flex-shrink: 0;
 }
 
-.topbar-item:last-child {
-  margin-left: auto;
+.topbar-menubar {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid #383838;
+  background-color: #2c2c2c;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.topbar-menubar-button {
+  border: none;
+  border-right: 1px solid #383838;
 }
 
 .breadcrumb-segment {
@@ -229,13 +238,11 @@ h1 {
 .tabbed-container {
   display: flex;
   flex-direction: column;
-  /* border: 1px solid #C9C8C7; */
   border: 1px solid #383838;
-  border-radius: 1px;
   background-color: #1f1f1f;
-  margin: 1px;
   height: auto;
   width: 100%;
+  box-sizing: border-box;
 }
 
 .logs-tabs-pane > .tabbed-container {
@@ -632,7 +639,7 @@ h1 {
   display: grid;
   grid-template-columns:
     repeat(2, 500px);
-  gap: 16px;
+  gap: 160px;
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1;

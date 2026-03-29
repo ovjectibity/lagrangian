@@ -54,11 +54,12 @@
 </script>
 
 <div
-  class="topbar-item"
+  class="topbar-menubar"
   bind:this={containerEl}
 >
   <button
-    class="topbar-button"
+    class="topbar-button
+      topbar-menubar-button"
     onclick={toggle}
   >
     File
