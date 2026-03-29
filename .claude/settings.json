@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__firefox-devtools__evaluate_script"
+    ]
+  }
+}

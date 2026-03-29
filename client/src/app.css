@@ -62,6 +62,7 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  box-sizing: border-box;
 }
 
 /* .views-container {
@@ -600,6 +601,7 @@ h1 {
 
 .experiments-table td {
   padding: 11px 12px;
+  font-size: 12px;
   border-bottom: 1px solid #2a2a2a;
   /* color: #c9c8c7; */
   color: white;
@@ -655,6 +657,118 @@ h1 {
 .experiments-table-action svg {
   width: 13px;
   height: 13px;
+}
+
+/* Experiment run card layout */
+
+.run-card-layout-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 16px;
+  background-color: #1f1f1f;
+  overflow: hidden;
+}
+
+.run-card-layout-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.run-card-layout-back {
+  background: none;
+  border: none;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 4px 8px;
+}
+
+.run-card-layout-back:hover {
+  color: #fff;
+}
+
+.run-card-layout-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  align-content: start;
+  padding: 8px;
+}
+
+.run-card-layout-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: #888;
+  font-size: 13px;
+  padding: 24px;
+}
+
+/* Experiment run card */
+
+.run-card-layout-grid > .neo-card.neo-card {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.experiment-run-card-body {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px;
+  font-size: 13px;
+  gap: 12px;
+}
+
+.experiment-run-card-attrs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.experiment-run-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.experiment-run-card-label {
+  color: #888;
+  font-size: 13px;
+  min-width: 70px;
+  margin-right: 12px;
+}
+
+.experiment-run-card-value {
+  color: #ddd;
+  font-size: 13px;
+}
+
+.experiment-run-card-status--running {
+  color: #4fc3f7;
+}
+
+.experiment-run-card-status--completed {
+  color: #81c784;
+}
+
+.experiment-run-card-status--failed {
+  color: #e57373;
+}
+
+.experiment-run-card-cta {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.experiment-run-card--current {
+  border: 1px solid #4fc3f7;
 }
 
 .workflow-node-outputs {
