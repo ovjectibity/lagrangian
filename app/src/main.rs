@@ -18,6 +18,7 @@ use crate::workflows::training::TrainingWorkflow;
 use crate::workflows::{WorkflowMode, WorkflowRuntime};
 
 pub mod commondef;
+pub mod db;
 pub mod mujoco;
 pub mod plugin;
 pub mod remote_workflows;

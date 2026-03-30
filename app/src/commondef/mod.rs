@@ -4,3 +4,5 @@ pub mod remoteworkermessages;
 pub mod testing;
 pub mod training;
 pub mod workermessages;
+pub mod experiments;
+pub mod users;
