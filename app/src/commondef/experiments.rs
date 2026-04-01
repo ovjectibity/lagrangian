@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-use crate::commondef::training::TrainingGraph;
+use crate::commondef::training::{TrainingGraph, TrainingMetrics};
 
 #[derive(
     Debug, Clone, Serialize,
@@ -22,6 +22,7 @@ pub struct TrainingExperiment {
     pub project_id: String,
     pub training_experiment_id: String,
     pub created_at: DateTime<Utc>,
+    pub training_run_ids: Vec<String> 
 }
 
 #[derive(
@@ -57,6 +58,8 @@ pub struct TrainingRun {
     pub logs_id: String,
     pub metrics_id: String,
     pub training_graph_id: String,
+    pub checkpoints_refs: Vec<String>,
+    pub model_refs: Vec<String>
 }
 
 #[derive(
@@ -65,6 +68,8 @@ pub struct TrainingRun {
 pub struct LogStream {
     pub created_at: DateTime<Utc>,
     pub id: String,
+    pub training_experiment_id: String,
+    pub training_run_id: String,
     pub logs: Vec<String>,
 }
 
@@ -74,6 +79,8 @@ pub struct LogStream {
 pub struct TrainingGraphRecord {
     pub created_at: DateTime<Utc>,
     pub id: String,
+    pub training_experiment_id: String,
+    pub training_run_id: String,
     pub graph: TrainingGraph,
 }
 
@@ -111,4 +118,15 @@ pub struct CheckpointReference {
     pub id: String,
     pub path: String,
     pub checkpoint_type: String,
+}
+
+#[derive(
+    Debug, Clone, Serialize, Deserialize,
+)]
+pub struct MetricsStream {
+    pub created_at: DateTime<Utc>,
+    pub id: String,
+    pub training_experiment_id: String,
+    pub training_run_id: String,
+    pub training_metrics: Vec<TrainingMetrics>,
 }

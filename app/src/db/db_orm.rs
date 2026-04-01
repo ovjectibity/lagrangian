@@ -183,6 +183,7 @@ impl PostgresOrm {
         &self,
         project_id: &str,
         training_experiment_id: &str,
+        training_run_ids: &[String],
     ) -> Result<
         TrainingExperiment,
         sqlx::Error,
@@ -195,13 +196,15 @@ impl PostgresOrm {
             training_experiments (
                 project_id,
                 training_experiment_id,
-                created_at
+                created_at,
+                training_run_ids
             )
-            VALUES ($1, $2, NOW())
+            VALUES ($1, $2, NOW(), $3)
             RETURNING *",
         )
         .bind(project_id)
         .bind(training_experiment_id)
+        .bind(training_run_ids)
         .fetch_one(&self.pool)
         .await
     }
@@ -250,6 +253,35 @@ impl PostgresOrm {
         .await
     }
 
+    /// Append a run id to an experiment's
+    /// training_run_ids array.
+    pub async fn add_run_to_experiment(
+        &self,
+        training_experiment_id: &str,
+        run_id: &str,
+    ) -> Result<
+        TrainingExperiment,
+        sqlx::Error,
+    > {
+        sqlx::query_as::<
+            _,
+            TrainingExperiment,
+        >(
+            "UPDATE training_experiments
+            SET training_run_ids =
+                array_append(
+                    training_run_ids, $2
+                )
+            WHERE
+            training_experiment_id = $1
+            RETURNING *",
+        )
+        .bind(training_experiment_id)
+        .bind(run_id)
+        .fetch_one(&self.pool)
+        .await
+    }
+
     /// Delete a training experiment.
     pub async fn delete_experiment(
         &self,
@@ -279,6 +311,8 @@ impl PostgresOrm {
         logs_id: &str,
         metrics_id: &str,
         training_graph_id: &str,
+        checkpoints_refs: &[String],
+        model_refs: &[String],
     ) -> Result<TrainingRun, sqlx::Error> {
         sqlx::query_as::<_, TrainingRun>(
             "INSERT INTO training_runs (
@@ -289,12 +323,15 @@ impl PostgresOrm {
                 run_end_at,
                 run_status, logs_id,
                 metrics_id,
-                training_graph_id
+                training_graph_id,
+                checkpoints_refs,
+                model_refs
             )
             VALUES (
                 $1, $2, $3, NOW(),
                 NULL, NULL,
-                $4, $5, $6, $7
+                $4, $5, $6, $7,
+                $8, $9
             )
             RETURNING *",
         )
@@ -305,6 +342,8 @@ impl PostgresOrm {
         .bind(logs_id)
         .bind(metrics_id)
         .bind(training_graph_id)
+        .bind(checkpoints_refs)
+        .bind(model_refs)
         .fetch_one(&self.pool)
         .await
     }

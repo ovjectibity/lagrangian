@@ -1,18 +1,21 @@
-//! MongoDB ORM for TrainingGraphRecord
-//! and LogStream.
+//! MongoDB ORM for TrainingGraphRecord,
+//! LogStream, and MetricsStream.
 
 use mongodb::bson::doc;
 use mongodb::options::ClientOptions;
 use mongodb::{Client, Collection, Database};
 
 use crate::commondef::experiments::{
-    LogStream, TrainingGraphRecord,
+    LogStream, MetricsStream,
+    TrainingGraphRecord,
 };
 
 const DB_NAME: &str = "lagrangian";
 const TRAINING_GRAPHS_COL: &str =
     "training_graphs";
 const LOG_STREAMS_COL: &str = "log_streams";
+const METRICS_STREAMS_COL: &str =
+    "metrics_streams";
 
 /// Holds a MongoDB client and provides
 /// CRUD operations for document-oriented
@@ -29,9 +32,12 @@ impl MongoOrm {
     ) -> Result<Self, mongodb::error::Error>
     {
         let opts =
-            ClientOptions::parse(connection_uri)
-                .await?;
-        let client = Client::with_options(opts)?;
+            ClientOptions::parse(
+                connection_uri,
+            )
+            .await?;
+        let client =
+            Client::with_options(opts)?;
         let db = client.database(DB_NAME);
         Ok(Self { db })
     }
@@ -39,13 +45,21 @@ impl MongoOrm {
     fn training_graphs_col(
         &self,
     ) -> Collection<TrainingGraphRecord> {
-        self.db.collection(TRAINING_GRAPHS_COL)
+        self.db
+            .collection(TRAINING_GRAPHS_COL)
     }
 
     fn log_streams_col(
         &self,
     ) -> Collection<LogStream> {
         self.db.collection(LOG_STREAMS_COL)
+    }
+
+    fn metrics_streams_col(
+        &self,
+    ) -> Collection<MetricsStream> {
+        self.db
+            .collection(METRICS_STREAMS_COL)
     }
 
     // ── TrainingGraphRecord CRUD ──
@@ -75,7 +89,29 @@ impl MongoOrm {
             .await
     }
 
-    /// Update a training graph record.
+    /// Fetch all graph records for a run.
+    pub async fn get_training_graphs_by_run(
+        &self,
+        training_experiment_id: &str,
+        training_run_id: &str,
+    ) -> Result<
+        Vec<TrainingGraphRecord>,
+        mongodb::error::Error,
+    > {
+        use futures_util::TryStreamExt;
+        self.training_graphs_col()
+            .find(doc! {
+                "training_experiment_id":
+                    training_experiment_id,
+                "training_run_id":
+                    training_run_id,
+            })
+            .await?
+            .try_collect()
+            .await
+    }
+
+    /// Replace a training graph record.
     pub async fn update_training_graph(
         &self,
         record: &TrainingGraphRecord,
@@ -129,7 +165,29 @@ impl MongoOrm {
             .await
     }
 
-    /// Append logs to an existing stream.
+    /// Fetch all log streams for a run.
+    pub async fn get_log_streams_by_run(
+        &self,
+        training_experiment_id: &str,
+        training_run_id: &str,
+    ) -> Result<
+        Vec<LogStream>,
+        mongodb::error::Error,
+    > {
+        use futures_util::TryStreamExt;
+        self.log_streams_col()
+            .find(doc! {
+                "training_experiment_id":
+                    training_experiment_id,
+                "training_run_id":
+                    training_run_id,
+            })
+            .await?
+            .try_collect()
+            .await
+    }
+
+    /// Append log entries to a stream.
     pub async fn append_logs(
         &self,
         id: &str,
@@ -158,6 +216,92 @@ impl MongoOrm {
     ) -> Result<(), mongodb::error::Error>
     {
         self.log_streams_col()
+            .delete_one(doc! { "id": id })
+            .await?;
+        Ok(())
+    }
+
+    // ── MetricsStream CRUD ──
+
+    /// Insert a metrics stream.
+    pub async fn create_metrics_stream(
+        &self,
+        stream: &MetricsStream,
+    ) -> Result<(), mongodb::error::Error>
+    {
+        self.metrics_streams_col()
+            .insert_one(stream)
+            .await?;
+        Ok(())
+    }
+
+    /// Fetch a metrics stream by id.
+    pub async fn get_metrics_stream(
+        &self,
+        id: &str,
+    ) -> Result<
+        Option<MetricsStream>,
+        mongodb::error::Error,
+    > {
+        self.metrics_streams_col()
+            .find_one(doc! { "id": id })
+            .await
+    }
+
+    /// Fetch all metrics streams for a run.
+    pub async fn get_metrics_streams_by_run(
+        &self,
+        training_experiment_id: &str,
+        training_run_id: &str,
+    ) -> Result<
+        Vec<MetricsStream>,
+        mongodb::error::Error,
+    > {
+        use futures_util::TryStreamExt;
+        self.metrics_streams_col()
+            .find(doc! {
+                "training_experiment_id":
+                    training_experiment_id,
+                "training_run_id":
+                    training_run_id,
+            })
+            .await?
+            .try_collect()
+            .await
+    }
+
+    /// Append metrics to an existing stream.
+    pub async fn append_metrics(
+        &self,
+        id: &str,
+        new_metrics: &[
+            crate::commondef::training
+            ::TrainingMetrics
+        ],
+    ) -> Result<(), mongodb::error::Error>
+    {
+        self.metrics_streams_col()
+            .update_one(
+                doc! { "id": id },
+                doc! {
+                    "$push": {
+                        "training_metrics": {
+                            "$each": new_metrics
+                        }
+                    }
+                },
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Delete a metrics stream.
+    pub async fn delete_metrics_stream(
+        &self,
+        id: &str,
+    ) -> Result<(), mongodb::error::Error>
+    {
+        self.metrics_streams_col()
             .delete_one(doc! { "id": id })
             .await?;
         Ok(())
