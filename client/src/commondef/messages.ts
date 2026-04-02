@@ -4,7 +4,12 @@
 
 import type { WorldBody } from "./model";
 import type { SimulationParams } from "./testing";
-import type { TrainingGraph, TrainingUpdate } from "./training";
+import type {
+  TrainingExperiment,
+  TrainingExperimentRun,
+  TrainingGraph,
+  TrainingUpdate,
+} from "./training";
 
 export interface LoadModelMessage {
 	id: string;
@@ -48,18 +53,51 @@ export interface TrainingUpdatesMessage {
 	updates: TrainingUpdate[];
 }
 
-export type ClientMessage = 
+export interface CreateRunMessage {
+	training_experiment_id: string;
+}
+
+export interface LoadRunMessage {
+	training_experiment_id: string;
+	run_id: string;
+}
+
+export interface ExperimentCreatedMessage {
+	experiment: TrainingExperiment;
+}
+
+export interface RunCreatedMessage {
+	run: TrainingExperimentRun;
+}
+
+export interface RunLoadedMessage {
+	run: TrainingExperimentRun;
+}
+
+export interface ActiveContextMessage {
+	experiment: TrainingExperiment;
+	run: TrainingExperimentRun | null;
+}
+
+export type ClientMessage =
 	| { type: "SetModelMessage", content: SetModelMessage }
 	| { type: "LoadModelMessage", content: LoadModelMessage }
 	| { type: "SimulUpdateMessage", content: SimulUpdateMessage }
 	| { type: "TrainingUpdatesMessage", content: TrainingUpdatesMessage }
 	| { type: "StopTrainingMessage", content: StopTrainingMessage }
-	| { type: "StopSimulationMessage", content: StopSimulationMessage };
+	| { type: "StopSimulationMessage", content: StopSimulationMessage }
+	| { type: "ExperimentCreatedMessage", content: ExperimentCreatedMessage }
+	| { type: "RunCreatedMessage", content: RunCreatedMessage }
+	| { type: "RunLoadedMessage", content: RunLoadedMessage }
+	| { type: "ActiveContextMessage", content: ActiveContextMessage };
 
-export type ServerMessage = 
+export type ServerMessage =
 	| { type: "LoadModelMessage", content?: undefined }
 	| { type: "StartTrainingMessage", content: StartTrainingMessage }
 	| { type: "StopTrainingMessage", content: StopTrainingMessage }
 	| { type: "StartSimulationMessage", content: StartSimulationMessage }
-	| { type: "StopSimulationMessage", content: StopSimulationMessage };
+	| { type: "StopSimulationMessage", content: StopSimulationMessage }
+	| { type: "CreateExperimentMessage", content?: undefined }
+	| { type: "CreateRunMessage", content: CreateRunMessage }
+	| { type: "LoadRunMessage", content: LoadRunMessage };
 

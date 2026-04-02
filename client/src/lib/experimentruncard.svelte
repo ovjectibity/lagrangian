@@ -5,13 +5,16 @@
 
   const {
     run,
+    experimentId,
     isCurrent = false,
     onLoadRun,
   } = $props<{
     run: TrainingExperimentRun;
+    experimentId: string;
     isCurrent?: boolean;
     onLoadRun?: (
-      run: TrainingExperimentRun
+      expId: string,
+      runId: string,
     ) => void;
   }>();
 
@@ -124,7 +127,8 @@
     <div class="experiment-run-card-cta">
       <button
         class="experiment-run-card-button"
-        onclick={() => onLoadRun?.(run)}
+        onclick={() =>
+          onLoadRun?.(experimentId, run.run_id)}
       >
         Load run
       </button>

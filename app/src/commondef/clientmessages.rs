@@ -3,7 +3,12 @@ use typeshare::typeshare;
 
 use crate::commondef::model;
 use crate::commondef::testing::SimulationParams;
-use crate::commondef::training::{TrainingGraph, TrainingUpdate};
+use crate::commondef::training::{
+    TrainingExperiment,
+    TrainingExperimentRun,
+    TrainingGraph,
+    TrainingUpdate,
+};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
@@ -14,6 +19,9 @@ pub enum ServerMessage {
     StopTrainingMessage(StopTrainingMessage),
     StartSimulationMessage(StartSimulationMessage),
     StopSimulationMessage(StopSimulationMessage),
+    CreateExperimentMessage,
+    CreateRunMessage(CreateRunMessage),
+    LoadRunMessage(LoadRunMessage),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -52,6 +60,10 @@ pub enum ClientMessage {
     TrainingUpdatesMessage(TrainingUpdatesMessage),
     StopTrainingMessage(StopTrainingMessage),
     StopSimulationMessage(StopSimulationMessage),
+    ExperimentCreatedMessage(ExperimentCreatedMessage),
+    RunCreatedMessage(RunCreatedMessage),
+    RunLoadedMessage(RunLoadedMessage),
+    ActiveContextMessage(ActiveContextMessage),
 }
 
 impl ClientMessage {
@@ -127,4 +139,60 @@ pub struct ModelForward {
 pub struct TrainingUpdatesMessage {
     pub id: String,
     pub updates: Vec<TrainingUpdate>
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct CreateRunMessage {
+    pub training_experiment_id: String,
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct LoadRunMessage {
+    pub training_experiment_id: String,
+    pub run_id: String,
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct ExperimentCreatedMessage {
+    pub experiment: TrainingExperiment,
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct RunCreatedMessage {
+    pub run: TrainingExperimentRun,
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct RunLoadedMessage {
+    pub run: TrainingExperimentRun,
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct ActiveContextMessage {
+    pub experiment: TrainingExperiment,
+    pub run: Option<TrainingExperimentRun>,
 }

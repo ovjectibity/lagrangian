@@ -25,7 +25,3 @@
 6. Editing currently loaded experiment run: 
     a. If a user edits any part of the training graph or reward function, it should result in the `Start Training` or `Pause Training` CTA to basically have a dropdown the right edge using which the user can launch a new training run, label: `Start new run`
     b. If the user uses this, create a new run, load this run as the current active run & start training for this run as well.
-
-This needs to be implemented for the app backend server & the client. 
-
-Now check the instructions/specs/experiments.md file. This provides an implementation PRD for the training experiments & experiment runs layer of the product. I want you to implement this for the app backend server & the client. Plan this carefully before hand on all the changes that need to be made on both sides. Use the existing ground work already done in terms of the UI on the client side & the orms added on the backend server. 

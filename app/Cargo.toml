@@ -20,3 +20,4 @@ tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-webpki-roots"]
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
 mongodb = "3.2"
+uuid = { version = "1", features = ["v4"] }

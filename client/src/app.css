@@ -235,6 +235,71 @@ h1 {
   height: 14px;
 }
 
+.playpause-split {
+  position: relative;
+  display: inline-flex;
+}
+
+.playpause-split-main {
+  border-right: none;
+}
+
+.playpause-split-chevron {
+  padding: 0 5px;
+}
+
+.playpause-chevron-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.playpause-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1001;
+  background: #1e1e1e;
+  border: 1px solid #383838;
+  min-width: 140px;
+  margin-top: 2px;
+}
+
+.playpause-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.playpause-dropdown-item:hover {
+  background: #2a2a2a;
+}
+
+.experiments-table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.experiments-table-cta {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid #383838;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.experiments-table-cta:hover {
+  background: #2a2a2a;
+}
+
 
 .tabbed-container {
   display: flex;

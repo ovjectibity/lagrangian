@@ -1935,6 +1935,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.28.0",
  "typeshare",
+ "uuid",
 ]
 
 [[package]]

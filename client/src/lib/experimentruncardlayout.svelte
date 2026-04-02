@@ -7,16 +7,21 @@
     from "./experimentruncard.svelte";
 
   const {
+    experimentId,
     runs,
     currentRunId = "",
     onLoadRun,
+    onCreateRun,
     onBack,
   } = $props<{
+    experimentId: string;
     runs: TrainingExperimentRun[];
     currentRunId?: string;
     onLoadRun?: (
-      run: TrainingExperimentRun
+      expId: string,
+      runId: string,
     ) => void;
+    onCreateRun?: () => void;
     onBack?: () => void;
   }>();
 </script>
@@ -30,11 +35,18 @@
     >
       ← Back
     </button>
+    <button
+      class="experiments-table-cta"
+      onclick={() => onCreateRun?.()}
+    >
+      Create &amp; load new run
+    </button>
   </div>
   <div class="run-card-layout-grid">
     {#each runs as run (run.run_id)}
       <ExperimentRunCard
         {run}
+        {experimentId}
         isCurrent={run.run_id === currentRunId}
         {onLoadRun}
       />

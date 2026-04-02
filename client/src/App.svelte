@@ -18,6 +18,7 @@
   import type {
     MetricsData,
     TrainingExperiment,
+    TrainingExperimentRun,
     TrainingMetrics,
   } from './commondef/training';
   import type {
@@ -39,6 +40,9 @@
   const modeOptions = ['Modeling', 'Training', 'Testing'];
   const logTabChannels = ['Training logs'];
   let selectedLogTabChannel = $state('Training logs');
+  let activeExperiment = $state<TrainingExperiment | null>(null);
+  let activeRun = $state<TrainingExperimentRun | null>(null);
+  let trainingGraphEdited = $state(false);
   let isTrainingRunning = $state(false);
   let isTestingRunning = $state(false);
   let isTrainingActionDisabled = $derived(
@@ -131,6 +135,35 @@
     selectedEditorTabId = 'reward-editor';
   }
 
+  function createExperiment() {
+    sendServerMessage({ type: 'CreateExperimentMessage' });
+  }
+
+  function createRun() {
+    if (!activeExperiment) return;
+    sendServerMessage({
+      type: 'CreateRunMessage',
+      content: {
+        training_experiment_id:
+          activeExperiment.experiment_id,
+      },
+    });
+  }
+
+  function loadRun(expId: string, runId: string) {
+    sendServerMessage({
+      type: 'LoadRunMessage',
+      content: {
+        training_experiment_id: expId,
+        run_id: runId,
+      },
+    });
+  }
+
+  function startNewRun() {
+    createRun();
+  }
+
   let editorTabs = $derived<TabbedTab[]>([
     ...(selectedMode === 'Testing'
       ? [
@@ -145,6 +178,16 @@
             id: 'training-experiments',
             name: 'Experiments',
             component: TrainingExperimentsTable,
+            props: {
+              experiments: activeExperiment
+                ? [activeExperiment]
+                : [],
+              activeExperimentId:
+                activeExperiment?.experiment_id,
+              onCreateExperiment: createExperiment,
+              onCreateRun: createRun,
+              onLoadRun: loadRun,
+            },
           } satisfies TabbedTab,
         ]),
     {
@@ -259,6 +302,7 @@
     startTraining();
   };
 
+
   const startTesting = () => {
     if (isTrainingRunning) {
       return;
@@ -360,6 +404,18 @@
             }
           } else if (clientMessage.type === 'StopTrainingMessage') {
             isTrainingRunning = false;
+          } else if (clientMessage.type === 'ActiveContextMessage') {
+            activeExperiment = clientMessage.content.experiment;
+            activeRun = clientMessage.content.run;
+          } else if (clientMessage.type === 'ExperimentCreatedMessage') {
+            activeExperiment = clientMessage.content.experiment;
+            activeRun = null;
+          } else if (clientMessage.type === 'RunCreatedMessage') {
+            activeRun = clientMessage.content.run;
+          } else if (clientMessage.type === 'RunLoadedMessage') {
+            activeRun = clientMessage.content.run;
+            trainingMetricsByType = createEmptyTrainingMetricsByType();
+            trainingLogs = [];
           } else if (clientMessage.type === 'StopSimulationMessage') {
             if (clientMessage.content.id === testingTaskId) {
               isTestingRunning = false;
@@ -448,13 +504,18 @@
       onSelect={selectMode}
     />
     {#if selectedMode === 'Training'}
-      <Breadcrumb />
+      <Breadcrumb
+        experimentName={activeExperiment?.experiment_name}
+        runName={activeRun?.run_name}
+      />
       <PlayPauseCta
         isRunning={isTrainingRunning}
         isDisabled={isTrainingActionDisabled}
         onToggle={toggleTrainingState}
         startLabel="Start training"
         stopLabel="Stop training"
+        showNewRunOption={trainingGraphEdited && !isTrainingRunning}
+        onStartNewRun={startNewRun}
       />
     {:else if selectedMode === 'Testing'}
       <PlayPauseCta

@@ -8,68 +8,27 @@
     TrainingExperimentRun,
   } from "../commondef/training";
 
-  const DUMMY_EXPERIMENTS: TrainingExperiment[] = [
-    {
-      experiment_id: 'exp-001',
-      experiment_name: 'amber-falcon-run',
-      created_at: '2026-03-01T00:00:00Z',
-      experiment_runs: [
-        {
-          experiment_id: 'exp-001',
-          run_name: 'run-alpha',
-          run_id: 'run-1',
-          created_at: '2026-03-01T10:00:00Z',
-          run_start_at: '2026-03-01T10:05:00Z',
-          run_end_at: '2026-03-01T10:47:00Z',
-          training_graph: {} as any,
-          training_update: [],
-        },
-        {
-          experiment_id: 'exp-001',
-          run_name: 'run-beta',
-          run_id: 'run-2',
-          created_at: '2026-03-02T14:00:00Z',
-          run_start_at: '2026-03-02T14:01:00Z',
-          run_end_at: '',
-          training_graph: {} as any,
-          training_update: [],
-        },
-      ],
-    },
-    {
-      experiment_id: 'exp-002',
-      experiment_name: 'cobalt-river-dawn',
-      created_at: '2026-03-10T00:00:00Z',
-      experiment_runs: [
-        {
-          experiment_id: 'exp-002',
-          run_name: 'run-alpha',
-          run_id: 'run-1',
-          created_at: '2026-03-10T09:00:00Z',
-          run_start_at: '2026-03-10T09:02:00Z',
-          run_end_at: '2026-03-10T09:35:00Z',
-          training_graph: {} as any,
-          training_update: [],
-        },
-      ],
-    },
-    {
-      experiment_id: 'exp-003',
-      experiment_name: 'silver-marsh-echo',
-      created_at: '2026-03-20T00:00:00Z',
-      experiment_runs: [],
-    },
-  ];
+  const {
+    experiments = [],
+    activeExperimentId,
+    onCreateExperiment,
+    onCreateRun,
+    onLoadRun,
+  } = $props<{
+    experiments?: TrainingExperiment[];
+    activeExperimentId?: string;
+    onCreateExperiment?: () => void;
+    onCreateRun?: () => void;
+    onLoadRun?: (
+      expId: string,
+      runId: string,
+    ) => void;
+  }>();
 
-  const experiments: TrainingExperiment[] = DUMMY_EXPERIMENTS;
-
-  let openMenuId = $state<string | null>(
-    null
-  );
+  let openMenuId = $state<string | null>(null);
   let selectedExperiment = $state<
     TrainingExperiment | null
   >(null);
-  let currentRunId = $state("");
 
   function onOpenExperiment(
     experiment: TrainingExperiment
@@ -81,20 +40,22 @@
     selectedExperiment = null;
   }
 
-  function onLoadRun(
-    run: TrainingExperimentRun
+  function toggleMenu(
+    event: MouseEvent,
+    experimentId: string,
   ): void {
-    currentRunId = run.run_id;
-  }
-
-  function toggleMenu(event: MouseEvent, experimentId: string): void {
     event.stopPropagation();
-    openMenuId = openMenuId === experimentId ? null : experimentId;
+    openMenuId =
+      openMenuId === experimentId
+        ? null
+        : experimentId;
   }
 
-  function onMenuSelect(_item: string, _experiment: TrainingExperiment): void {
+  function onMenuSelect(
+    _item: string,
+    _experiment: TrainingExperiment,
+  ): void {
     openMenuId = null;
-    // no-op for now
   }
 
   function handleGlobalClick(): void {
@@ -102,28 +63,51 @@
   }
 
   onMount(() => {
-    document.addEventListener('click', handleGlobalClick);
+    document.addEventListener(
+      'click',
+      handleGlobalClick,
+    );
   });
 
   onDestroy(() => {
-    document.removeEventListener('click', handleGlobalClick);
+    document.removeEventListener(
+      'click',
+      handleGlobalClick,
+    );
   });
 
   function formatDate(iso: string): string {
     if (!iso) return '—';
-    return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    return new Date(iso).toLocaleDateString(
+      'en-GB',
+      {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      },
+    );
   }
 </script>
 
 {#if selectedExperiment}
   <ExperimentRunCardLayout
+    experimentId={selectedExperiment.experiment_id}
     runs={selectedExperiment.experiment_runs}
-    {currentRunId}
-    {onLoadRun}
+    currentRunId={activeExperimentId ?? ""}
+    onLoadRun={onLoadRun}
+    onCreateRun={onCreateRun}
     onBack={onBackToTable}
   />
 {:else}
   <div class="experiments-table-container">
+    <div class="experiments-table-toolbar">
+      <button
+        class="experiments-table-cta"
+        onclick={() => onCreateExperiment?.()}
+      >
+        Create &amp; load new experiment
+      </button>
+    </div>
     <table class="experiments-table">
       <thead>
         <tr>
@@ -169,9 +153,7 @@
                 <button
                   class="experiments-table-action"
                   onclick={() =>
-                    onOpenExperiment(
-                      experiment
-                    )}
+                    onOpenExperiment(experiment)}
                   title="View runs"
                 >
                   <svg
@@ -197,8 +179,7 @@
                   onclick={(e) =>
                     toggleMenu(
                       e,
-                      experiment
-                        .experiment_id
+                      experiment.experiment_id,
                     )}
                   title="Actions"
                 >
@@ -216,16 +197,13 @@
                   class="experiments-table-menu-anchor"
                 >
                   <DropdownList
-                    items={[
-                      'Set as current',
-                    ]}
+                    items={['Set as current']}
                     show={openMenuId ===
-                      experiment
-                        .experiment_id}
+                      experiment.experiment_id}
                     onSelect={(item) =>
                       onMenuSelect(
                         item,
-                        experiment
+                        experiment,
                       )}
                     position="bottom-right"
                   />
