@@ -11,14 +11,14 @@
   const {
     experiments = [],
     runs = [],
-    activeExperimentId,
+    activeRunId,
     onCreateExperiment,
     onCreateRun,
     onLoadRun,
   } = $props<{
     experiments?: TrainingExperiment[];
     runs?: TrainingExperimentRun[];
-    activeExperimentId?: string;
+    activeRunId?: string;
     onCreateExperiment?: () => void;
     onCreateRun?: () => void;
     onLoadRun?: (
@@ -95,7 +95,7 @@
   <ExperimentRunCardLayout
     experimentId={selectedExperiment.training_experiment_id}
     {runs}
-    currentRunId={activeExperimentId ?? ""}
+    currentRunId={activeRunId ?? ""}
     onLoadRun={onLoadRun}
     onCreateRun={onCreateRun}
     onBack={onBackToTable}

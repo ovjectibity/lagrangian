@@ -184,8 +184,7 @@
                 ? [activeExperiment]
                 : [],
               runs: activeExperimentRuns,
-              activeExperimentId:
-                activeExperiment?.training_experiment_id,
+              activeRunId: activeRun?.id,
               onCreateExperiment: createExperiment,
               onCreateRun: createRun,
               onLoadRun: loadRun,
