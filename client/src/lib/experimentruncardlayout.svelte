@@ -1,7 +1,7 @@
 <script lang="ts">
   import type {
     TrainingExperimentRun,
-  } from "../commondef/training";
+  } from "../commondef/messages";
 
   import ExperimentRunCard
     from "./experimentruncard.svelte";
@@ -43,11 +43,11 @@
     </button>
   </div>
   <div class="run-card-layout-grid">
-    {#each runs as run (run.run_id)}
+    {#each runs as run (run.id)}
       <ExperimentRunCard
         {run}
         {experimentId}
-        isCurrent={run.run_id === currentRunId}
+        isCurrent={run.id === currentRunId}
         {onLoadRun}
       />
     {/each}

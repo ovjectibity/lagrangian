@@ -15,10 +15,9 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::commondef::{clientmessages, workermessages};
-use crate::commondef::experiments::TrainingRunStatus;
-use crate::commondef::training::{
-    TrainingExperiment,
-    TrainingExperimentRun,
+use crate::commondef::experiments::{
+    TrainingExperiment, TrainingExperimentRun,
+    TrainingRunStatus,
 };
 use crate::db::db_orm::PostgresOrm;
 use crate::db::mongo_orm::MongoOrm;
@@ -227,34 +226,6 @@ fn build_remote_training_worker_config()
     Ok(cfg)
 }
 
-// ── Helper: build TrainingExperimentRun from DB ──
-
-fn build_experiment_run(
-    run: &crate::commondef::experiments::TrainingRun,
-) -> TrainingExperimentRun {
-    TrainingExperimentRun {
-        experiment_id: run
-            .training_experiment_id.clone(),
-        run_name: run.id.clone(),
-        run_id: run.id.clone(),
-        created_at: run.created_at.to_rfc3339(),
-        run_start_at: run
-            .run_start_at
-            .map(|t| t.to_rfc3339())
-            .unwrap_or_default(),
-        run_end_at: run
-            .run_end_at
-            .map(|t| t.to_rfc3339())
-            .unwrap_or_default(),
-        training_graph: crate::commondef::training
-            ::TrainingGraph {
-                training_job_controller:
-                    default_training_job_controller(),
-            },
-        training_update: vec![],
-    }
-}
-
 fn default_training_job_controller()
 -> crate::commondef::training::TrainingJobController
 {
@@ -372,29 +343,11 @@ fn workloads_channel(
                                 )
                                 .await
                             {
-                                exp_runs.push(
-                                    build_experiment_run(
-                                        &r,
-                                    ),
-                                );
+                                exp_runs.push(r);
                             }
                         }
                         let experiment =
-                            TrainingExperiment {
-                                experiment_id:
-                                    exp_row
-                                    .training_experiment_id
-                                    .clone(),
-                                experiment_name:
-                                    exp_row
-                                    .training_experiment_id
-                                    .clone(),
-                                created_at: exp_row
-                                    .created_at
-                                    .to_rfc3339(),
-                                experiment_runs:
-                                    exp_runs.clone(),
-                            };
+                            exp_row.clone();
                         let ctx2 =
                             active_context()
                             .lock().await;
@@ -404,7 +357,7 @@ fn workloads_channel(
                                 exp_runs
                                     .iter()
                                     .find(|r| {
-                                        &r.run_id == rid
+                                        &r.id == rid
                                     })
                                     .cloned()
                             });
@@ -1118,23 +1071,12 @@ fn workloads_channel(
                                                     match pg.create_experiment(
                                                         PROJECT_ID,
                                                         &new_id,
+                                                        &new_id,
                                                         &[],
                                                     ).await {
                                                         Ok(row) => {
                                                             let experiment =
-                                                                TrainingExperiment {
-                                                                    experiment_id:
-                                                                        row.training_experiment_id
-                                                                        .clone(),
-                                                                    experiment_name:
-                                                                        row.training_experiment_id
-                                                                        .clone(),
-                                                                    created_at:
-                                                                        row.created_at
-                                                                        .to_rfc3339(),
-                                                                    experiment_runs:
-                                                                        vec![],
-                                                                };
+                                                                row.clone();
                                                             {
                                                                 let mut ctx =
                                                                     active_context()
@@ -1208,9 +1150,7 @@ fn workloads_channel(
                                                                 )
                                                                 .await;
                                                             let run =
-                                                                build_experiment_run(
-                                                                    &row
-                                                                );
+                                                                row.clone();
                                                             {
                                                                 let mut ctx =
                                                                     active_context()
@@ -1261,9 +1201,7 @@ fn workloads_channel(
                                                     ).await {
                                                         Ok(Some(row)) => {
                                                             let run =
-                                                                build_experiment_run(
-                                                                    &row
-                                                                );
+                                                                row.clone();
                                                             {
                                                                 let mut ctx =
                                                                     active_context()

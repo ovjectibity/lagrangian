@@ -17,13 +17,13 @@
   import type { WorldBody } from './commondef/model';
   import type {
     MetricsData,
-    TrainingExperiment,
-    TrainingExperimentRun,
     TrainingMetrics,
   } from './commondef/training';
   import type {
     ClientMessage,
     ModelForward,
+    TrainingExperiment,
+    TrainingExperimentRun,
     ServerMessage,
   } from './commondef/messages';
   import { buildTrainingController,
@@ -41,6 +41,7 @@
   const logTabChannels = ['Training logs'];
   let selectedLogTabChannel = $state('Training logs');
   let activeExperiment = $state<TrainingExperiment | null>(null);
+  let activeExperimentRuns = $state<TrainingExperimentRun[]>([]);
   let activeRun = $state<TrainingExperimentRun | null>(null);
   let trainingGraphEdited = $state(false);
   let isTrainingRunning = $state(false);
@@ -145,7 +146,7 @@
       type: 'CreateRunMessage',
       content: {
         training_experiment_id:
-          activeExperiment.experiment_id,
+          activeExperiment.training_experiment_id,
       },
     });
   }
@@ -182,8 +183,9 @@
               experiments: activeExperiment
                 ? [activeExperiment]
                 : [],
+              runs: activeExperimentRuns,
               activeExperimentId:
-                activeExperiment?.experiment_id,
+                activeExperiment?.training_experiment_id,
               onCreateExperiment: createExperiment,
               onCreateRun: createRun,
               onLoadRun: loadRun,
@@ -237,7 +239,7 @@
       }
     }
   ]);
-  let modeMenuContainer: HTMLDivElement;
+  let modeMenuContainer = $state<HTMLDivElement | undefined>(undefined);
 
   const toggleModeMenu = () => {
     showModeMenu = !showModeMenu;
@@ -407,11 +409,16 @@
           } else if (clientMessage.type === 'ActiveContextMessage') {
             activeExperiment = clientMessage.content.experiment;
             activeRun = clientMessage.content.run;
+            if (activeRun) {
+              activeExperimentRuns = [activeRun];
+            }
           } else if (clientMessage.type === 'ExperimentCreatedMessage') {
             activeExperiment = clientMessage.content.experiment;
             activeRun = null;
+            activeExperimentRuns = [];
           } else if (clientMessage.type === 'RunCreatedMessage') {
             activeRun = clientMessage.content.run;
+            activeExperimentRuns = [...activeExperimentRuns, activeRun];
           } else if (clientMessage.type === 'RunLoadedMessage') {
             activeRun = clientMessage.content.run;
             trainingMetricsByType = createEmptyTrainingMetricsByType();
@@ -506,7 +513,7 @@
     {#if selectedMode === 'Training'}
       <Breadcrumb
         experimentName={activeExperiment?.experiment_name}
-        runName={activeRun?.run_name}
+        runName={activeRun?.id}
       />
       <PlayPauseCta
         isRunning={isTrainingRunning}

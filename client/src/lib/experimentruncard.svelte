@@ -1,7 +1,7 @@
 <script lang="ts">
   import type {
     TrainingExperimentRun,
-  } from "../commondef/training";
+  } from "../commondef/messages";
 
   const {
     run,
@@ -19,7 +19,7 @@
   }>();
 
   const formatTimestamp = (
-    iso: string
+    iso: string | null
   ): string => {
     if (!iso) return "—";
     return new Date(iso).toLocaleString(
@@ -35,8 +35,8 @@
   };
 
   const computeRuntime = (
-    start: string,
-    end: string
+    start: string | null,
+    end: string | null
   ): string => {
     if (!start) return "—";
     const s = new Date(start).getTime();
@@ -51,15 +51,7 @@
     return `${mins}m ${secs}s`;
   };
 
-  const deriveStatus = (
-    run: TrainingExperimentRun
-  ): string => {
-    if (run.run_end_at) return "Completed";
-    if (run.run_start_at) return "Running";
-    return "Failed";
-  };
-
-  const status = $derived(deriveStatus(run));
+  const status = $derived(run.run_status);
 </script>
 
 <div
@@ -77,7 +69,7 @@
         <span
           class="experiment-run-card-value"
         >
-          {run.run_id}
+          {run.id}
         </span>
       </div>
       <div class="experiment-run-card-row">
@@ -128,7 +120,7 @@
       <button
         class="experiment-run-card-button"
         onclick={() =>
-          onLoadRun?.(experimentId, run.run_id)}
+          onLoadRun?.(experimentId, run.id)}
       >
         Load run
       </button>

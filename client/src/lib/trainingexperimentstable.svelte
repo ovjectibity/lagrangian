@@ -6,16 +6,18 @@
   import type {
     TrainingExperiment,
     TrainingExperimentRun,
-  } from "../commondef/training";
+  } from "../commondef/messages";
 
   const {
     experiments = [],
+    runs = [],
     activeExperimentId,
     onCreateExperiment,
     onCreateRun,
     onLoadRun,
   } = $props<{
     experiments?: TrainingExperiment[];
+    runs?: TrainingExperimentRun[];
     activeExperimentId?: string;
     onCreateExperiment?: () => void;
     onCreateRun?: () => void;
@@ -91,8 +93,8 @@
 
 {#if selectedExperiment}
   <ExperimentRunCardLayout
-    experimentId={selectedExperiment.experiment_id}
-    runs={selectedExperiment.experiment_runs}
+    experimentId={selectedExperiment.training_experiment_id}
+    {runs}
     currentRunId={activeExperimentId ?? ""}
     onLoadRun={onLoadRun}
     onCreateRun={onCreateRun}
@@ -114,7 +116,7 @@
           <th>Experiment ID</th>
           <th>Name</th>
           <th>Created at</th>
-          <th>Experiment runs</th>
+          <th>Runs</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -132,23 +134,20 @@
         {#each experiments as experiment}
           <tr>
             <td>
-              {experiment.experiment_id}
+              {experiment.training_experiment_id}
             </td>
             <td>
               {experiment.experiment_name}
             </td>
             <td>
-              {formatDate(
-                experiment.created_at
-              )}
+              {formatDate(experiment.created_at)}
             </td>
             <td>
               <div
                 class="experiments-table-runs-cell"
               >
                 <span>
-                  {experiment
-                    .experiment_runs.length}
+                  {experiment.training_run_ids.length}
                 </span>
                 <button
                   class="experiments-table-action"
@@ -179,7 +178,7 @@
                   onclick={(e) =>
                     toggleMenu(
                       e,
-                      experiment.experiment_id,
+                      experiment.training_experiment_id,
                     )}
                   title="Actions"
                 >
@@ -199,7 +198,7 @@
                   <DropdownList
                     items={['Set as current']}
                     show={openMenuId ===
-                      experiment.experiment_id}
+                      experiment.training_experiment_id}
                     onSelect={(item) =>
                       onMenuSelect(
                         item,

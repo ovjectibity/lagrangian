@@ -94,21 +94,3 @@ export interface TrainingUpdate {
 	checkpoints: Checkpoint[];
 }
 
-export interface TrainingExperimentRun {
-	experiment_id: string;
-	run_name: string;
-	run_id: string;
-	created_at: string;
-	run_start_at: string;
-	run_end_at: string;
-	training_graph: TrainingGraph;
-	training_update: TrainingUpdate[];
-}
-
-export interface TrainingExperiment {
-	experiment_id: string;
-	experiment_name: string;
-	created_at: string;
-	experiment_runs: TrainingExperimentRun[];
-}
-

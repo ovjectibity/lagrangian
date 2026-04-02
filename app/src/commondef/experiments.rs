@@ -2,7 +2,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-use crate::commondef::training::{TrainingGraph, TrainingMetrics};
+use crate::commondef::training::{
+    TrainingGraph, TrainingMetrics,
+};
 
 #[derive(
     Debug, Clone, Serialize,
@@ -20,18 +22,15 @@ pub struct Project {
 )]
 pub struct TrainingExperiment {
     pub project_id: String,
+    pub experiment_name: String,
     pub training_experiment_id: String,
     pub created_at: DateTime<Utc>,
-    pub training_run_ids: Vec<String> 
+    pub training_run_ids: Vec<String>,
 }
 
 #[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    sqlx::Type,
-    PartialEq,
+    Debug, Clone, Serialize,
+    Deserialize, sqlx::Type, PartialEq,
 )]
 #[sqlx(
     type_name = "text",
@@ -47,7 +46,7 @@ pub enum TrainingRunStatus {
     Debug, Clone, Serialize,
     Deserialize, FromRow,
 )]
-pub struct TrainingRun {
+pub struct TrainingExperimentRun {
     pub project_id: String,
     pub training_experiment_id: String,
     pub id: String,
@@ -59,12 +58,10 @@ pub struct TrainingRun {
     pub metrics_id: String,
     pub training_graph_id: String,
     pub checkpoints_refs: Vec<String>,
-    pub model_refs: Vec<String>
+    pub model_refs: Vec<String>,
 }
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogStream {
     pub created_at: DateTime<Utc>,
     pub id: String,
@@ -73,29 +70,13 @@ pub struct LogStream {
     pub logs: Vec<String>,
 }
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingGraphRecord {
     pub created_at: DateTime<Utc>,
     pub id: String,
     pub training_experiment_id: String,
     pub training_run_id: String,
     pub graph: TrainingGraph,
-}
-
-#[derive(
-    Debug, Clone, Serialize, Deserialize,
-)]
-pub enum ModelType {
-    MJCF,
-}
-
-#[derive(
-    Debug, Clone, Serialize, Deserialize,
-)]
-pub enum CheckpointType {
-    Orbax,
 }
 
 #[derive(
@@ -120,9 +101,7 @@ pub struct CheckpointReference {
     pub checkpoint_type: String,
 }
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsStream {
     pub created_at: DateTime<Utc>,
     pub id: String,

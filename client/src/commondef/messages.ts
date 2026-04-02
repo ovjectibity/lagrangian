@@ -4,12 +4,35 @@
 
 import type { WorldBody } from "./model";
 import type { SimulationParams } from "./testing";
-import type {
-  TrainingExperiment,
-  TrainingExperimentRun,
-  TrainingGraph,
-  TrainingUpdate,
-} from "./training";
+import type { TrainingGraph, TrainingUpdate } from "./training";
+
+export interface TrainingExperiment {
+	project_id: string;
+	experiment_name: string;
+	training_experiment_id: string;
+	created_at: string;
+	training_run_ids: string[];
+}
+
+export type TrainingRunStatus =
+	| "ongoing"
+	| "completed"
+	| "not_started";
+
+export interface TrainingExperimentRun {
+	project_id: string;
+	training_experiment_id: string;
+	id: string;
+	created_at: string;
+	run_start_at: string | null;
+	run_end_at: string | null;
+	run_status: TrainingRunStatus;
+	logs_id: string;
+	metrics_id: string;
+	training_graph_id: string;
+	checkpoints_refs: string[];
+	model_refs: string[];
+}
 
 export interface LoadModelMessage {
 	id: string;

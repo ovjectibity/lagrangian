@@ -4,10 +4,10 @@ use typeshare::typeshare;
 use crate::commondef::model;
 use crate::commondef::testing::SimulationParams;
 use crate::commondef::training::{
-    TrainingExperiment,
-    TrainingExperimentRun,
-    TrainingGraph,
-    TrainingUpdate,
+    TrainingGraph, TrainingUpdate,
+};
+use crate::commondef::experiments::{
+    TrainingExperiment, TrainingExperimentRun,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

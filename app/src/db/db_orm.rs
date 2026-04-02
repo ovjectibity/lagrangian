@@ -1,5 +1,5 @@
 //! Postgres ORM for User, Project,
-//! TrainingExperiment, TrainingRun,
+//! TrainingExperiment, TrainingExperimentRun,
 //! ModelReference, and CheckpointReference.
 
 use sqlx::postgres::PgPoolOptions;
@@ -8,7 +8,7 @@ use sqlx::PgPool;
 use crate::commondef::experiments::{
     CheckpointReference, ModelReference,
     Project, TrainingExperiment,
-    TrainingRun, TrainingRunStatus,
+    TrainingExperimentRun, TrainingRunStatus,
 };
 use crate::commondef::users::User;
 
@@ -183,6 +183,7 @@ impl PostgresOrm {
         &self,
         project_id: &str,
         training_experiment_id: &str,
+        experiment_name: &str,
         training_run_ids: &[String],
     ) -> Result<
         TrainingExperiment,
@@ -196,14 +197,16 @@ impl PostgresOrm {
             training_experiments (
                 project_id,
                 training_experiment_id,
+                experiment_name,
                 created_at,
                 training_run_ids
             )
-            VALUES ($1, $2, NOW(), $3)
+            VALUES ($1, $2, $3, NOW(), $4)
             RETURNING *",
         )
         .bind(project_id)
         .bind(training_experiment_id)
+        .bind(experiment_name)
         .bind(training_run_ids)
         .fetch_one(&self.pool)
         .await
@@ -299,7 +302,7 @@ impl PostgresOrm {
         Ok(())
     }
 
-    // ── TrainingRun CRUD ──
+    // ── TrainingExperimentRun CRUD ──
 
     /// Insert a new training run.
     pub async fn create_run(
@@ -313,8 +316,8 @@ impl PostgresOrm {
         training_graph_id: &str,
         checkpoints_refs: &[String],
         model_refs: &[String],
-    ) -> Result<TrainingRun, sqlx::Error> {
-        sqlx::query_as::<_, TrainingRun>(
+    ) -> Result<TrainingExperimentRun, sqlx::Error> {
+        sqlx::query_as::<_, TrainingExperimentRun>(
             "INSERT INTO training_runs (
                 project_id,
                 training_experiment_id,
@@ -355,10 +358,10 @@ impl PostgresOrm {
         training_experiment_id: &str,
         id: &str,
     ) -> Result<
-        Option<TrainingRun>,
+        Option<TrainingExperimentRun>,
         sqlx::Error,
     > {
-        sqlx::query_as::<_, TrainingRun>(
+        sqlx::query_as::<_, TrainingExperimentRun>(
             "SELECT * FROM training_runs
             WHERE project_id = $1
             AND training_experiment_id = $2
@@ -377,10 +380,10 @@ impl PostgresOrm {
         project_id: &str,
         training_experiment_id: &str,
     ) -> Result<
-        Vec<TrainingRun>,
+        Vec<TrainingExperimentRun>,
         sqlx::Error,
     > {
-        sqlx::query_as::<_, TrainingRun>(
+        sqlx::query_as::<_, TrainingExperimentRun>(
             "SELECT * FROM training_runs
             WHERE project_id = $1
             AND training_experiment_id = $2
@@ -399,7 +402,7 @@ impl PostgresOrm {
         training_experiment_id: &str,
         id: &str,
         run_status: &TrainingRunStatus,
-    ) -> Result<TrainingRun, sqlx::Error> {
+    ) -> Result<TrainingExperimentRun, sqlx::Error> {
         let query = match run_status {
             TrainingRunStatus::Ongoing => {
                 "UPDATE training_runs
@@ -433,7 +436,7 @@ impl PostgresOrm {
                 RETURNING *"
             }
         };
-        sqlx::query_as::<_, TrainingRun>(
+        sqlx::query_as::<_, TrainingExperimentRun>(
             query,
         )
         .bind(project_id)

@@ -92,13 +92,13 @@ pub struct TrainingJobController {
     pub training_method: TrainingMethod,
     pub acceleration_mode: TrainingAccelerationMode,
     pub compute_instance: ComputeInstance,
-    pub checkpoint_frequency: CheckpointFrequency
+    pub checkpoint_frequency: CheckpointFrequency,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct TrainingGraph {
-    pub training_job_controller: TrainingJobController
+    pub training_job_controller: TrainingJobController,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -107,50 +107,27 @@ pub struct TrainingGraph {
 pub enum CheckpointFrequency {
     PostEpoch(i32),
     PostUpdate(i32),
-    // PostMinibatch(i64)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct Checkpoint {
     pub model_zip_base64: Option<String>,
-    pub model_zip_path: Option<String>
+    pub model_zip_path: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum TrainingRunState {
-    PPOTrainingRunState(PPOTrainingRunState)
+    PPOTrainingRunState(PPOTrainingRunState),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct PPOTrainingRunState {
     pub epoch_index: i32,
-    pub update_index: i32
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct TrainingExperiment {
-    pub experiment_id: String, 
-    pub experiment_name: String, 
-    pub created_at: String, 
-    pub experiment_runs: Vec<TrainingExperimentRun>
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct TrainingExperimentRun {
-    pub experiment_id: String, 
-    pub run_name: String, 
-    pub run_id: String,
-    pub created_at: String, 
-    pub run_start_at: String, 
-    pub run_end_at: String, 
-    pub training_graph: TrainingGraph,
-    pub training_update: Vec<TrainingUpdate>
+    pub update_index: i32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -2,6 +2,7 @@
 //! LogStream, and MetricsStream.
 
 use mongodb::bson::doc;
+use mongodb::bson::{self, Bson};
 use mongodb::options::ClientOptions;
 use mongodb::{Client, Collection, Database};
 
@@ -194,13 +195,19 @@ impl MongoOrm {
         new_logs: &[String],
     ) -> Result<(), mongodb::error::Error>
     {
+        let logs_bson: Bson = Bson::Array(
+            new_logs
+                .iter()
+                .map(|s| Bson::String(s.clone()))
+                .collect(),
+        );
         self.log_streams_col()
             .update_one(
                 doc! { "id": id },
                 doc! {
                     "$push": {
                         "logs": {
-                            "$each": new_logs
+                            "$each": logs_bson
                         }
                     }
                 },
@@ -280,13 +287,23 @@ impl MongoOrm {
         ],
     ) -> Result<(), mongodb::error::Error>
     {
+        let metrics_bson: Bson = Bson::Array(
+            new_metrics
+                .iter()
+                .map(|m| {
+                    bson::to_bson(m).unwrap_or(
+                        Bson::Null,
+                    )
+                })
+                .collect(),
+        );
         self.metrics_streams_col()
             .update_one(
                 doc! { "id": id },
                 doc! {
                     "$push": {
                         "training_metrics": {
-                            "$each": new_metrics
+                            "$each": metrics_bson
                         }
                     }
                 },
