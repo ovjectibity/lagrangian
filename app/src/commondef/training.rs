@@ -6,6 +6,7 @@ use typeshare::typeshare;
 #[typeshare]
 pub enum ControlModel {
     FFN(FFNModel),
+    Checkpoint(String),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -13,6 +14,7 @@ pub enum ControlModel {
 #[typeshare]
 pub enum ValueModel {
     FFN(FFNModel),
+    Checkpoint(String),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
