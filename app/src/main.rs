@@ -400,31 +400,35 @@ async fn handle_start_training_local(
         tokio::task::JoinHandle<()>,
     >,
 ) {
-    // Auto-create a run if none is loaded
+    // Auto-create experiment + run if not loaded
     {
         let ctx = active_context().lock().await;
         let has_run = ctx.run_id.is_some();
         let exp_id = ctx.experiment_id.clone();
         drop(ctx);
         if !has_run {
-            match exp_id {
-                Some(exp_id) => {
-                    handle_create_run(
-                        clientmessages::CreateRunMessage {
-                            training_experiment_id:
-                                exp_id,
-                        },
-                        stream,
-                    ).await;
-                }
+            let exp_id = match exp_id {
+                Some(id) => id,
                 None => {
-                    println!(
-                        "Cannot start training: \
-                         no active experiment"
-                    );
-                    return;
+                    handle_create_experiment(stream)
+                        .await;
+                    active_context()
+                        .lock()
+                        .await
+                        .experiment_id
+                        .clone()
+                        .expect(
+                            "experiment_id set \
+                             after create",
+                        )
                 }
-            }
+            };
+            handle_create_run(
+                clientmessages::CreateRunMessage {
+                    training_experiment_id: exp_id,
+                },
+                stream,
+            ).await;
         }
     }
 
@@ -545,31 +549,35 @@ async fn handle_start_training_remote(
         tokio::task::JoinHandle<()>,
     >,
 ) -> bool {
-    // Auto-create a run if none is loaded
+    // Auto-create experiment + run if not loaded
     {
         let ctx = active_context().lock().await;
         let has_run = ctx.run_id.is_some();
         let exp_id = ctx.experiment_id.clone();
         drop(ctx);
         if !has_run {
-            match exp_id {
-                Some(exp_id) => {
-                    handle_create_run(
-                        clientmessages::CreateRunMessage {
-                            training_experiment_id:
-                                exp_id,
-                        },
-                        stream,
-                    ).await;
-                }
+            let exp_id = match exp_id {
+                Some(id) => id,
                 None => {
-                    println!(
-                        "Cannot start training: \
-                         no active experiment"
-                    );
-                    return false;
+                    handle_create_experiment(stream)
+                        .await;
+                    active_context()
+                        .lock()
+                        .await
+                        .experiment_id
+                        .clone()
+                        .expect(
+                            "experiment_id set \
+                             after create",
+                        )
                 }
-            }
+            };
+            handle_create_run(
+                clientmessages::CreateRunMessage {
+                    training_experiment_id: exp_id,
+                },
+                stream,
+            ).await;
         }
     }
 
