@@ -272,6 +272,7 @@
       type: 'StartTrainingMessage',
       content: {
         id: trainingTaskId,
+        experiment_id: activeExperiment?.training_experiment_id ?? null,
         training_graph: {
           training_job_controller: buildTrainingController(),
         },

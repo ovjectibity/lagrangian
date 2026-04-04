@@ -28,6 +28,7 @@ pub enum ServerMessage {
 #[typeshare]
 pub struct StartTrainingMessage {
     pub id: String,
+    pub experiment_id: Option<String>,
     pub training_graph: TrainingGraph,
 }
 

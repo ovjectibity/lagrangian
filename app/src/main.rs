@@ -394,6 +394,7 @@ async fn handle_load_model(
 async fn handle_start_training_local(
     stream: &mut ws::stream::DuplexStream,
     training_id: String,
+    experiment_id: Option<String>,
     ppomethod: crate::commondef::training
         ::PPOTrainingMethod,
     runtime: &mut WorkflowRuntime,
@@ -410,13 +411,9 @@ async fn handle_start_training_local(
     >,
 ) {
     // Always create a new run for this training job.
-    // Auto-create experiment too if none is set.
+    // Auto-create experiment too if none provided.
     {
-        let exp_id = {
-            let ctx = active_context().lock().await;
-            ctx.experiment_id.clone()
-        };
-        let exp_id = match exp_id {
+        let exp_id = match experiment_id {
             Some(id) => id,
             None => {
                 handle_create_experiment(stream)
@@ -551,6 +548,7 @@ async fn handle_start_training_local(
 async fn handle_start_training_remote(
     stream: &mut ws::stream::DuplexStream,
     training_id: String,
+    experiment_id: Option<String>,
     training_controller: crate::commondef::training
         ::TrainingJobController,
     loaded_model_path: &Option<String>,
@@ -564,13 +562,9 @@ async fn handle_start_training_remote(
     >,
 ) -> bool {
     // Always create a new run for this training job.
-    // Auto-create experiment too if none is set.
+    // Auto-create experiment too if none provided.
     {
-        let exp_id = {
-            let ctx = active_context().lock().await;
-            ctx.experiment_id.clone()
-        };
-        let exp_id = match exp_id {
+        let exp_id = match experiment_id {
             Some(id) => id,
             None => {
                 handle_create_experiment(stream)
@@ -1409,6 +1403,7 @@ fn workloads_channel(
                                                         handle_start_training_local(
                                                             &mut stream,
                                                             training_id,
+                                                            t.experiment_id.clone(),
                                                             ppo,
                                                             runtime,
                                                             tx_train.clone(),
@@ -1420,6 +1415,7 @@ fn workloads_channel(
                                                         handle_start_training_remote(
                                                             &mut stream,
                                                             training_id,
+                                                            t.experiment_id.clone(),
                                                             controller,
                                                             &loaded_model_path,
                                                             &mut workflow_runtime,

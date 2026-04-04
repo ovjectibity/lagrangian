@@ -61,6 +61,7 @@ export interface StartSimulationMessage {
 
 export interface StartTrainingMessage {
 	id: string;
+	experiment_id: string | null;
 	training_graph: TrainingGraph;
 }
 
