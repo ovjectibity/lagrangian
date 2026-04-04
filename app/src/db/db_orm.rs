@@ -544,6 +544,8 @@ impl PostgresOrm {
         id: &str,
         path: &str,
         checkpoint_type: &str,
+        training_experiment_id: &str,
+        training_run_id: &str,
     ) -> Result<
         CheckpointReference,
         sqlx::Error,
@@ -555,14 +557,20 @@ impl PostgresOrm {
             "INSERT INTO
             checkpoint_references (
                 id, created_at,
-                path, checkpoint_type
+                path, checkpoint_type,
+                training_experiment_id,
+                training_run_id
             )
-            VALUES ($1, NOW(), $2, $3)
+            VALUES (
+                $1, NOW(), $2, $3, $4, $5
+            )
             RETURNING *",
         )
         .bind(id)
         .bind(path)
         .bind(checkpoint_type)
+        .bind(training_experiment_id)
+        .bind(training_run_id)
         .fetch_one(&self.pool)
         .await
     }

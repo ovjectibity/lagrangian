@@ -153,10 +153,12 @@ CREATE TABLE IF NOT EXISTS model_references (
 );
 
 CREATE TABLE IF NOT EXISTS checkpoint_references (
-    id               TEXT        PRIMARY KEY,
-    created_at       TIMESTAMPTZ NOT NULL,
-    path             TEXT        NOT NULL,
-    checkpoint_type  TEXT        NOT NULL
+    id                     TEXT        PRIMARY KEY,
+    created_at             TIMESTAMPTZ NOT NULL,
+    path                   TEXT        NOT NULL,
+    checkpoint_type        TEXT        NOT NULL,
+    training_experiment_id TEXT        NOT NULL,
+    training_run_id        TEXT        NOT NULL
 );
 
 GRANT ALL PRIVILEGES ON ALL TABLES

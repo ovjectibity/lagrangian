@@ -99,6 +99,8 @@ pub struct CheckpointReference {
     pub created_at: DateTime<Utc>,
     pub id: String,
     pub path: String,
+    pub training_experiment_id: String,
+    pub training_run_id: String,
     pub checkpoint_type: String,
 }
 
