@@ -13,14 +13,13 @@
     experimentRunsMap = {},
     activeRunId,
     onLoadRun,
+    onSetCurrent,
   } = $props<{
     experiments?: TrainingExperiment[];
     experimentRunsMap?: Record<string, TrainingExperimentRun[]>;
     activeRunId?: string;
-    onLoadRun?: (
-      expId: string,
-      runId: string,
-    ) => void;
+    onLoadRun?: (expId: string, runId: string) => void;
+    onSetCurrent?: (experiment: TrainingExperiment) => void;
   }>();
 
   let openMenuId = $state<string | null>(null);
@@ -50,10 +49,13 @@
   }
 
   function onMenuSelect(
-    _item: string,
-    _experiment: TrainingExperiment,
+    item: string,
+    experiment: TrainingExperiment,
   ): void {
     openMenuId = null;
+    if (item === 'Set as current') {
+      onSetCurrent?.(experiment);
+    }
   }
 
   function handleGlobalClick(): void {

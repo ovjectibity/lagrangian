@@ -424,6 +424,16 @@ impl PostgresOrm {
                 AND id = $3
                 RETURNING *"
             }
+            TrainingRunStatus::StoppedByUser => {
+                "UPDATE training_runs
+                SET run_status = $4,
+                    run_end_at = NOW()
+                WHERE project_id = $1
+                AND
+                training_experiment_id = $2
+                AND id = $3
+                RETURNING *"
+            }
             TrainingRunStatus::NotStarted => {
                 "UPDATE training_runs
                 SET run_status = $4,

@@ -166,6 +166,11 @@
     createRun();
   }
 
+  function setCurrentExperiment(experiment: TrainingExperiment) {
+    activeExperiment = experiment;
+    activeRun = null;
+  }
+
   let editorTabs = $derived<TabbedTab[]>([
     ...(selectedMode === 'Testing'
       ? [
@@ -185,6 +190,7 @@
               experimentRunsMap,
               activeRunId: activeRun?.id,
               onLoadRun: loadRun,
+              onSetCurrent: setCurrentExperiment,
             },
           } satisfies TabbedTab,
         ]),
@@ -423,6 +429,9 @@
             };
           } else if (clientMessage.type === 'RunLoadedMessage') {
             activeRun = clientMessage.content.run;
+            activeExperiment = experiments.find(
+              (e) => e.training_experiment_id === activeRun!.training_experiment_id
+            ) ?? null;
             trainingMetricsByType = createEmptyTrainingMetricsByType();
             trainingLogs = [];
           } else if (clientMessage.type === 'StopSimulationMessage') {

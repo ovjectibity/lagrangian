@@ -784,6 +784,10 @@ h1 {
   color: #81c784;
 }
 
+.experiment-run-card-status--stopped_by_user {
+  color: #ffb74d;
+}
+
 .experiment-run-card-status--not_started {
   color: #888;
 }

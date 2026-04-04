@@ -39,6 +39,7 @@ pub struct TrainingExperiment {
 pub enum TrainingRunStatus {
     Ongoing,
     Completed,
+    StoppedByUser,
     NotStarted,
 }
 

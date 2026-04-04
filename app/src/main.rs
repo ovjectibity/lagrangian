@@ -409,36 +409,35 @@ async fn handle_start_training_local(
         (tokio::task::JoinHandle<()>, Arc<AtomicBool>),
     >,
 ) {
-    // Auto-create experiment + run if not loaded
+    // Always create a new run for this training job.
+    // Auto-create experiment too if none is set.
     {
-        let ctx = active_context().lock().await;
-        let has_run = ctx.run_id.is_some();
-        let exp_id = ctx.experiment_id.clone();
-        drop(ctx);
-        if !has_run {
-            let exp_id = match exp_id {
-                Some(id) => id,
-                None => {
-                    handle_create_experiment(stream)
-                        .await;
-                    active_context()
-                        .lock()
-                        .await
-                        .experiment_id
-                        .clone()
-                        .expect(
-                            "experiment_id set \
-                             after create",
-                        )
-                }
-            };
-            handle_create_run(
-                clientmessages::CreateRunMessage {
-                    training_experiment_id: exp_id,
-                },
-                stream,
-            ).await;
-        }
+        let exp_id = {
+            let ctx = active_context().lock().await;
+            ctx.experiment_id.clone()
+        };
+        let exp_id = match exp_id {
+            Some(id) => id,
+            None => {
+                handle_create_experiment(stream)
+                    .await;
+                active_context()
+                    .lock()
+                    .await
+                    .experiment_id
+                    .clone()
+                    .expect(
+                        "experiment_id set \
+                         after create",
+                    )
+            }
+        };
+        handle_create_run(
+            clientmessages::CreateRunMessage {
+                training_experiment_id: exp_id,
+            },
+            stream,
+        ).await;
     }
 
     if let Err(e) =
@@ -564,36 +563,35 @@ async fn handle_start_training_remote(
         (tokio::task::JoinHandle<()>, Arc<AtomicBool>),
     >,
 ) -> bool {
-    // Auto-create experiment + run if not loaded
+    // Always create a new run for this training job.
+    // Auto-create experiment too if none is set.
     {
-        let ctx = active_context().lock().await;
-        let has_run = ctx.run_id.is_some();
-        let exp_id = ctx.experiment_id.clone();
-        drop(ctx);
-        if !has_run {
-            let exp_id = match exp_id {
-                Some(id) => id,
-                None => {
-                    handle_create_experiment(stream)
-                        .await;
-                    active_context()
-                        .lock()
-                        .await
-                        .experiment_id
-                        .clone()
-                        .expect(
-                            "experiment_id set \
-                             after create",
-                        )
-                }
-            };
-            handle_create_run(
-                clientmessages::CreateRunMessage {
-                    training_experiment_id: exp_id,
-                },
-                stream,
-            ).await;
-        }
+        let exp_id = {
+            let ctx = active_context().lock().await;
+            ctx.experiment_id.clone()
+        };
+        let exp_id = match exp_id {
+            Some(id) => id,
+            None => {
+                handle_create_experiment(stream)
+                    .await;
+                active_context()
+                    .lock()
+                    .await
+                    .experiment_id
+                    .clone()
+                    .expect(
+                        "experiment_id set \
+                         after create",
+                    )
+            }
+        };
+        handle_create_run(
+            clientmessages::CreateRunMessage {
+                training_experiment_id: exp_id,
+            },
+            stream,
+        ).await;
     }
 
     let model_path = match loaded_model_path {
@@ -748,7 +746,7 @@ async fn handle_stop_training(
         rt.set_mode(WorkflowMode::Idle);
     }
 
-    // Mark run Completed in Postgres + clear context
+    // Mark run StoppedByUser in Postgres + clear context
     {
         let ctx = active_context().lock().await;
         if let (Some(exp_id), Some(run_id)) = (
@@ -761,7 +759,7 @@ async fn handle_stop_training(
                     PROJECT_ID,
                     &exp_id,
                     &run_id,
-                    &TrainingRunStatus::Completed,
+                    &TrainingRunStatus::StoppedByUser,
                 )
                 .await;
             let mut ctx =

@@ -17,6 +17,7 @@ export interface TrainingExperiment {
 export type TrainingRunStatus =
 	| "ongoing"
 	| "completed"
+	| "stopped_by_user"
 	| "not_started";
 
 export interface TrainingExperimentRun {
