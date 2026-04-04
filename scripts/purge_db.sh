@@ -64,20 +64,20 @@ POSTGRES_TABLES=(
 if $ENTRIES_ONLY; then
   log "Truncating all Postgres tables..."
   for table in "${POSTGRES_TABLES[@]}"; do
-    PGPASSWORD="$POSTGRES_PASSWORD" \
+    PGPASSWORD="" \
     psql -h "$POSTGRES_HOST" \
          -p "$POSTGRES_PORT" \
-         -U "$POSTGRES_USER" \
+         -U "$(whoami)" \
          -d "$POSTGRES_DB" \
          -c "TRUNCATE TABLE $table CASCADE;" \
       && log "  Truncated: $table"
   done
 else
   log "Dropping Postgres database '$POSTGRES_DB'..."
-  PGPASSWORD="$POSTGRES_PASSWORD" \
+  PGPASSWORD="" \
   psql -h "$POSTGRES_HOST" \
        -p "$POSTGRES_PORT" \
-       -U "$POSTGRES_USER" \
+       -U "$(whoami)" \
        -d postgres \
        -c "DROP DATABASE IF EXISTS $POSTGRES_DB;"
   log "Stopping Postgres..."
@@ -123,9 +123,8 @@ print('Dropped database: $MONGODB_DB');
 "
   log "Stopping MongoDB..."
   if command -v brew >/dev/null 2>&1; then
-    brew services stop mongodb-community 2>/dev/null \
-      || brew services stop mongodb 2>/dev/null \
-      || true
+    brew services stop mongodb-community \
+      2>/dev/null || true
   else
     mongod --shutdown \
            --dbpath /var/lib/mongodb 2>/dev/null \

@@ -60,21 +60,42 @@ else
   log "Postgres already running."
 fi
 
-# ── Create Postgres database (idempotent) ────────────
+# ── Create Postgres role + database (idempotent) ─────
+# Connect as the current OS user (superuser) to bootstrap.
 
-PGPASSWORD="$POSTGRES_PASSWORD" \
+PGPASSWORD="" \
 psql -h "$POSTGRES_HOST" \
      -p "$POSTGRES_PORT" \
-     -U "$POSTGRES_USER" \
+     -U "$(whoami)" \
+     -d postgres \
+     -tc "SELECT 1 FROM pg_roles \
+          WHERE rolname = '$POSTGRES_USER'" \
+| grep -q 1 || {
+  log "Creating Postgres role '$POSTGRES_USER'..."
+  PGPASSWORD="" \
+  psql -h "$POSTGRES_HOST" \
+       -p "$POSTGRES_PORT" \
+       -U "$(whoami)" \
+       -d postgres \
+       -c "CREATE ROLE $POSTGRES_USER \
+           WITH LOGIN \
+           PASSWORD '$POSTGRES_PASSWORD';"
+}
+
+PGPASSWORD="" \
+psql -h "$POSTGRES_HOST" \
+     -p "$POSTGRES_PORT" \
+     -U "$(whoami)" \
      -d postgres \
      -tc "SELECT 1 FROM pg_database \
           WHERE datname = '$POSTGRES_DB'" \
 | grep -q 1 || {
   log "Creating Postgres database '$POSTGRES_DB'..."
-  PGPASSWORD="$POSTGRES_PASSWORD" \
+  PGPASSWORD="" \
   createdb -h "$POSTGRES_HOST" \
            -p "$POSTGRES_PORT" \
-           -U "$POSTGRES_USER" \
+           -U "$(whoami)" \
+           --owner="$POSTGRES_USER" \
            "$POSTGRES_DB"
 }
 
@@ -82,10 +103,10 @@ psql -h "$POSTGRES_HOST" \
 
 log "Applying Postgres schema..."
 
-PGPASSWORD="$POSTGRES_PASSWORD" \
+PGPASSWORD="" \
 psql -h "$POSTGRES_HOST" \
      -p "$POSTGRES_PORT" \
-     -U "$POSTGRES_USER" \
+     -U "$(whoami)" \
      -d "$POSTGRES_DB" <<'SQL'
 
 CREATE TABLE IF NOT EXISTS users (
@@ -138,6 +159,12 @@ CREATE TABLE IF NOT EXISTS checkpoint_references (
     checkpoint_type  TEXT        NOT NULL
 );
 
+GRANT ALL PRIVILEGES ON ALL TABLES
+    IN SCHEMA public TO $POSTGRES_USER;
+
+GRANT ALL PRIVILEGES ON ALL SEQUENCES
+    IN SCHEMA public TO $POSTGRES_USER;
+
 SQL
 
 log "Postgres schema applied."
@@ -150,8 +177,9 @@ if ! mongosh --host "$MONGODB_HOST" \
              --quiet >/dev/null 2>&1; then
   log "Starting MongoDB..."
   if command -v brew >/dev/null 2>&1; then
-    brew services start mongodb-community \
-      || brew services start mongodb
+    # restart handles both the stopped and
+    # error states that brew services reports
+    brew services restart mongodb-community
   else
     mongod --fork \
            --logpath /tmp/mongod.log \
@@ -199,3 +227,8 @@ for (const name of cols) {
 
 log "MongoDB initialised."
 log "Done."
+
+echo ""
+echo "Connection strings:"
+echo "  DATABASE_URL=postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB"
+echo "  MONGODB_URI=mongodb://$MONGODB_HOST:$MONGODB_PORT"
