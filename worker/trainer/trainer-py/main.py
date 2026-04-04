@@ -488,6 +488,7 @@ def main() -> None:
     logging.basicConfig(
         level=getattr(logging, log_level, logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True,
     )
     host = os.getenv("WS_HOST", "0.0.0.0")
     port = int(os.getenv("WS_PORT", "8765"))
