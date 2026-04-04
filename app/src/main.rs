@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 #[macro_use]
@@ -397,7 +398,7 @@ async fn handle_start_training_local(
     )>>>,
     training_tasks: &mut HashMap<
         String,
-        tokio::task::JoinHandle<()>,
+        (tokio::task::JoinHandle<()>, Arc<AtomicBool>),
     >,
 ) {
     // Auto-create experiment + run if not loaded
@@ -518,6 +519,9 @@ async fn handle_start_training_local(
     }
 
     // Spawn blocking training task
+    let stop_flag =
+        Arc::new(AtomicBool::new(false));
+    let stop_flag_c = stop_flag.clone();
     let h = tokio::task::spawn_blocking(move || {
         let wf = TrainingWorkflow::new(
             id_c,
@@ -526,10 +530,13 @@ async fn handle_start_training_local(
             model_h,
         );
         if let Ok(mut wf) = wf {
-            wf.run_training_blocking(tx_tc);
+            wf.run_training_blocking(
+                tx_tc,
+                stop_flag_c,
+            );
         }
     });
-    training_tasks.insert(training_id, h);
+    training_tasks.insert(training_id, (h, stop_flag));
 }
 
 /// Handles StartTrainingMessage for the remote
@@ -546,7 +553,7 @@ async fn handle_start_training_remote(
     >,
     training_tasks: &mut HashMap<
         String,
-        tokio::task::JoinHandle<()>,
+        (tokio::task::JoinHandle<()>, Arc<AtomicBool>),
     >,
 ) -> bool {
     // Auto-create experiment + run if not loaded
@@ -698,7 +705,12 @@ async fn handle_start_training_remote(
             )
             .await;
     });
-    training_tasks.insert(training_id, h);
+    let stop_flag =
+        Arc::new(AtomicBool::new(false));
+    training_tasks.insert(
+        training_id,
+        (h, stop_flag),
+    );
     true
 }
 
@@ -710,7 +722,7 @@ async fn handle_stop_training(
     workflow_runtime: &mut Option<WorkflowRuntime>,
     training_tasks: &mut HashMap<
         String,
-        tokio::task::JoinHandle<()>,
+        (tokio::task::JoinHandle<()>, Arc<AtomicBool>),
     >,
     pending_flush: Arc<AsyncMutex<Vec<(
         Vec<crate::commondef::training::TrainingMetrics>,
@@ -718,7 +730,12 @@ async fn handle_stop_training(
     )>>>,
 ) {
     println!("Stopping training {:?}", t);
-    training_tasks.remove(&t.id);
+    if let Some((h, flag)) =
+        training_tasks.remove(&t.id)
+    {
+        flag.store(true, Ordering::Relaxed);
+        h.abort();
+    }
     if let Some(rt) = workflow_runtime.as_mut() {
         rt.set_mode(WorkflowMode::Idle);
     }
@@ -1041,7 +1058,7 @@ async fn handle_training_msg(
     workflow_runtime: &mut Option<WorkflowRuntime>,
     training_tasks: &mut HashMap<
         String,
-        tokio::task::JoinHandle<()>,
+        (tokio::task::JoinHandle<()>, Arc<AtomicBool>),
     >,
     pending_flush: Arc<AsyncMutex<Vec<(
         Vec<crate::commondef::training::TrainingMetrics>,
@@ -1082,7 +1099,12 @@ async fn handle_training_msg(
         }
         workermessages::TrainingTaskMessage
         ::StopTraining(m) => {
-            training_tasks.remove(&m.id);
+            if let Some((h, flag)) =
+                training_tasks.remove(&m.id)
+            {
+                flag.store(true, Ordering::Relaxed);
+                h.abort();
+            }
             if let Some(rt) =
                 workflow_runtime.as_mut()
             {

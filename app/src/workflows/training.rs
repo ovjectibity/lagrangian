@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rocket::tokio::sync::mpsc;
@@ -65,9 +66,16 @@ impl TrainingWorkflow {
         }
     }
 
-    pub fn run_training_blocking(&mut self, tx: mpsc::Sender<TrainingTaskMessage>) {
+    pub fn run_training_blocking(
+        &mut self,
+        tx: mpsc::Sender<TrainingTaskMessage>,
+        stop_flag: Arc<AtomicBool>,
+    ) {
         let params = &self.params;
         for i in 0..params.num_epochs {
+            if stop_flag.load(Ordering::Relaxed) {
+                break;
+            }
             let epoch_state = TrainingRunState::PPOTrainingRunState(PPOTrainingRunState {
                 epoch_index: i,
                 update_index: 0,
