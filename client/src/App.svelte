@@ -182,7 +182,7 @@
             component: TrainingExperimentsTable,
             props: {
               experiments,
-              runs: Object.values(experimentRunsMap).flat(),
+              experimentRunsMap,
               activeRunId: activeRun?.id,
               onLoadRun: loadRun,
             },

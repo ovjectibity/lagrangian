@@ -10,12 +10,12 @@
 
   const {
     experiments = [],
-    runs = [],
+    experimentRunsMap = {},
     activeRunId,
     onLoadRun,
   } = $props<{
     experiments?: TrainingExperiment[];
-    runs?: TrainingExperimentRun[];
+    experimentRunsMap?: Record<string, TrainingExperimentRun[]>;
     activeRunId?: string;
     onLoadRun?: (
       expId: string,
@@ -90,7 +90,7 @@
 {#if selectedExperiment}
   <ExperimentRunCardLayout
     experimentId={selectedExperiment.training_experiment_id}
-    {runs}
+    runs={experimentRunsMap[selectedExperiment.training_experiment_id] ?? []}
     currentRunId={activeRunId ?? ""}
     onLoadRun={onLoadRun}
     onBack={onBackToTable}

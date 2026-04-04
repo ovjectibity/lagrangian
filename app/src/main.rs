@@ -274,14 +274,13 @@ fn default_training_job_controller()
 
 // ── Channel handler helpers ──────────────────
 
-/// Sends all experiments (and active context if
-/// set) to a newly connected client.
-async fn send_active_context(
+/// Sends all experiments and their runs to a
+/// newly connected client.
+async fn send_experiments_on_connect(
     stream: &mut ws::stream::DuplexStream,
 ) {
     let pg = postgres_orm().clone();
 
-    // Send full experiments list
     let experiments = pg
         .get_experiments_by_project(PROJECT_ID)
         .await
@@ -301,7 +300,6 @@ async fn send_active_context(
             .await;
     }
 
-    // Send runs for each experiment
     for exp in &experiments {
         if exp.training_run_ids.is_empty() {
             continue;
@@ -340,62 +338,6 @@ async fn send_active_context(
                 .send(ws::Message::Text(json))
                 .await;
         }
-    }
-
-    // Send active context if one is set
-    let ctx = active_context().lock().await;
-    let exp_id = match ctx.experiment_id.clone() {
-        Some(id) => id,
-        None => return,
-    };
-    drop(ctx);
-
-    let exp_opt = pg
-        .get_experiment(&exp_id)
-        .await
-        .ok()
-        .flatten();
-    let exp_row = match exp_opt {
-        Some(r) => r,
-        None => return,
-    };
-
-    let mut exp_runs: Vec<TrainingExperimentRun> =
-        vec![];
-    for rid in &exp_row.training_run_ids {
-        if let Ok(Some(r)) =
-            pg.get_run(PROJECT_ID, &exp_id, rid)
-                .await
-        {
-            exp_runs.push(r);
-        }
-    }
-
-    let experiment = exp_row.clone();
-    let ctx2 = active_context().lock().await;
-    let active_run =
-        ctx2.run_id.as_ref().and_then(|rid| {
-            exp_runs
-                .iter()
-                .find(|r| &r.id == rid)
-                .cloned()
-        });
-    drop(ctx2);
-
-    let ctx_msg =
-        clientmessages::ClientMessage
-        ::ActiveContextMessage(
-            clientmessages::ActiveContextMessage {
-                experiment,
-                run: active_run,
-            },
-        );
-    if let Ok(json) =
-        serde_json::to_string(&ctx_msg)
-    {
-        let _ = stream
-            .send(ws::Message::Text(json))
-            .await;
     }
 }
 
@@ -806,7 +748,7 @@ async fn handle_stop_training(
         rt.set_mode(WorkflowMode::Idle);
     }
 
-    // Mark run Completed in Postgres
+    // Mark run Completed in Postgres + clear context
     {
         let ctx = active_context().lock().await;
         if let (Some(exp_id), Some(run_id)) = (
@@ -822,6 +764,10 @@ async fn handle_stop_training(
                     &TrainingRunStatus::Completed,
                 )
                 .await;
+            let mut ctx =
+                active_context().lock().await;
+            ctx.experiment_id = None;
+            ctx.run_id = None;
         }
     }
 
@@ -1176,6 +1122,34 @@ async fn handle_training_msg(
             {
                 rt.set_mode(WorkflowMode::Idle);
             }
+            // Mark run Completed + clear context
+            {
+                let mut ctx =
+                    active_context().lock().await;
+                if let (
+                    Some(exp_id),
+                    Some(run_id),
+                ) = (
+                    ctx.experiment_id.clone(),
+                    ctx.run_id.clone(),
+                ) {
+                    drop(ctx);
+                    let _ = postgres_orm()
+                        .update_run_status(
+                            PROJECT_ID,
+                            &exp_id,
+                            &run_id,
+                            &TrainingRunStatus
+                            ::Completed,
+                        )
+                        .await;
+                    let mut ctx =
+                        active_context()
+                        .lock().await;
+                    ctx.experiment_id = None;
+                    ctx.run_id = None;
+                }
+            }
             let client_msg =
                 clientmessages::ClientMessage
                 ::StopTrainingMessage(m);
@@ -1300,7 +1274,9 @@ fn workloads_channel(
     ws.channel(move |mut stream| {
         Box::pin(async move {
             // ── On connect ───────────────────────
-            send_active_context(&mut stream).await;
+            send_experiments_on_connect(
+                &mut stream,
+            ).await;
 
             // ── Main event loop ──────────────────
             loop {
@@ -1566,9 +1542,6 @@ fn rocket() -> _ {
     let client_dist_dir =
         env::var("CLIENT_DIST_DIR")
         .expect("Expected CLIENT_DIST_DIR to be set");
-
-    // Ensure ActiveContext global is ready
-    let _ = active_context();
 
     rocket::build()
         .attach(AdHoc::on_liftoff(
