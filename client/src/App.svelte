@@ -44,7 +44,6 @@
   let experimentRunsMap = $state<Record<string, TrainingExperimentRun[]>>({});
   let activeExperiment = $state<TrainingExperiment | null>(null);
   let activeRun = $state<TrainingExperimentRun | null>(null);
-  let trainingGraphEdited = $state(false);
   let isTrainingRunning = $state(false);
   let isTestingRunning = $state(false);
   let isTrainingActionDisabled = $derived(
@@ -162,9 +161,6 @@
     });
   }
 
-  function startNewRun() {
-    createRun();
-  }
 
   function setCurrentExperiment(experiment: TrainingExperiment) {
     activeExperiment = experiment;
@@ -532,8 +528,6 @@
         onToggle={toggleTrainingState}
         startLabel="Start training"
         stopLabel="Stop training"
-        showNewRunOption={trainingGraphEdited && !isTrainingRunning}
-        onStartNewRun={startNewRun}
       />
     {:else if selectedMode === 'Testing'}
       <PlayPauseCta
