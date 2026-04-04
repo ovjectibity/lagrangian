@@ -12,15 +12,11 @@
     experiments = [],
     runs = [],
     activeRunId,
-    onCreateExperiment,
-    onCreateRun,
     onLoadRun,
   } = $props<{
     experiments?: TrainingExperiment[];
     runs?: TrainingExperimentRun[];
     activeRunId?: string;
-    onCreateExperiment?: () => void;
-    onCreateRun?: () => void;
     onLoadRun?: (
       expId: string,
       runId: string,
@@ -97,19 +93,10 @@
     {runs}
     currentRunId={activeRunId ?? ""}
     onLoadRun={onLoadRun}
-    onCreateRun={onCreateRun}
     onBack={onBackToTable}
   />
 {:else}
   <div class="experiments-table-container">
-    <div class="experiments-table-toolbar">
-      <button
-        class="experiments-table-cta"
-        onclick={() => onCreateExperiment?.()}
-      >
-        Create &amp; load new experiment
-      </button>
-    </div>
     <table class="experiments-table">
       <thead>
         <tr>

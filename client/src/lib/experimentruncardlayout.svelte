@@ -11,7 +11,6 @@
     runs,
     currentRunId = "",
     onLoadRun,
-    onCreateRun,
     onBack,
   } = $props<{
     experimentId: string;
@@ -21,7 +20,6 @@
       expId: string,
       runId: string,
     ) => void;
-    onCreateRun?: () => void;
     onBack?: () => void;
   }>();
 </script>
@@ -34,12 +32,6 @@
       title="Back to experiments"
     >
       ← Back
-    </button>
-    <button
-      class="experiments-table-cta"
-      onclick={() => onCreateRun?.()}
-    >
-      Create &amp; load new run
     </button>
   </div>
   <div class="run-card-layout-grid">

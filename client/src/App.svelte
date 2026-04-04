@@ -185,8 +185,6 @@
                 : [],
               runs: activeExperimentRuns,
               activeRunId: activeRun?.id,
-              onCreateExperiment: createExperiment,
-              onCreateRun: createRun,
               onLoadRun: loadRun,
             },
           } satisfies TabbedTab,
@@ -532,7 +530,12 @@
         stopLabel="Stop simulation"
       />
     {/if}
-    <MenuBar onImport={loadModelRuntime} />
+    <MenuBar
+      onImport={loadModelRuntime}
+      showExperimentsMenu={selectedMode === 'Training'}
+      onCreateExperiment={createExperiment}
+      onCreateRun={createRun}
+    />
   </div>
   <!-- <div class="views-container"> -->
   <div class="editors-tabs-pane">
