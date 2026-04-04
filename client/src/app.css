@@ -704,13 +704,11 @@ h1 {
 .run-card-layout-grid {
   display: grid;
   grid-template-columns:
-    repeat(2, 500px);
-  gap: 160px;
+    repeat(2, minmax(0, 500px));
+  gap: 16px;
   overflow-y: auto;
-  overflow-x: hidden;
   flex: 1;
   align-content: start;
-  justify-content: center;
   padding: 8px;
 }
 
@@ -777,12 +775,16 @@ h1 {
   background-color: #484848;
 }
 
-.experiment-run-card-status--running {
+.experiment-run-card-status--ongoing {
   color: #4fc3f7;
 }
 
 .experiment-run-card-status--completed {
   color: #81c784;
+}
+
+.experiment-run-card-status--not_started {
+  color: #888;
 }
 
 .experiment-run-card-status--failed {
@@ -795,7 +797,7 @@ h1 {
 }
 
 .experiment-run-card--current {
-  border: 1px solid #4fc3f7;
+  background-color: #222222;
 }
 
 .workflow-node-outputs {

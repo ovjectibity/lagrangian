@@ -274,17 +274,80 @@ fn default_training_job_controller()
 
 // ── Channel handler helpers ──────────────────
 
-/// Sends the current active experiment and run
-/// to a newly connected client.
+/// Sends all experiments (and active context if
+/// set) to a newly connected client.
 async fn send_active_context(
     stream: &mut ws::stream::DuplexStream,
 ) {
+    let pg = postgres_orm().clone();
+
+    // Send full experiments list
+    let experiments = pg
+        .get_experiments_by_project(PROJECT_ID)
+        .await
+        .unwrap_or_default();
+    let list_msg =
+        clientmessages::ClientMessage
+        ::ExperimentsListMessage(
+            clientmessages::ExperimentsListMessage {
+                experiments: experiments.clone(),
+            },
+        );
+    if let Ok(json) =
+        serde_json::to_string(&list_msg)
+    {
+        let _ = stream
+            .send(ws::Message::Text(json))
+            .await;
+    }
+
+    // Send runs for each experiment
+    for exp in &experiments {
+        if exp.training_run_ids.is_empty() {
+            continue;
+        }
+        let exp_id =
+            &exp.training_experiment_id;
+        let mut runs: Vec<TrainingExperimentRun> =
+            vec![];
+        for rid in &exp.training_run_ids {
+            if let Ok(Some(r)) =
+                pg.get_run(
+                    PROJECT_ID,
+                    exp_id,
+                    rid,
+                ).await
+            {
+                runs.push(r);
+            }
+        }
+        if runs.is_empty() {
+            continue;
+        }
+        let runs_msg =
+            clientmessages::ClientMessage
+            ::ExperimentRunsMessage(
+                clientmessages::ExperimentRunsMessage {
+                    training_experiment_id:
+                        exp_id.clone(),
+                    runs,
+                },
+            );
+        if let Ok(json) =
+            serde_json::to_string(&runs_msg)
+        {
+            let _ = stream
+                .send(ws::Message::Text(json))
+                .await;
+        }
+    }
+
+    // Send active context if one is set
     let ctx = active_context().lock().await;
     let exp_id = match ctx.experiment_id.clone() {
         Some(id) => id,
         None => return,
     };
-    let pg = postgres_orm().clone();
     drop(ctx);
 
     let exp_opt = pg
@@ -301,7 +364,8 @@ async fn send_active_context(
         vec![];
     for rid in &exp_row.training_run_ids {
         if let Ok(Some(r)) =
-            pg.get_run(PROJECT_ID, &exp_id, rid).await
+            pg.get_run(PROJECT_ID, &exp_id, rid)
+                .await
         {
             exp_runs.push(r);
         }
@@ -318,7 +382,7 @@ async fn send_active_context(
         });
     drop(ctx2);
 
-    let msg =
+    let ctx_msg =
         clientmessages::ClientMessage
         ::ActiveContextMessage(
             clientmessages::ActiveContextMessage {
@@ -326,7 +390,9 @@ async fn send_active_context(
                 run: active_run,
             },
         );
-    if let Ok(json) = serde_json::to_string(&msg) {
+    if let Ok(json) =
+        serde_json::to_string(&ctx_msg)
+    {
         let _ = stream
             .send(ws::Message::Text(json))
             .await;

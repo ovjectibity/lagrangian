@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import type {
     TrainingExperimentRun,
   } from "../commondef/messages";
@@ -34,9 +35,10 @@
     );
   };
 
-  const computeRuntime = (
+  const formatRuntime = (
     start: string | null,
-    end: string | null
+    end: string | null,
+    _tick: number,
   ): string => {
     if (!start) return "—";
     const s = new Date(start).getTime();
@@ -50,6 +52,23 @@
     );
     return `${mins}m ${secs}s`;
   };
+
+  let tick = $state(0);
+  let timer: ReturnType<typeof setInterval> | null =
+    null;
+
+  $effect(() => {
+    if (run.run_status === "ongoing") {
+      timer = setInterval(() => { tick++; }, 1000);
+    }
+    return () => {
+      if (timer !== null) clearInterval(timer);
+    };
+  });
+
+  onDestroy(() => {
+    if (timer !== null) clearInterval(timer);
+  });
 
   const status = $derived(run.run_status);
 </script>
@@ -93,9 +112,10 @@
         <span
           class="experiment-run-card-value"
         >
-          {computeRuntime(
+          {formatRuntime(
             run.run_start_at,
-            run.run_end_at
+            run.run_end_at,
+            tick,
           )}
         </span>
       </div>

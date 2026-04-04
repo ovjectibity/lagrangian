@@ -40,8 +40,9 @@
   const modeOptions = ['Modeling', 'Training', 'Testing'];
   const logTabChannels = ['Training logs'];
   let selectedLogTabChannel = $state('Training logs');
+  let experiments = $state<TrainingExperiment[]>([]);
+  let experimentRunsMap = $state<Record<string, TrainingExperimentRun[]>>({});
   let activeExperiment = $state<TrainingExperiment | null>(null);
-  let activeExperimentRuns = $state<TrainingExperimentRun[]>([]);
   let activeRun = $state<TrainingExperimentRun | null>(null);
   let trainingGraphEdited = $state(false);
   let isTrainingRunning = $state(false);
@@ -180,10 +181,8 @@
             name: 'Experiments',
             component: TrainingExperimentsTable,
             props: {
-              experiments: activeExperiment
-                ? [activeExperiment]
-                : [],
-              runs: activeExperimentRuns,
+              experiments,
+              runs: Object.values(experimentRunsMap).flat(),
               activeRunId: activeRun?.id,
               onLoadRun: loadRun,
             },
@@ -403,19 +402,25 @@
             }
           } else if (clientMessage.type === 'StopTrainingMessage') {
             isTrainingRunning = false;
+          } else if (clientMessage.type === 'ExperimentsListMessage') {
+            experiments = clientMessage.content.experiments;
+          } else if (clientMessage.type === 'ExperimentRunsMessage') {
+            const { training_experiment_id, runs } = clientMessage.content;
+            experimentRunsMap = { ...experimentRunsMap, [training_experiment_id]: runs };
           } else if (clientMessage.type === 'ActiveContextMessage') {
             activeExperiment = clientMessage.content.experiment;
             activeRun = clientMessage.content.run;
-            if (activeRun) {
-              activeExperimentRuns = [activeRun];
-            }
           } else if (clientMessage.type === 'ExperimentCreatedMessage') {
             activeExperiment = clientMessage.content.experiment;
+            experiments = [...experiments, activeExperiment];
             activeRun = null;
-            activeExperimentRuns = [];
           } else if (clientMessage.type === 'RunCreatedMessage') {
             activeRun = clientMessage.content.run;
-            activeExperimentRuns = [...activeExperimentRuns, activeRun];
+            const expId = activeRun.training_experiment_id;
+            experimentRunsMap = {
+              ...experimentRunsMap,
+              [expId]: [...(experimentRunsMap[expId] ?? []), activeRun],
+            };
           } else if (clientMessage.type === 'RunLoadedMessage') {
             activeRun = clientMessage.content.run;
             trainingMetricsByType = createEmptyTrainingMetricsByType();

@@ -64,6 +64,8 @@ pub enum ClientMessage {
     RunCreatedMessage(RunCreatedMessage),
     RunLoadedMessage(RunLoadedMessage),
     ActiveContextMessage(ActiveContextMessage),
+    ExperimentsListMessage(ExperimentsListMessage),
+    ExperimentRunsMessage(ExperimentRunsMessage),
 }
 
 impl ClientMessage {
@@ -195,4 +197,23 @@ pub struct RunLoadedMessage {
 pub struct ActiveContextMessage {
     pub experiment: TrainingExperiment,
     pub run: Option<TrainingExperimentRun>,
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct ExperimentsListMessage {
+    pub experiments: Vec<TrainingExperiment>,
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct ExperimentRunsMessage {
+    pub training_experiment_id: String,
+    pub runs: Vec<TrainingExperimentRun>,
 }

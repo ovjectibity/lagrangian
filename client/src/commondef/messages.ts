@@ -102,6 +102,15 @@ export interface ActiveContextMessage {
 	run: TrainingExperimentRun | null;
 }
 
+export interface ExperimentsListMessage {
+	experiments: TrainingExperiment[];
+}
+
+export interface ExperimentRunsMessage {
+	training_experiment_id: string;
+	runs: TrainingExperimentRun[];
+}
+
 export type ClientMessage =
 	| { type: "SetModelMessage", content: SetModelMessage }
 	| { type: "LoadModelMessage", content: LoadModelMessage }
@@ -112,7 +121,9 @@ export type ClientMessage =
 	| { type: "ExperimentCreatedMessage", content: ExperimentCreatedMessage }
 	| { type: "RunCreatedMessage", content: RunCreatedMessage }
 	| { type: "RunLoadedMessage", content: RunLoadedMessage }
-	| { type: "ActiveContextMessage", content: ActiveContextMessage };
+	| { type: "ActiveContextMessage", content: ActiveContextMessage }
+	| { type: "ExperimentsListMessage", content: ExperimentsListMessage }
+	| { type: "ExperimentRunsMessage", content: ExperimentRunsMessage };
 
 export type ServerMessage =
 	| { type: "LoadModelMessage", content?: undefined }
