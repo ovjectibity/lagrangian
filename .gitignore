@@ -16,3 +16,4 @@ worker/trainer/trainer-py/samples/__pycache__/
 worker/trainer/docker_images
 .aws-env
 .keys
+app/checkpoints

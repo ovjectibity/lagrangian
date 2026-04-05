@@ -841,30 +841,34 @@ async fn handle_start_training_remote(
                                         // create DB record
                                         let pg = postgres_orm();
                                         let create_result =
-                                            tokio::runtime::Handle
-                                            ::current()
-                                            .block_on(
-                                                pg.create_checkpoint_ref(
-                                                    &ckpt_id,
-                                                    &path,
-                                                    "ppo",
-                                                    exp_id,
-                                                    run_id,
-                                                    ctrl_json.as_deref(),
-                                                    val_json.as_deref(),
+                                            tokio::task::block_in_place(|| {
+                                                tokio::runtime::Handle
+                                                ::current()
+                                                .block_on(
+                                                    pg.create_checkpoint_ref(
+                                                        &ckpt_id,
+                                                        &path,
+                                                        "ppo",
+                                                        exp_id,
+                                                        run_id,
+                                                        ctrl_json.as_deref(),
+                                                        val_json.as_deref(),
+                                                    )
                                                 )
-                                            );
+                                            });
                                         match create_result {
                                             Ok(ckpt_ref) => {
-                                                let _ = tokio::runtime
-                                                    ::Handle::current()
+                                                let _ = tokio::task::block_in_place(|| {
+                                                    tokio::runtime::Handle
+                                                    ::current()
                                                     .block_on(
                                                         pg.add_checkpoint_ref_to_run(
                                                             exp_id,
                                                             run_id,
                                                             &ckpt_id,
                                                         )
-                                                    );
+                                                    )
+                                                });
                                                 saved_refs.push(ckpt_ref);
                                             }
                                             Err(e) => println!(

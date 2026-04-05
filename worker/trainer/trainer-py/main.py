@@ -481,8 +481,16 @@ async def handle_connection(
             exc.reason,
         )
     finally:
-        for task_state in training_tasks.values():
+        if training_tasks:
+            logger.warning(
+                "Client %s disconnected with %d training task(s) still running — sending stop signals: %s",
+                remote_addr,
+                len(training_tasks),
+                list(training_tasks.keys()),
+            )
+        for training_id, task_state in training_tasks.items():
             task_state.stop_event.set()
+            logger.info("Stop signal sent to training task '%s' due to client disconnect", training_id)
         if runtime is not None and runtime.model_tmpdir is not None:
             runtime.model_tmpdir.cleanup()
         logger.info("Client disconnected: %s", remote_addr)
