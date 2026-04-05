@@ -4,7 +4,7 @@ use sqlx::FromRow;
 use typeshare::typeshare;
 
 use crate::commondef::training::{
-    TrainingGraph, TrainingMetrics,
+    FFNModel, TrainingGraph, TrainingMetrics,
 };
 
 #[derive(
@@ -92,10 +92,7 @@ pub struct ModelReference {
     pub model_type: String,
 }
 
-#[derive(
-    Debug, Clone, Serialize,
-    Deserialize, FromRow,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[typeshare]
 pub struct CheckpointReference {
     pub created_at: DateTime<Utc>,
@@ -104,6 +101,49 @@ pub struct CheckpointReference {
     pub training_experiment_id: String,
     pub training_run_id: String,
     pub checkpoint_type: String,
+    pub control_model_params: Option<FFNModel>,
+    pub value_model_params: Option<FFNModel>,
+}
+
+impl<'r, R> sqlx::FromRow<'r, R> for CheckpointReference
+where
+    R: sqlx::Row,
+    &'r str: sqlx::ColumnIndex<R>,
+    DateTime<Utc>: sqlx::decode::Decode<'r, R::Database>
+        + sqlx::types::Type<R::Database>,
+    String: sqlx::decode::Decode<'r, R::Database>
+        + sqlx::types::Type<R::Database>,
+    Option<String>: sqlx::decode::Decode<'r, R::Database>
+        + sqlx::types::Type<R::Database>,
+{
+    fn from_row(row: &'r R) -> Result<Self, sqlx::Error> {
+        let created_at: DateTime<Utc> =
+            row.try_get("created_at")?;
+        let id: String = row.try_get("id")?;
+        let path: String = row.try_get("path")?;
+        let training_experiment_id: String =
+            row.try_get("training_experiment_id")?;
+        let training_run_id: String =
+            row.try_get("training_run_id")?;
+        let checkpoint_type: String =
+            row.try_get("checkpoint_type")?;
+        let control_model_params_raw: Option<String> =
+            row.try_get("control_model_params")?;
+        let value_model_params_raw: Option<String> =
+            row.try_get("value_model_params")?;
+        Ok(CheckpointReference {
+            created_at,
+            id,
+            path,
+            training_experiment_id,
+            training_run_id,
+            checkpoint_type,
+            control_model_params: control_model_params_raw
+                .and_then(|s| serde_json::from_str(&s).ok()),
+            value_model_params: value_model_params_raw
+                .and_then(|s| serde_json::from_str(&s).ok()),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

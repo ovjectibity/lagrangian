@@ -22,6 +22,8 @@ pub enum ServerMessage {
     CreateExperimentMessage,
     CreateRunMessage(CreateRunMessage),
     LoadRunMessage(LoadRunMessage),
+    GetAllCheckpointsMessage,
+    GetCheckpointInfoMessage(GetCheckpointInfoMessage),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -67,6 +69,9 @@ pub enum ClientMessage {
     ActiveContextMessage(ActiveContextMessage),
     ExperimentsListMessage(ExperimentsListMessage),
     ExperimentRunsMessage(ExperimentRunsMessage),
+    AllCheckpointsMessage(AllCheckpointsMessage),
+    CheckpointInfoMessage(CheckpointInfoMessage),
+    CheckpointsForRunMessage(CheckpointsForRunMessage),
 }
 
 impl ClientMessage {
@@ -225,5 +230,42 @@ pub struct TrainingUpdate {
     pub training_run_state: TrainingRunState,
     pub logs: Vec<String>,
     pub metrics: Vec<TrainingMetrics>,
+    pub checkpoints: Vec<CheckpointReference>,
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct GetCheckpointInfoMessage {
+    pub checkpoint_id: String,
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct AllCheckpointsMessage {
+    pub checkpoints: Vec<CheckpointReference>,
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct CheckpointInfoMessage {
+    pub checkpoint: CheckpointReference,
+}
+
+#[derive(
+    Debug, Clone,
+    serde::Serialize, serde::Deserialize,
+)]
+#[typeshare]
+pub struct CheckpointsForRunMessage {
+    pub training_run_id: String,
     pub checkpoints: Vec<CheckpointReference>,
 }

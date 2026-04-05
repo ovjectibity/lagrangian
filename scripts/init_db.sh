@@ -158,7 +158,9 @@ CREATE TABLE IF NOT EXISTS checkpoint_references (
     path                   TEXT        NOT NULL,
     checkpoint_type        TEXT        NOT NULL,
     training_experiment_id TEXT        NOT NULL,
-    training_run_id        TEXT        NOT NULL
+    training_run_id        TEXT        NOT NULL,
+    control_model_params   TEXT,
+    value_model_params     TEXT
 );
 
 GRANT ALL PRIVILEGES ON ALL TABLES

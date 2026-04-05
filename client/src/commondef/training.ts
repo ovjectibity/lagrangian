@@ -9,6 +9,8 @@ export interface CheckpointReference {
 	training_experiment_id: string;
 	training_run_id: string;
 	checkpoint_type: string;
+	control_model_params: FFNModel | null;
+	value_model_params: FFNModel | null;
 }
 
 export interface FFNModel {
@@ -27,11 +29,13 @@ export interface RewardSystem {
 	reward_function_code: string;
 }
 
-export type ControlModel = 
-	| { type: "FFN", content: FFNModel };
+export type ControlModel =
+	| { type: "FFN", content: FFNModel }
+	| { type: "Checkpoint", content: string };
 
-export type ValueModel = 
-	| { type: "FFN", content: FFNModel };
+export type ValueModel =
+	| { type: "FFN", content: FFNModel }
+	| { type: "Checkpoint", content: string };
 
 export interface PPOTrainingMethod {
 	num_trajs: number;
@@ -65,9 +69,10 @@ export enum ComputeInstance {
 	AWSG4dn = "AWSG4dn",
 }
 
-export type CheckpointFrequency = 
+export type CheckpointFrequency =
 	| { type: "PostEpoch", content: number }
-	| { type: "PostUpdate", content: number };
+	| { type: "PostUpdate", content: number }
+	| { type: "LastOnly" };
 
 export interface TrainingJobController {
 	training_method: TrainingMethod;

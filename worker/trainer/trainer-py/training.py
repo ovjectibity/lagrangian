@@ -146,7 +146,7 @@ class TrainingWorkflow:
                     zf.write(fpath, arcname=os.path.relpath(fpath, base))
         model_zip_base64 = base64.b64encode(buf.getvalue()).decode()
 
-        checkpoint = Checkpoint(model_zip_base_64=model_zip_base64)
+        checkpoint = Checkpoint(model_zip_base64=model_zip_base64)
         tx.send_training_updates(
             TrainingUpdatesMessage(
                 id=self.id,
@@ -190,10 +190,12 @@ class TrainingWorkflow:
             base_mjx_data = mjx_sim._mjx_data
             base_rng = jax.random.PRNGKey(0)
 
+        last_epoch_run = -1
         for i in range(self.params.num_epochs):
             if should_stop is not None and should_stop():
                 logger.info("Training run stop requested: id=%s epoch=%s", self.id, i)
                 break
+            last_epoch_run = i
             self.log_and_send_blocking(
                 tx,
                 self.id,
@@ -325,6 +327,14 @@ class TrainingWorkflow:
                         )
                     ],
                 )
+            )
+
+        if freq.type == CheckpointFrequencyTypes.LAST_ONLY and last_epoch_run >= 0:
+            self._save_and_send_checkpoint(
+                tx,
+                label="last",
+                epoch_index=last_epoch_run,
+                update_index=self.params.num_updates - 1,
             )
 
         logger.info("Training run finished, sending StopTrainingMessage: id=%s", self.id)

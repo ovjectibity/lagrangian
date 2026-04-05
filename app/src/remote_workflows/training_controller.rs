@@ -31,8 +31,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::commondef::remoteworkermessages::{
-    LoadModelMessage, StartTrainingMessage, StopTrainingMessage, TrainingRemoteWorkerClientMessage,
-    TrainingRemoteWorkerServerMessage, TrainingUpdatesMessage,
+    Checkpoint, LoadModelMessage, StartTrainingMessage, StopTrainingMessage,
+    TrainingRemoteWorkerClientMessage, TrainingRemoteWorkerServerMessage, TrainingUpdatesMessage,
 };
 use crate::commondef::training::{TrainingGraph, TrainingJobController};
 
@@ -211,6 +211,7 @@ impl TrainingWorkerController {
         training_controller: TrainingJobController,
         model_path: Option<String>,
         mjcf: String,
+        checkpoint: Option<Checkpoint>,
         mut on_update: F,
     ) -> Result<()>
     where
@@ -246,6 +247,7 @@ impl TrainingWorkerController {
                 training_graph: TrainingGraph {
                     training_job_controller: training_controller,
                 },
+                checkpoint,
             },
         ))
         .await?;

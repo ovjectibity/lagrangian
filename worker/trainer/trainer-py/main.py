@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import orbax.checkpoint as ocp
 import websockets
 from pydantic import ValidationError
 from websockets.exceptions import ConnectionClosed
@@ -146,6 +147,37 @@ def _build_model_for_training(
         pol_store=policy_store,
         val_estimator_store=value_store,
         nbody=simulator.nbody(),
+    )
+
+
+def _load_checkpoint_into_model(
+    model: ArmModel,
+    model_zip_base64: str,
+    training_id: str,
+) -> None:
+    restore_dir = f"/tmp/checkpoints/{training_id}/loaded"
+    zip_bytes = base64.b64decode(model_zip_base64)
+    os.makedirs(restore_dir, exist_ok=True)
+    zip_path = f"/tmp/checkpoints/{training_id}/init.zip"
+    with open(zip_path, "wb") as f:
+        f.write(zip_bytes)
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        zf.extractall(restore_dir)
+    checkpointer = ocp.PyTreeCheckpointer()
+    policy_store = checkpointer.restore(
+        os.path.join(restore_dir, "policy"),
+        item=model.get_policy_store(),
+    )
+    value_store = checkpointer.restore(
+        os.path.join(restore_dir, "value"),
+        item=model.get_value_store(),
+    )
+    model.load_policy_store(policy_store)
+    model.load_value_store(value_store)
+    logger.info(
+        "Checkpoint loaded into model: training_id=%s restore_dir=%s",
+        training_id,
+        restore_dir,
     )
 
 
@@ -333,6 +365,28 @@ async def handle_connection(
 
                 ppo_params = training_controller.training_method.content
                 runtime.model = _build_model_for_training(runtime.simulator, ppo_params)
+                if (
+                    start_msg.checkpoint is not None
+                    and start_msg.checkpoint.model_zip_base64 is not None
+                ):
+                    try:
+                        _load_checkpoint_into_model(
+                            runtime.model,
+                            start_msg.checkpoint.model_zip_base64,
+                            training_id,
+                        )
+                    except Exception as exc:
+                        logger.exception(
+                            "Failed to load checkpoint for training_id=%s: %s",
+                            training_id,
+                            exc,
+                        )
+                        await send_queue.put(
+                            _log_message_payload(
+                                f"Checkpoint load failed: {type(exc).__name__}: {exc}",
+                                training_id=training_id,
+                            )
+                        )
                 workflow = TrainingWorkflow(
                     training_id=training_id,
                     training_controller=training_controller,

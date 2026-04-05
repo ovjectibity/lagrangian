@@ -79,6 +79,7 @@ class ComputeInstance(str, Enum):
 class CheckpointFrequencyTypes(str, Enum):
     POST_EPOCH = "PostEpoch"
     POST_UPDATE = "PostUpdate"
+    LAST_ONLY = "LastOnly"
 
 class CheckpointFrequencyPostEpoch(BaseModel):
     type: Literal[CheckpointFrequencyTypes.POST_EPOCH] = CheckpointFrequencyTypes.POST_EPOCH
@@ -88,7 +89,10 @@ class CheckpointFrequencyPostUpdate(BaseModel):
     type: Literal[CheckpointFrequencyTypes.POST_UPDATE] = CheckpointFrequencyTypes.POST_UPDATE
     content: int
 
-CheckpointFrequency = Union[CheckpointFrequencyPostEpoch, CheckpointFrequencyPostUpdate]
+class CheckpointFrequencyLastOnly(BaseModel):
+    type: Literal[CheckpointFrequencyTypes.LAST_ONLY] = CheckpointFrequencyTypes.LAST_ONLY
+
+CheckpointFrequency = Union[CheckpointFrequencyPostEpoch, CheckpointFrequencyPostUpdate, CheckpointFrequencyLastOnly]
 class TrainingJobController(BaseModel):
     training_method: TrainingMethod
     acceleration_mode: TrainingAccelerationMode

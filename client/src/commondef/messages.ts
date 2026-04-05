@@ -4,7 +4,7 @@
 
 import type { WorldBody } from "./model";
 import type { SimulationParams } from "./testing";
-import type { TrainingGraph, TrainingUpdate } from "./training";
+import type { CheckpointReference, TrainingGraph, TrainingUpdate } from "./training";
 
 export interface TrainingExperiment {
 	project_id: string;
@@ -113,6 +113,23 @@ export interface ExperimentRunsMessage {
 	runs: TrainingExperimentRun[];
 }
 
+export interface GetCheckpointInfoMessage {
+	checkpoint_id: string;
+}
+
+export interface AllCheckpointsMessage {
+	checkpoints: CheckpointReference[];
+}
+
+export interface CheckpointInfoMessage {
+	checkpoint: CheckpointReference;
+}
+
+export interface CheckpointsForRunMessage {
+	training_run_id: string;
+	checkpoints: CheckpointReference[];
+}
+
 export type ClientMessage =
 	| { type: "SetModelMessage", content: SetModelMessage }
 	| { type: "LoadModelMessage", content: LoadModelMessage }
@@ -125,7 +142,10 @@ export type ClientMessage =
 	| { type: "RunLoadedMessage", content: RunLoadedMessage }
 	| { type: "ActiveContextMessage", content: ActiveContextMessage }
 	| { type: "ExperimentsListMessage", content: ExperimentsListMessage }
-	| { type: "ExperimentRunsMessage", content: ExperimentRunsMessage };
+	| { type: "ExperimentRunsMessage", content: ExperimentRunsMessage }
+	| { type: "AllCheckpointsMessage", content: AllCheckpointsMessage }
+	| { type: "CheckpointInfoMessage", content: CheckpointInfoMessage }
+	| { type: "CheckpointsForRunMessage", content: CheckpointsForRunMessage };
 
 export type ServerMessage =
 	| { type: "LoadModelMessage", content?: undefined }
@@ -135,5 +155,7 @@ export type ServerMessage =
 	| { type: "StopSimulationMessage", content: StopSimulationMessage }
 	| { type: "CreateExperimentMessage", content?: undefined }
 	| { type: "CreateRunMessage", content: CreateRunMessage }
-	| { type: "LoadRunMessage", content: LoadRunMessage };
+	| { type: "LoadRunMessage", content: LoadRunMessage }
+	| { type: "GetAllCheckpointsMessage", content?: undefined }
+	| { type: "GetCheckpointInfoMessage", content: GetCheckpointInfoMessage };
 

@@ -38,8 +38,10 @@
     d. On the user selecting this type, all the other fields should freeze (num_hidden_layers, num_layers, output_dim, input_dim) & an additional field should show up saying `Checkpoint ID` which basically will be a dropdown of all available checkpoint IDs. 
         i. Ensure that the checkpoint IDs listed in the menu bar segregate IDs on the basis the training experiment & run hierarchy with ID labels for both these attributes above every set of checkpoint IDs belonging to them 
         ii. The other fields should automatically populate (but disabled) on the basis of the checkpoint which is loaded. 
-    e. In order to do this hence, the client will need GetAllCheckpoints, GetCheckpointInfo messages to send to the server & to which the server will respond. 
-    f. Once the user starts a new training run with a checkpoint, ensure to use that instead of a model from scratch. This is to be done for both the local training job run type & the remote training job type. 
+        iii. In order to populate the network params, plan how these attributes can be extracted from the Orbax checkpoint supported as of now. 
+    e. For now, allow users to use this only when the acceleration mode in TrainingJobController is not set to AllOnServer i.e. allow checkpoints to be used for remote training jobs only. 
+    f. In order to do this hence, the client will need GetAllCheckpoints, GetCheckpointInfo messages to send to the server & to which the server will respond. 
+    g. Once the user starts a new training run with a checkpoint, ensure to use that instead of a model from scratch. This is to be done for both the local training job run type & the remote training job type. 
 
 5. Saving checkpoints & sending them to remoteworker: 
     a. When the user starts a training run on a remote worker using a checkpoint, it needs to be transferred from the local storage of the app server to the remote worker. Use newly added: `pub checkpoint: Option<Checkpoint>`  in the `commondef/remoteworkermessages.rs` for the same. 

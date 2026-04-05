@@ -546,6 +546,8 @@ impl PostgresOrm {
         checkpoint_type: &str,
         training_experiment_id: &str,
         training_run_id: &str,
+        control_model_params: Option<&str>,
+        value_model_params: Option<&str>,
     ) -> Result<
         CheckpointReference,
         sqlx::Error,
@@ -559,10 +561,13 @@ impl PostgresOrm {
                 id, created_at,
                 path, checkpoint_type,
                 training_experiment_id,
-                training_run_id
+                training_run_id,
+                control_model_params,
+                value_model_params
             )
             VALUES (
-                $1, NOW(), $2, $3, $4, $5
+                $1, NOW(), $2, $3, $4, $5,
+                $6, $7
             )
             RETURNING *",
         )
@@ -571,6 +576,8 @@ impl PostgresOrm {
         .bind(checkpoint_type)
         .bind(training_experiment_id)
         .bind(training_run_id)
+        .bind(control_model_params)
+        .bind(value_model_params)
         .fetch_one(&self.pool)
         .await
     }
@@ -593,6 +600,85 @@ impl PostgresOrm {
         )
         .bind(id)
         .fetch_optional(&self.pool)
+        .await
+    }
+
+    /// Fetch all checkpoint references for a
+    /// specific run, ordered by created_at.
+    pub async fn get_checkpoint_refs_for_run(
+        &self,
+        training_experiment_id: &str,
+        training_run_id: &str,
+    ) -> Result<
+        Vec<CheckpointReference>,
+        sqlx::Error,
+    > {
+        sqlx::query_as::<
+            _,
+            CheckpointReference,
+        >(
+            "SELECT *
+            FROM checkpoint_references
+            WHERE training_experiment_id = $1
+            AND training_run_id = $2
+            ORDER BY created_at ASC",
+        )
+        .bind(training_experiment_id)
+        .bind(training_run_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Fetch all checkpoint references ordered
+    /// by experiment, run, then timestamp.
+    pub async fn get_all_checkpoint_refs(
+        &self,
+    ) -> Result<
+        Vec<CheckpointReference>,
+        sqlx::Error,
+    > {
+        sqlx::query_as::<
+            _,
+            CheckpointReference,
+        >(
+            "SELECT *
+            FROM checkpoint_references
+            ORDER BY
+                training_experiment_id,
+                training_run_id,
+                created_at ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Append a checkpoint ref id to a run's
+    /// checkpoints_refs array.
+    pub async fn add_checkpoint_ref_to_run(
+        &self,
+        training_experiment_id: &str,
+        run_id: &str,
+        checkpoint_ref_id: &str,
+    ) -> Result<TrainingExperimentRun, sqlx::Error>
+    {
+        sqlx::query_as::<
+            _,
+            TrainingExperimentRun,
+        >(
+            "UPDATE training_runs
+            SET checkpoints_refs =
+                array_append(
+                    checkpoints_refs, $3
+                )
+            WHERE
+            training_experiment_id = $1
+            AND id = $2
+            RETURNING *",
+        )
+        .bind(training_experiment_id)
+        .bind(run_id)
+        .bind(checkpoint_ref_id)
+        .fetch_one(&self.pool)
         .await
     }
 

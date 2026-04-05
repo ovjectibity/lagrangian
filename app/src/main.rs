@@ -16,11 +16,15 @@ use rocket_ws as ws;
 use chrono::Utc;
 use uuid::Uuid;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
+
 use crate::commondef::{clientmessages, workermessages};
 use crate::commondef::experiments::{
     TrainingExperiment, TrainingExperimentRun,
     TrainingRunStatus,
 };
+use crate::commondef::training::{ControlModel, TrainingMethod, ValueModel};
 use crate::db::db_orm::PostgresOrm;
 use crate::db::mongo_orm::MongoOrm;
 use crate::workflows::testing::TestingWorkflow;
@@ -625,6 +629,75 @@ async fn handle_start_training_remote(
     if let Some(rt) = workflow_runtime.as_mut() {
         rt.set_mode(WorkflowMode::Training);
     }
+
+    // Capture exp_id / run_id for use inside
+    // the spawn closure.
+    let (spawn_exp_id, spawn_run_id) = {
+        let ctx = active_context().lock().await;
+        (
+            ctx.experiment_id.clone(),
+            ctx.run_id.clone(),
+        )
+    };
+
+    // Extract FFN param JSON strings for the
+    // checkpoint records (done once here so the
+    // closure doesn't need to be async for this).
+    let ctrl_json: Option<String> = {
+        if let TrainingMethod::PPO(ref ppo) =
+            training_controller.training_method
+        {
+            match &ppo.control_model {
+                ControlModel::FFN(m) =>
+                    serde_json::to_string(m).ok(),
+                ControlModel::Checkpoint(src_id) => {
+                    // best-effort: fetch the stored
+                    // params from the source ckpt
+                    postgres_orm()
+                        .get_checkpoint_ref(src_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|r| {
+                            r.control_model_params
+                                .as_ref()
+                                .and_then(|m| {
+                                    serde_json::to_string(m).ok()
+                                })
+                        })
+                }
+            }
+        } else {
+            None
+        }
+    };
+    let val_json: Option<String> = {
+        if let TrainingMethod::PPO(ref ppo) =
+            training_controller.training_method
+        {
+            match &ppo.value_model {
+                ValueModel::FFN(m) =>
+                    serde_json::to_string(m).ok(),
+                ValueModel::Checkpoint(src_id) => {
+                    postgres_orm()
+                        .get_checkpoint_ref(src_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|r| {
+                            r.value_model_params
+                                .as_ref()
+                                .and_then(|m| {
+                                    serde_json::to_string(m).ok()
+                                })
+                        })
+                }
+            }
+        } else {
+            None
+        }
+    };
+
     let tx_tc = tx_train.clone();
     let id_c = training_id.clone();
     let worker_slot = remote_worker_slot().clone();
@@ -665,28 +738,158 @@ async fn handle_start_training_remote(
         let worker = guard
             .as_mut()
             .expect("worker should be initialised");
+        // Build checkpoint payload if control model
+        // references a prior checkpoint.
+        let worker_checkpoint = {
+            use crate::commondef::training::{
+                ControlModel as CM,
+                TrainingMethod as TM,
+            };
+            if let TM::PPO(ref ppo) =
+                training_controller.training_method
+            {
+                if let CM::Checkpoint(ref src_id) =
+                    ppo.control_model
+                {
+                    let ckpt_ref = postgres_orm()
+                        .get_checkpoint_ref(src_id)
+                        .await
+                        .ok()
+                        .flatten();
+                    if let Some(r) = ckpt_ref {
+                        let bytes =
+                            std::fs::read(&r.path)
+                            .ok();
+                        bytes.map(|b| {
+                            crate::commondef
+                            ::remoteworkermessages
+                            ::Checkpoint {
+                                model_zip_base64: Some(
+                                    BASE64.encode(&b)
+                                ),
+                                model_zip_path: None,
+                            }
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
         let result = worker
             .run_training_job(
                 id_c.clone(),
                 training_controller,
                 Some(model_path.clone()),
                 mjcf,
+                worker_checkpoint,
                 move |update| {
-                    let client_updates = update
-                        .updates
-                        .iter()
-                        .map(|u| clientmessages::TrainingUpdate {
-                            training_run_state:
-                                u.training_run_state
-                                .clone(),
-                            logs: u.logs.clone(),
-                            metrics: u.metrics.clone(),
-                            // checkpoint persistence
-                            // not yet implemented for
-                            // remote path
-                            checkpoints: vec![],
-                        })
-                        .collect();
+                    let mut client_updates: Vec<
+                        clientmessages::TrainingUpdate
+                    > = Vec::new();
+                    for u in &update.updates {
+                        let mut saved_refs: Vec<
+                            crate::commondef::experiments
+                            ::CheckpointReference
+                        > = Vec::new();
+                        for ckpt in &u.checkpoints {
+                            if let (
+                                Some(b64),
+                                Some(ref exp_id),
+                                Some(ref run_id),
+                            ) = (
+                                ckpt.model_zip_base64.clone(),
+                                spawn_exp_id.clone(),
+                                spawn_run_id.clone(),
+                            ) {
+                                match BASE64.decode(&b64) {
+                                    Ok(bytes) => {
+                                        let ckpt_id =
+                                            Uuid::new_v4()
+                                            .to_string();
+                                        let dir = format!(
+                                            "checkpoints/{}/{}",
+                                            exp_id, run_id,
+                                        );
+                                        let path = format!(
+                                            "{}/{}.zip",
+                                            dir, ckpt_id,
+                                        );
+                                        if let Err(e) =
+                                            std::fs::create_dir_all(&dir)
+                                        {
+                                            println!(
+                                                "create_dir_all failed: \
+                                                 {:?}", e
+                                            );
+                                            continue;
+                                        }
+                                        if let Err(e) =
+                                            std::fs::write(&path, &bytes)
+                                        {
+                                            println!(
+                                                "write ckpt failed: \
+                                                 {:?}", e
+                                            );
+                                            continue;
+                                        }
+                                        // create DB record
+                                        let pg = postgres_orm();
+                                        let create_result =
+                                            tokio::runtime::Handle
+                                            ::current()
+                                            .block_on(
+                                                pg.create_checkpoint_ref(
+                                                    &ckpt_id,
+                                                    &path,
+                                                    "ppo",
+                                                    exp_id,
+                                                    run_id,
+                                                    ctrl_json.as_deref(),
+                                                    val_json.as_deref(),
+                                                )
+                                            );
+                                        match create_result {
+                                            Ok(ckpt_ref) => {
+                                                let _ = tokio::runtime
+                                                    ::Handle::current()
+                                                    .block_on(
+                                                        pg.add_checkpoint_ref_to_run(
+                                                            exp_id,
+                                                            run_id,
+                                                            &ckpt_id,
+                                                        )
+                                                    );
+                                                saved_refs.push(ckpt_ref);
+                                            }
+                                            Err(e) => println!(
+                                                "create_checkpoint_ref \
+                                                 failed: {:?}", e
+                                            ),
+                                        }
+                                    }
+                                    Err(e) => println!(
+                                        "base64 decode failed: {:?}",
+                                        e
+                                    ),
+                                }
+                            }
+                        }
+                        client_updates.push(
+                            clientmessages::TrainingUpdate {
+                                training_run_state:
+                                    u.training_run_state.clone(),
+                                logs: u.logs.clone(),
+                                metrics: u.metrics.clone(),
+                                checkpoints: saved_refs,
+                            }
+                        );
+                    }
                     let _ = tx_updates.try_send(
                         workermessages
                         ::TrainingTaskMessage
@@ -982,8 +1185,9 @@ async fn handle_create_run(
     }
 }
 
-/// Handles LoadRunMessage: fetches the run and
-/// updates the active context.
+/// Handles LoadRunMessage: fetches the run,
+/// updates the active context, and sends the
+/// existing checkpoints for the run.
 async fn handle_load_run(
     m: clientmessages::LoadRunMessage,
     stream: &mut ws::stream::DuplexStream,
@@ -1017,12 +1221,92 @@ async fn handle_load_run(
                     .send(ws::Message::Text(json))
                     .await;
             }
+            // Send existing checkpoints for this run
+            let checkpoints = pg
+                .get_checkpoint_refs_for_run(
+                    &m.training_experiment_id,
+                    &m.run_id,
+                )
+                .await
+                .unwrap_or_default();
+            let ckpt_msg =
+                clientmessages::ClientMessage
+                ::CheckpointsForRunMessage(
+                    clientmessages::CheckpointsForRunMessage {
+                        training_run_id: m.run_id.clone(),
+                        checkpoints,
+                    },
+                );
+            if let Ok(json) =
+                serde_json::to_string(&ckpt_msg)
+            {
+                let _ = stream
+                    .send(ws::Message::Text(json))
+                    .await;
+            }
         }
         Ok(None) => println!(
             "Run not found: {}", m.run_id
         ),
         Err(e) => println!(
             "get_run failed: {:?}", e
+        ),
+    }
+}
+
+/// Handles GetAllCheckpointsMessage.
+async fn handle_get_all_checkpoints(
+    stream: &mut ws::stream::DuplexStream,
+) {
+    let checkpoints = postgres_orm()
+        .get_all_checkpoint_refs()
+        .await
+        .unwrap_or_default();
+    let msg =
+        clientmessages::ClientMessage
+        ::AllCheckpointsMessage(
+            clientmessages::AllCheckpointsMessage {
+                checkpoints,
+            },
+        );
+    if let Ok(json) = serde_json::to_string(&msg) {
+        let _ = stream
+            .send(ws::Message::Text(json))
+            .await;
+    }
+}
+
+/// Handles GetCheckpointInfoMessage.
+async fn handle_get_checkpoint_info(
+    m: clientmessages::GetCheckpointInfoMessage,
+    stream: &mut ws::stream::DuplexStream,
+) {
+    match postgres_orm()
+        .get_checkpoint_ref(&m.checkpoint_id)
+        .await
+    {
+        Ok(Some(checkpoint)) => {
+            let msg =
+                clientmessages::ClientMessage
+                ::CheckpointInfoMessage(
+                    clientmessages::CheckpointInfoMessage {
+                        checkpoint,
+                    },
+                );
+            if let Ok(json) =
+                serde_json::to_string(&msg)
+            {
+                let _ = stream
+                    .send(ws::Message::Text(json))
+                    .await;
+            }
+        }
+        Ok(None) => println!(
+            "Checkpoint not found: {}",
+            m.checkpoint_id
+        ),
+        Err(e) => println!(
+            "get_checkpoint_ref failed: {:?}", e
         ),
     }
 }
@@ -1482,6 +1766,19 @@ fn workloads_channel(
                                             clientmessages::ServerMessage
                                             ::LoadRunMessage(m) => {
                                                 handle_load_run(
+                                                    m,
+                                                    &mut stream,
+                                                ).await;
+                                            }
+                                            clientmessages::ServerMessage
+                                            ::GetAllCheckpointsMessage => {
+                                                handle_get_all_checkpoints(
+                                                    &mut stream,
+                                                ).await;
+                                            }
+                                            clientmessages::ServerMessage
+                                            ::GetCheckpointInfoMessage(m) => {
+                                                handle_get_checkpoint_info(
                                                     m,
                                                     &mut stream,
                                                 ).await;

@@ -6,10 +6,20 @@
     WorkflowNodeSetting,
   } from "../workflows/workflowgraph";
 
-  const { nodes = [], edges = [], onOpenRewardEditor } = $props<{
+  const {
+    nodes = [],
+    edges = [],
+    onOpenRewardEditor,
+    checkpointOptionsByNode,
+    onCheckpointTypeSelected,
+    onCheckpointSelected,
+  } = $props<{
     nodes?: WorkflowNode[];
     edges?: WorkflowEdge[];
     onOpenRewardEditor?: () => void;
+    checkpointOptionsByNode?: Record<string, Array<{ label: string; value: string }>>;
+    onCheckpointTypeSelected?: (nodeId: string) => void;
+    onCheckpointSelected?: (nodeId: string, checkpointId: string) => void;
   }>();
 
   let nodeSettingValues = $state<Record<string, Record<string, number | string>>>({});
@@ -167,57 +177,89 @@
           {#if (node.settings?.length ?? 0) > 0}
             <div class="workflow-node-settings">
               {#each node.settings ?? [] as setting}
-                <label class="workflow-node-setting">
-                  <span>{setting.label}</span>
-                  {#if (setting.inputType ?? "number") === "select"}
-                    <select
-                      class="workflow-node-setting-select"
-                      disabled={setting.disabled ?? false}
-                      value={String(getSettingValue(node.id, setting))}
-                      oninput={(event) =>
-                        setSettingValue(
-                          node.id,
-                          setting,
-                          (event.currentTarget as HTMLSelectElement).value
-                        )}
-                    >
-                      {#each setting.options ?? [] as option}
-                        <option value={option.value}>{option.label}</option>
-                      {/each}
-                    </select>
-                  {:else}
-                    {#if setting.inputType === "link"}
-                      <button
-                        class="workflow-node-link-action"
-                        type="button"
-                        title="Open Reward editor"
-                        aria-label="Open Reward editor"
-                        onclick={() => onOpenRewardEditor?.()}
-                      >
-                        <span>{String(getSettingValue(node.id, setting))}</span>
-                        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                          <path d="M10.6 13.4a1 1 0 0 1 0-1.4l2.4-2.4a1 1 0 1 1 1.4 1.4L12 13.4a1 1 0 0 1-1.4 0zm-3.2 4.6a4 4 0 0 1 0-5.7l2.1-2.1a1 1 0 1 1 1.4 1.4l-2.1 2.1a2 2 0 1 0 2.8 2.8l2.1-2.1a1 1 0 1 1 1.4 1.4L13 18a4 4 0 0 1-5.7 0zm9.2-12a4 4 0 0 1 0 5.7l-2.1 2.1a1 1 0 1 1-1.4-1.4l2.1-2.1a2 2 0 1 0-2.8-2.8l-2.1 2.1a1 1 0 1 1-1.4-1.4L11 6a4 4 0 0 1 5.7 0z" />
-                        </svg>
-                      </button>
+                {@const isCheckpointMode =
+                  (node.nodeType === 'ControlModel' || node.nodeType === 'ValueModel') &&
+                  String(getSettingValue(node.id,
+                    (node.settings ?? []).find((s: WorkflowNodeSetting) => s.key === 'type') ?? setting
+                  )) === 'Checkpoint'}
+                {@const isFfnField =
+                  setting.key === 'num_hidden_layers' ||
+                  setting.key === 'hidden_layer_dim' ||
+                  setting.key === 'output_dim' ||
+                  setting.key === 'input_dim'}
+                {@const isCheckpointIdField = setting.key === 'checkpoint_id'}
+                {#if isCheckpointIdField && !isCheckpointMode}
+                  <!-- hide checkpoint_id when type is FFN -->
+                {:else}
+                  <label class="workflow-node-setting">
+                    <span>{setting.label}</span>
+                    {#if (setting.inputType ?? "number") === "select"}
+                      {#if isCheckpointIdField}
+                        <select
+                          class="workflow-node-setting-select"
+                          value={String(getSettingValue(node.id, setting))}
+                          oninput={(event) => {
+                            const val = (event.currentTarget as HTMLSelectElement).value;
+                            setSettingValue(node.id, setting, val);
+                            onCheckpointSelected?.(node.id, val);
+                          }}
+                        >
+                          {#each (checkpointOptionsByNode?.[node.id] ?? []) as option}
+                            <option value={option.value} disabled={option.value === ''}>{option.label}</option>
+                          {/each}
+                        </select>
+                      {:else}
+                        <select
+                          class="workflow-node-setting-select"
+                          disabled={setting.disabled ?? false}
+                          value={String(getSettingValue(node.id, setting))}
+                          oninput={(event) => {
+                            const val = (event.currentTarget as HTMLSelectElement).value;
+                            setSettingValue(node.id, setting, val);
+                            if (setting.key === 'type' && val === 'Checkpoint') {
+                              onCheckpointTypeSelected?.(node.id);
+                            }
+                          }}
+                        >
+                          {#each setting.options ?? [] as option}
+                            <option value={option.value}>{option.label}</option>
+                          {/each}
+                        </select>
+                      {/if}
                     {:else}
-                      <input
-                        class="workflow-node-setting-input"
-                        type="number"
-                        disabled={setting.disabled ?? false}
-                        min={setting.min}
-                        max={setting.max}
-                        step={setting.step ?? 1}
-                        value={getSettingValue(node.id, setting)}
-                        oninput={(event) =>
-                          setSettingValue(
-                            node.id,
-                            setting,
-                            (event.currentTarget as HTMLInputElement).value
-                          )}
-                      />
+                      {#if setting.inputType === "link"}
+                        <button
+                          class="workflow-node-link-action"
+                          type="button"
+                          title="Open Reward editor"
+                          aria-label="Open Reward editor"
+                          onclick={() => onOpenRewardEditor?.()}
+                        >
+                          <span>{String(getSettingValue(node.id, setting))}</span>
+                          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M10.6 13.4a1 1 0 0 1 0-1.4l2.4-2.4a1 1 0 1 1 1.4 1.4L12 13.4a1 1 0 0 1-1.4 0zm-3.2 4.6a4 4 0 0 1 0-5.7l2.1-2.1a1 1 0 1 1 1.4 1.4l-2.1 2.1a2 2 0 1 0 2.8 2.8l2.1-2.1a1 1 0 1 1 1.4 1.4L13 18a4 4 0 0 1-5.7 0zm9.2-12a4 4 0 0 1 0 5.7l-2.1 2.1a1 1 0 1 1-1.4-1.4l2.1-2.1a2 2 0 1 0-2.8-2.8l-2.1 2.1a1 1 0 1 1-1.4-1.4L11 6a4 4 0 0 1 5.7 0z" />
+                          </svg>
+                        </button>
+                      {:else}
+                        <input
+                          class="workflow-node-setting-input"
+                          type="number"
+                          disabled={(setting.disabled ?? false) || (isCheckpointMode && isFfnField)}
+                          min={setting.min}
+                          max={setting.max}
+                          step={setting.step ?? 1}
+                          value={getSettingValue(node.id, setting)}
+                          oninput={(event) =>
+                            setSettingValue(
+                              node.id,
+                              setting,
+                              (event.currentTarget as HTMLInputElement).value
+                            )}
+                        />
+                      {/if}
                     {/if}
-                  {/if}
-                </label>
+                  </label>
+                {/if}
               {/each}
             </div>
           {/if}

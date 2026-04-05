@@ -13,9 +13,11 @@
   import RewardEditor from './lib/rewardeditor.svelte';
   import TrainingRuntimeDashboard from './lib/trainingruntimedashboard.svelte';
   import TrainingExperimentsTable from './lib/trainingexperimentstable.svelte';
+  import CheckpointsViewer from './lib/checkpointsviewer.svelte';
   import type { TabbedTab } from './lib/tabbedcontainer.svelte';
   import type { WorldBody } from './commondef/model';
   import type {
+    CheckpointReference,
     MetricsData,
     TrainingMetrics,
   } from './commondef/training';
@@ -46,6 +48,33 @@
   let activeRun = $state<TrainingExperimentRun | null>(null);
   let isTrainingRunning = $state(false);
   let isTestingRunning = $state(false);
+  let runCheckpoints = $state<CheckpointReference[]>([]);
+  let allCheckpoints = $state<CheckpointReference[]>([]);
+  // nodeId of the model node that last triggered GetCheckpointInfo
+  let pendingCheckpointNodeId = $state<string | null>(null);
+  // Build grouped checkpoint options for the model node dropdowns.
+  // Groups are: disabled header per exp+run, then selectable checkpoint IDs.
+  const buildCheckpointOptions = (ckpts: CheckpointReference[]): Array<{ label: string; value: string }> => {
+    const opts: Array<{ label: string; value: string }> = [];
+    let lastGroup = '';
+    for (const ckpt of ckpts) {
+      const group = `${ckpt.training_experiment_id} / ${ckpt.training_run_id}`;
+      if (group !== lastGroup) {
+        opts.push({ label: `Exp: ${ckpt.training_experiment_id} / Run: ${ckpt.training_run_id}`, value: '' });
+        lastGroup = group;
+      }
+      opts.push({ label: ckpt.id, value: ckpt.id });
+    }
+    return opts;
+  };
+
+  const checkpointOptions = $derived(buildCheckpointOptions(allCheckpoints));
+
+  const checkpointOptionsByNode = $derived<Record<string, Array<{ label: string; value: string }>>>({
+    'control-model': checkpointOptions,
+    'value-model': checkpointOptions,
+  });
+
   let isTrainingActionDisabled = $derived(
     !isTrainingRunning && isTestingRunning
   );
@@ -136,6 +165,19 @@
     selectedEditorTabId = 'reward-editor';
   }
 
+  function onCheckpointTypeSelected(nodeId: string) {
+    pendingCheckpointNodeId = nodeId;
+    sendServerMessage({ type: 'GetAllCheckpointsMessage' });
+  }
+
+  function onCheckpointSelected(nodeId: string, checkpointId: string) {
+    pendingCheckpointNodeId = nodeId;
+    sendServerMessage({
+      type: 'GetCheckpointInfoMessage',
+      content: { checkpoint_id: checkpointId },
+    });
+  }
+
   function createExperiment() {
     sendServerMessage({ type: 'CreateExperimentMessage' });
   }
@@ -209,7 +251,10 @@
             name: 'Training setup',
             component: TrainingGraphEditor,
             props: {
-              onOpenRewardEditor: openRewardEditor
+              onOpenRewardEditor: openRewardEditor,
+              checkpointOptionsByNode,
+              onCheckpointTypeSelected,
+              onCheckpointSelected,
             }
           } satisfies TabbedTab,
           {
@@ -223,6 +268,14 @@
             component: TrainingRuntimeDashboard,
             props: {
               metricsByType: trainingMetricsByType
+            }
+          } satisfies TabbedTab,
+          {
+            id: 'checkpoints',
+            name: 'Checkpoints',
+            component: CheckpointsViewer,
+            props: {
+              checkpoints: runCheckpoints,
             }
           } satisfies TabbedTab
         ])
@@ -401,8 +454,33 @@
               for (const update of clientMessage.content.updates) {
                 appendTrainingMetrics(update.metrics);
                 appendTrainingLogs(update.logs);
+                if (update.checkpoints.length > 0) {
+                  runCheckpoints = [...runCheckpoints, ...update.checkpoints];
+                }
               }
             }
+          } else if (clientMessage.type === 'AllCheckpointsMessage') {
+            allCheckpoints = clientMessage.content.checkpoints;
+          } else if (clientMessage.type === 'CheckpointInfoMessage') {
+            const ckpt = clientMessage.content.checkpoint;
+            const nodeId = pendingCheckpointNodeId;
+            if (nodeId && ckpt.control_model_params) {
+              const { num_hidden_layers, hidden_layer_dim, output_dim, input_dim } = ckpt.control_model_params;
+              import('./workflows/workflowgraph').then(({ TrainingGraphNodes }) => {
+                const node = TrainingGraphNodes.find(n => n.id === nodeId);
+                if (node?.settings) {
+                  for (const s of node.settings) {
+                    if (s.key === 'num_hidden_layers') s.value = num_hidden_layers;
+                    else if (s.key === 'hidden_layer_dim') s.value = hidden_layer_dim;
+                    else if (s.key === 'output_dim') s.value = output_dim;
+                    else if (s.key === 'input_dim') s.value = input_dim;
+                  }
+                }
+              });
+            }
+            pendingCheckpointNodeId = null;
+          } else if (clientMessage.type === 'CheckpointsForRunMessage') {
+            runCheckpoints = clientMessage.content.checkpoints;
           } else if (clientMessage.type === 'StopTrainingMessage') {
             isTrainingRunning = false;
           } else if (clientMessage.type === 'ExperimentsListMessage') {
@@ -431,6 +509,7 @@
             ) ?? null;
             trainingMetricsByType = createEmptyTrainingMetricsByType();
             trainingLogs = [];
+            runCheckpoints = [];
           } else if (clientMessage.type === 'StopSimulationMessage') {
             if (clientMessage.content.id === testingTaskId) {
               isTestingRunning = false;

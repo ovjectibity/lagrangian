@@ -1,10 +1,13 @@
 import type { SimulationParams } from '../commondef/testing';
 import type {
+  CheckpointFrequency,
   ComputeInstance,
+  ControlModel,
   FFNModel,
   TrainingAccelerationMode,
   TrainingJobController,
   TrainingMethod,
+  ValueModel,
 } from '../commondef/training';
 
 export interface WorkflowNodeSetting {
@@ -101,12 +104,22 @@ export const ControlModelNode: WorkflowNode = {
       label: "type",
       value: "FFN",
       inputType: "select",
-      options: [{ label: "FFN", value: "FFN" }],
+      options: [
+        { label: "FFN", value: "FFN" },
+        { label: "Checkpoint", value: "Checkpoint" },
+      ],
     },
     { key: "num_hidden_layers", label: "num_hidden_layers", value: 3, min: 1, step: 1 },
     { key: "hidden_layer_dim", label: "hidden_layer_dim", value: 512, min: 1, step: 1 },
     { key: "output_dim", label: "output_dim", value: 14, min: 1, step: 1 },
     { key: "input_dim", label: "input_dim", value: 55, min: 1, step: 1 },
+    {
+      key: "checkpoint_id",
+      label: "Checkpoint ID",
+      value: "",
+      inputType: "select",
+      options: [],
+    },
   ],
 };
 
@@ -126,12 +139,22 @@ export const ValueModelNode: WorkflowNode = {
       label: "type",
       value: "FFN",
       inputType: "select",
-      options: [{ label: "FFN", value: "FFN" }],
+      options: [
+        { label: "FFN", value: "FFN" },
+        { label: "Checkpoint", value: "Checkpoint" },
+      ],
     },
     { key: "num_hidden_layers", label: "num_hidden_layers", value: 3, min: 1, step: 1 },
     { key: "hidden_layer_dim", label: "hidden_layer_dim", value: 256, min: 1, step: 1 },
     { key: "output_dim", label: "output_dim", value: 1, min: 1, step: 1, disabled: true },
     { key: "input_dim", label: "input_dim", value: 55, min: 1, step: 1 },
+    {
+      key: "checkpoint_id",
+      label: "Checkpoint ID",
+      value: "",
+      inputType: "select",
+      options: [],
+    },
   ],
 };
 
@@ -185,6 +208,18 @@ export const TrainingJobControllerNode: WorkflowNode = {
       inputType: "select",
       options: [{ label: "AWSG4dn", value: "AWSG4dn" }],
     },
+    {
+      key: "checkpoint_frequency_type",
+      label: "checkpoint_frequency_type",
+      value: "PostEpoch",
+      inputType: "select",
+      options: [
+        { label: "PostEpoch", value: "PostEpoch" },
+        { label: "PostUpdate", value: "PostUpdate" },
+        { label: "LastOnly", value: "LastOnly" },
+      ],
+    },
+    { key: "checkpoint_frequency_n", label: "checkpoint_frequency_n", value: 1, min: 1, step: 1 },
   ],
 };
 
@@ -366,24 +401,29 @@ export const buildTrainingWorkflow = (): TrainingMethod => {
           '',
         ),
       },
-      control_model: {
-        type: 'FFN',
-        content: buildFfnModel('control-model'),
-      },
-      value_model: {
-        type: 'FFN',
-        content: buildFfnModel('value-model'),
-      },
+      control_model: ((): ControlModel => {
+        const t = getStringSetting('control-model', 'type', 'FFN');
+        return t === 'Checkpoint'
+          ? { type: 'Checkpoint', content: getStringSetting('control-model', 'checkpoint_id', '') }
+          : { type: 'FFN', content: buildFfnModel('control-model') };
+      })(),
+      value_model: ((): ValueModel => {
+        const t = getStringSetting('value-model', 'type', 'FFN');
+        return t === 'Checkpoint'
+          ? { type: 'Checkpoint', content: getStringSetting('value-model', 'checkpoint_id', '') }
+          : { type: 'FFN', content: buildFfnModel('value-model') };
+      })(),
     },
   };
 };
 
 export const buildTrainingController = (): TrainingJobController => {
+  const freqType = getStringSetting('training-job-controller', 'checkpoint_frequency_type', 'PostEpoch');
+  const freqN = getNumericSetting('training-job-controller', 'checkpoint_frequency_n', 1);
   return {
-    checkpoint_frequency: {
-      type: "PostEpoch",
-      content: 1
-    },
+    checkpoint_frequency: freqType === 'LastOnly'
+      ? { type: 'LastOnly' }
+      : { type: freqType as 'PostEpoch' | 'PostUpdate', content: freqN },
     training_method: buildTrainingWorkflow(),
     acceleration_mode: getStringSetting(
       'training-job-controller',

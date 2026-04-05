@@ -5,7 +5,17 @@
     TrainingGraphNodes,
   } from "../workflows/workflowgraph";
   import type { WorkflowEdge, WorkflowNode } from "../workflows/workflowgraph";
-  const { onOpenRewardEditor } = $props<{ onOpenRewardEditor?: () => void }>();
+  const {
+    onOpenRewardEditor,
+    checkpointOptionsByNode,
+    onCheckpointTypeSelected,
+    onCheckpointSelected,
+  } = $props<{
+    onOpenRewardEditor?: () => void;
+    checkpointOptionsByNode?: Record<string, Array<{ label: string; value: string }>>;
+    onCheckpointTypeSelected?: (nodeId: string) => void;
+    onCheckpointSelected?: (nodeId: string, checkpointId: string) => void;
+  }>();
 
   const trainingNodes: WorkflowNode[] = TrainingGraphNodes;
   const trainingEdges: WorkflowEdge[] = TrainingGraphEdges;
@@ -16,5 +26,8 @@
     nodes={trainingNodes}
     edges={trainingEdges}
     onOpenRewardEditor={onOpenRewardEditor}
+    checkpointOptionsByNode={checkpointOptionsByNode}
+    onCheckpointTypeSelected={onCheckpointTypeSelected}
+    onCheckpointSelected={onCheckpointSelected}
   />
 </div>
