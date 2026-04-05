@@ -6,12 +6,39 @@ if command -v yum >/dev/null 2>&1; then
   yum install -y docker awscli
   systemctl enable docker
   systemctl start docker
+  # NVIDIA driver + container toolkit (Amazon Linux 2 / AL2023)
+  yum install -y gcc kernel-devel-$(uname -r) || true
+  dnf install -y kernel-modules-extra || yum install -y kernel-modules-extra || true
+  yum-config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo || true
+  yum install -y cuda-drivers || true
+  curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo \
+    | tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+  yum install -y nvidia-container-toolkit
+  nvidia-ctk runtime configure --runtime=docker
+  systemctl restart docker
 elif command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
   apt-get install -y docker.io awscli
   systemctl enable docker
   systemctl start docker
+  # NVIDIA driver + container toolkit (Ubuntu/Debian)
+  apt-get install -y linux-headers-$(uname -r) || true
+  curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub \
+    | gpg --dearmor -o /usr/share/keyrings/cuda-keyring.gpg
+  echo "deb [signed-by=/usr/share/keyrings/cuda-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/ /" \
+    > /etc/apt/sources.list.d/cuda.list
+  apt-get update -y
+  apt-get install -y cuda-drivers
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+    | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+    | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+    | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  apt-get update -y
+  apt-get install -y nvidia-container-toolkit
+  nvidia-ctk runtime configure --runtime=docker
+  systemctl restart docker
 else
   echo "Unsupported package manager" >&2
   exit 1
@@ -28,6 +55,7 @@ WS_PING_TIMEOUT_SECONDS=60
 ENV_EOF
 
 docker run -d --restart unless-stopped \
+  --gpus all \
   --name __CONTAINER_NAME__ \
   --env-file /etc/lagrangian-worker.env \
   -p __WORKER_PORT__:__WORKER_PORT__ \

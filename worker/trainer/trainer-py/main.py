@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import jax
 import orbax.checkpoint as ocp
 import websockets
 from pydantic import ValidationError
@@ -546,6 +547,8 @@ def main() -> None:
     )
     host = os.getenv("WS_HOST", "0.0.0.0")
     port = int(os.getenv("WS_PORT", "8765"))
+    logger.info("JAX devices: %s", jax.devices())
+    logger.info("JAX default backend: %s", jax.default_backend())
     logger.info("Initializing worker runtime")
     shared_secret = _load_secret()
     logger.info("Worker shared secret loaded")
