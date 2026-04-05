@@ -57,9 +57,11 @@ impl WorkflowRuntime {
     pub fn configure_model_for_training(&self, params: &PPOTrainingMethod) -> Result<(), String> {
         let control_params = match &params.control_model {
             ControlModel::FFN(m) => m,
+            _ => return Err("Checkpoint control model not supported".into()),
         };
         let value_params = match &params.value_model {
             ValueModel::FFN(m) => m,
+            _ => return Err("Checkpoint value model not supported".into()),
         };
         let (policy, policy_store) = ArmModel::init_policy(
             control_params.input_dim as i64,

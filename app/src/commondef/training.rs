@@ -112,13 +112,6 @@ pub enum CheckpointFrequency {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct Checkpoint {
-    pub model_zip_base64: Option<String>,
-    pub model_zip_path: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum TrainingRunState {
@@ -130,13 +123,4 @@ pub enum TrainingRunState {
 pub struct PPOTrainingRunState {
     pub epoch_index: i32,
     pub update_index: i32,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct TrainingUpdate {
-    pub training_run_state: TrainingRunState,
-    pub logs: Vec<String>,
-    pub metrics: Vec<TrainingMetrics>,
-    pub checkpoints: Vec<Checkpoint>,
 }

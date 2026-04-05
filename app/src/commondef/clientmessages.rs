@@ -4,10 +4,10 @@ use typeshare::typeshare;
 use crate::commondef::model;
 use crate::commondef::testing::SimulationParams;
 use crate::commondef::training::{
-    TrainingGraph, TrainingUpdate,
+    TrainingGraph, TrainingMetrics, TrainingRunState,
 };
 use crate::commondef::experiments::{
-    TrainingExperiment, TrainingExperimentRun,
+    CheckpointReference, TrainingExperiment, TrainingExperimentRun
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -217,4 +217,13 @@ pub struct ExperimentsListMessage {
 pub struct ExperimentRunsMessage {
     pub training_experiment_id: String,
     pub runs: Vec<TrainingExperimentRun>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct TrainingUpdate {
+    pub training_run_state: TrainingRunState,
+    pub logs: Vec<String>,
+    pub metrics: Vec<TrainingMetrics>,
+    pub checkpoints: Vec<CheckpointReference>,
 }

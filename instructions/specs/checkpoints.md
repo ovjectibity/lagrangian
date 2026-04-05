@@ -27,7 +27,7 @@
         iii. Training run ID
         iv. Checkpoint timestamp
     c. As soon as checkpoints are saved by the server, they should be dynamically informed about to the client as well 
-        i. Have the client be able to register for updates on runs of interest with the server & use this mechanism to send updates only in the context of the client registering for updates on this training run.
+        i. Send this update via the TrainingUpdateMessage itself 
 
 4. Using prior checkpoints in a new training run: 
     a. Users should be able to use prior saved checkpoints in subsequent runs 

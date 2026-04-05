@@ -1,7 +1,9 @@
 use serde;
 use typeshare::typeshare;
 
-use crate::commondef::training::{TrainingGraph, TrainingUpdate};
+use crate::commondef::training::{
+    TrainingGraph, TrainingMetrics, TrainingRunState,
+};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
@@ -47,4 +49,20 @@ pub struct LoadModelMessage {
 pub struct TrainingUpdatesMessage {
     pub id: String,
     pub updates: Vec<TrainingUpdate>
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct Checkpoint {
+    pub model_zip_base64: Option<String>,
+    pub model_zip_path: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct TrainingUpdate {
+    pub training_run_state: TrainingRunState,
+    pub logs: Vec<String>,
+    pub metrics: Vec<TrainingMetrics>,
+    pub checkpoints: Vec<Checkpoint>,
 }

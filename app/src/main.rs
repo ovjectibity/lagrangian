@@ -672,6 +672,21 @@ async fn handle_start_training_remote(
                 Some(model_path.clone()),
                 mjcf,
                 move |update| {
+                    let client_updates = update
+                        .updates
+                        .iter()
+                        .map(|u| clientmessages::TrainingUpdate {
+                            training_run_state:
+                                u.training_run_state
+                                .clone(),
+                            logs: u.logs.clone(),
+                            metrics: u.metrics.clone(),
+                            // checkpoint persistence
+                            // not yet implemented for
+                            // remote path
+                            checkpoints: vec![],
+                        })
+                        .collect();
                     let _ = tx_updates.try_send(
                         workermessages
                         ::TrainingTaskMessage
@@ -679,9 +694,7 @@ async fn handle_start_training_remote(
                             clientmessages
                             ::TrainingUpdatesMessage {
                                 id: update.id.clone(),
-                                updates: update
-                                    .updates
-                                    .clone(),
+                                updates: client_updates,
                             },
                         ),
                     );

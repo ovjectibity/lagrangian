@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use rocket::tokio::sync::mpsc;
 
 use crate::commondef::clientmessages::{StopTrainingMessage, TrainingUpdatesMessage};
-use crate::commondef::training::{MetricsData, PPOTrainingMethod, PPOTrainingRunState, TrainingMetrics, TrainingRunState, TrainingUpdate};
+use crate::commondef::training::{MetricsData, PPOTrainingMethod, PPOTrainingRunState, TrainingMetrics, TrainingRunState};
+use crate::commondef::clientmessages::TrainingUpdate;
 use crate::commondef::workermessages::TrainingTaskMessage;
 use crate::plugin::Simulator;
 use crate::plugin::ppo_trainer::{PPOTrainedModel, PPOTrainer};
