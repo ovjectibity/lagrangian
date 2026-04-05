@@ -109,6 +109,7 @@ pub struct TrainingGraph {
 pub enum CheckpointFrequency {
     PostEpoch(i32),
     PostUpdate(i32),
+    LastOnly
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

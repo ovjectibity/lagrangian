@@ -14,8 +14,10 @@
     a. Skip this for now
 
 2. Saving checkpoint updates from remote worker: 
-    a. When checkpoint updates are sent from the remote worker, they need to be saved by the app server in a local directory (for now only, we’ll use some S3-like server based storage later)
-    b. Also 2 DB entries need to be updated: 
+    a. Allow users to also configure the CheckpointFrequency field in the TrainingJobController. Enable this capability on the client side’s training graph. 
+    b. Additionally, 1 more option can be used by the customer: saving only the last checkpoint as added to `commondef/training.rs` > `CheckpointFrequency` . This would basically save only the last checkpoint available in the training job either right before it finishes or even after the user stops the training job. The remote worker needs to be changed to adhere to these options.
+    c. When checkpoint updates are sent from the remote worker, they need to be saved by the app server in a local directory (for now only, we’ll use some S3-like server based storage later)
+    d. Also 2 DB entries need to be updated: 
         i. training_runs: A new id (reference to the added checkpoint record) added to the checkpoints_refs attribute
         ii. checkpoint_references: A new entry recording the new checkpoint
 
@@ -37,4 +39,9 @@
         i. Ensure that the checkpoint IDs listed in the menu bar segregate IDs on the basis the training experiment & run hierarchy with ID labels for both these attributes above every set of checkpoint IDs belonging to them 
         ii. The other fields should automatically populate (but disabled) on the basis of the checkpoint which is loaded. 
     e. In order to do this hence, the client will need GetAllCheckpoints, GetCheckpointInfo messages to send to the server & to which the server will respond. 
-    f. Once the user starts a new training run with a checkpoint, ensure to use that instead of a model from scratch.
+    f. Once the user starts a new training run with a checkpoint, ensure to use that instead of a model from scratch. This is to be done for both the local training job run type & the remote training job type. 
+
+5. Saving checkpoints & sending them to remoteworker: 
+    a. When the user starts a training run on a remote worker using a checkpoint, it needs to be transferred from the local storage of the app server to the remote worker. Use newly added: `pub checkpoint: Option<Checkpoint>`  in the `commondef/remoteworkermessages.rs` for the same. 
+    b. Ensure that checkpoints sent by the remote worker to the server & vice versa are sent via a binary stream in WSS instead of base64 encoded.
+    c. On the remote worker side, ensure to extract & load it correctly when starting the training job.

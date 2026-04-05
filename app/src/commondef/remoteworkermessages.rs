@@ -19,6 +19,7 @@ pub enum TrainingRemoteWorkerServerMessage {
 pub struct StartTrainingMessage {
     pub id: String,
     pub training_graph: TrainingGraph,
+    pub checkpoint: Option<Checkpoint>
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
