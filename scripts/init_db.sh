@@ -32,6 +32,23 @@ require_cmd() {
   }
 }
 
+# ── Install dependencies (if missing) ────────────────
+
+if command -v brew >/dev/null 2>&1; then
+  if ! command -v psql >/dev/null 2>&1; then
+    log "Installing PostgreSQL via Homebrew..."
+    brew install postgresql
+  fi
+
+  if ! command -v mongosh >/dev/null 2>&1; then
+    log "Installing MongoDB via Homebrew..."
+    brew tap mongodb/brew 2>/dev/null || true
+    brew install mongodb-community mongosh
+  fi
+else
+  log "Homebrew not found — skipping automatic install. Please install PostgreSQL and MongoDB manually."
+fi
+
 # ── Pre-flight checks ────────────────────────────────
 
 require_cmd psql
