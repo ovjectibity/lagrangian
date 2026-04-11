@@ -124,7 +124,7 @@ PGPASSWORD="" \
 psql -h "$POSTGRES_HOST" \
      -p "$POSTGRES_PORT" \
      -U "$(whoami)" \
-     -d "$POSTGRES_DB" <<'SQL'
+     -d "$POSTGRES_DB" <<SQL
 
 CREATE TABLE IF NOT EXISTS users (
     user_id    TEXT        PRIMARY KEY,

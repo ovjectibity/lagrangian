@@ -17,3 +17,4 @@ worker/trainer/docker_images
 .aws-env
 .keys
 app/checkpoints
+.envrc-2
