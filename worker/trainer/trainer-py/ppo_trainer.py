@@ -685,11 +685,10 @@ class PPOTrainer:
             self._jit_gen_trajs = compiled
 
         t_exec = time.time()
-        with jax.profiler.trace("/tmp/jax_profile"):
-            result = self._jit_gen_trajs(policy_store, mjx_data, keys)
-            jax.block_until_ready(result)
+        result = self._jit_gen_trajs(policy_store, mjx_data, keys)
+        jax.block_until_ready(result)
         t_exec_done = time.time()
-        logger.info("gen_trajectories_gpu: execution took %.2fs (profile saved to /tmp/jax_profile)", t_exec_done - t_exec)
+        logger.info("gen_trajectories_gpu: execution took %.2fs", t_exec_done - t_exec)
         return result
 
     def train_an_epoch_gpu(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import defaultdict
 import logging
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,26 @@ class MjxSimulator(Simulator):
         logger.info("MjxSimulator: calling mjx.put_data")
         self._mjx_data = mjx.put_data(self._model, self._data)
         logger.info("MjxSimulator: init complete")
+
+        # Benchmark: isolate mjx.step timing
+        logger.info("MjxSimulator: running mjx.step benchmark...")
+        _bench_step = jax.jit(lambda d: mjx.step(self._mjx_model, d))
+        t0 = time.time()
+        _bench_lowered = _bench_step.lower(self._mjx_data)
+        t1 = time.time()
+        logger.info("MjxSimulator: bench — lowering took %.2fs", t1 - t0)
+        _bench_compiled = _bench_lowered.compile()
+        t2 = time.time()
+        logger.info("MjxSimulator: bench — XLA compile took %.2fs", t2 - t1)
+        _bench_result = _bench_compiled(self._mjx_data)
+        jax.block_until_ready(_bench_result)
+        t3 = time.time()
+        logger.info("MjxSimulator: bench — first execution took %.2fs", t3 - t2)
+        for _ in range(10):
+            _bench_result = _bench_compiled(_bench_result)
+        jax.block_until_ready(_bench_result)
+        t4 = time.time()
+        logger.info("MjxSimulator: bench — 10 steps took %.2fs (%.4fs/step)", t4 - t3, (t4 - t3) / 10)
         self.target_position: list[float] = self._get_actuated_qpos_targets()
 
     def _sync_cpu_from_mjx(self) -> None:
