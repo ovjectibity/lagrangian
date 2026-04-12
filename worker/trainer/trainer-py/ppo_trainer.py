@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 import logging
+import time
 from typing import Any, Callable, Sequence
 
 logger = logging.getLogger(__name__)
@@ -235,6 +236,7 @@ class PPOTrainer:
         """
         action_output_size = self.get_action_output_size()
 
+        logger.info("gen_trajectory_step: running policy_fn")
         action_gaussian_params = jnp.asarray(policy_fn(policy_store, wstate))
         action_gaussian_mean = action_gaussian_params[:action_output_size]
         action_gaussian_stdev = jnp.exp(action_gaussian_params[action_output_size:])
@@ -252,10 +254,16 @@ class PPOTrainer:
         else:
             raise ValueError(f"Unsupported control mode: {output_mode}")
 
+        logger.info("gen_trajectory_step: policy_fn done, running simulator_step_fn")
+        jax.debug.print("[gen_trajectory_step] policy_fn done, running simulator_step_fn")
         mjx_data_next, wstate_next, cstate_next, contact_matrix = simulator_step_fn(mjx_data, controls)
 
+        logger.info("gen_trajectory_step: simulator_step_fn done, running reward_fn")
+        jax.debug.print("[gen_trajectory_step] simulator_step_fn done, running reward_fn")
         reward = reward_fn(cstate, cstate_next, sampled_action, contact_matrix)
 
+        logger.info("gen_trajectory_step: reward_fn done")
+        jax.debug.print("[gen_trajectory_step] reward_fn done")
         return mjx_data_next, wstate_next, cstate_next, action_gaussian_params, sampled_action, reward, rng_key_next
 
     def gen_trajectory(self) -> Trajectory:
@@ -540,7 +548,7 @@ class PPOTrainer:
             action_samples:[traj_depth, nu]
             rewards:       [traj_depth]
         """
-        logger.debug(
+        logger.info(
             "gen_trajectory_gpu: start (traj_depth=%s rng_key=%s)",
             self.traj_depth,
             rng_key,
@@ -556,7 +564,7 @@ class PPOTrainer:
         nq = self.simulator.nq()
         nv = self.simulator.nv()
         nbody = self.simulator.nbody()
-        logger.debug(
+        logger.info(
             "gen_trajectory_gpu: nq=%s nv=%s nbody=%s output_mode=%s",
             nq, nv, nbody, output_mode,
         )
@@ -569,17 +577,18 @@ class PPOTrainer:
             return wstate, cstate
 
         wstate0, cstate0 = initial_states(mjx_data)
-        logger.debug(
+        logger.info(
             "gen_trajectory_gpu: initial wstate shape=%s cstate shape=%s",
             wstate0.shape,
             cstate0.shape,
         )
-        logger.debug("gen_trajectory_gpu: launching lax.scan over %s steps", self.traj_depth)
+        logger.info("gen_trajectory_gpu: launching lax.scan over %s steps", self.traj_depth)
 
         def scan_body(
             carry: tuple[Any, Array, Array, Array],
-            _: None,
+            step_idx: Array,
         ) -> tuple[tuple[Any, Array, Array, Array], tuple[Array, Array, Array, Array, Array]]:
+            jax.debug.print("[gen_trajectory_gpu] scan step {s}", s=step_idx)
             mjx_data_c, wstate, cstate, rng = carry
             mjx_data_next, wstate_next, cstate_next, model_output, action_sample, reward, rng_next = (
                 self.gen_trajectory_step(
@@ -594,6 +603,7 @@ class PPOTrainer:
                     simulator_step_fn,
                 )
             )
+            jax.debug.print("[gen_trajectory_gpu] scan step {s} done, reward={r}", s=step_idx, r=reward)
             return (mjx_data_next, wstate_next, cstate_next, rng_next), (
                 wstate,
                 cstate_next,
@@ -603,9 +613,9 @@ class PPOTrainer:
             )
 
         (_, wstate_final, _, _), (wstates_t, cstate_seq, model_outputs, action_samples, rewards) = (
-            jax.lax.scan(scan_body, (mjx_data, wstate0, cstate0, rng_key), None, length=self.traj_depth)
+            jax.lax.scan(scan_body, (mjx_data, wstate0, cstate0, rng_key), jnp.arange(self.traj_depth))
         )
-        logger.debug(
+        logger.info(
             "gen_trajectory_gpu: lax.scan complete — wstates_t shape=%s rewards shape=%s",
             wstates_t.shape,
             rewards.shape,
@@ -613,7 +623,7 @@ class PPOTrainer:
 
         # Append terminal wstate so shape is [traj_depth+1, state_dim]
         wstates = jnp.concatenate([wstates_t, wstate_final[None]], axis=0)
-        logger.debug("gen_trajectory_gpu: done (wstates shape=%s)", wstates.shape)
+        logger.info("gen_trajectory_gpu: done (wstates shape=%s)", wstates.shape)
 
         return wstates, cstate_seq, model_outputs, action_samples, rewards
 
@@ -638,14 +648,14 @@ class PPOTrainer:
             action_samples:[num_trajs, traj_depth, nu]
             rewards:       [num_trajs, traj_depth]
         """
-        logger.debug(
+        logger.info(
             "gen_trajectories_gpu: start (num_trajs=%s traj_depth=%s)",
             num_trajs,
             self.traj_depth,
         )
         keys = jax.random.split(rng_key, num_trajs)
         policy_store = self.model.get_policy_store()
-        logger.debug("gen_trajectories_gpu: split %s RNG keys, launching jit(vmap)", num_trajs)
+        logger.info("gen_trajectories_gpu: split %s RNG keys, launching jit(vmap)", num_trajs)
 
         def single_traj(ps: Params, md: Any, key: Array) -> tuple[Array, Array, Array, Array, Array]:
             return self.gen_trajectory_gpu(md, key, ps)
@@ -659,24 +669,27 @@ class PPOTrainer:
             # print(jaxpr)  # full trace as a Jaxpr (JAX's IR before HLO lowering)
 
             # Go one step further: lower to StableHLO
+            t0 = time.time()
             lowered = jax.jit(all_trajs).lower(policy_store, mjx_data, keys)
+            t1 = time.time()
+            logger.info("gen_trajectories_gpu: tracing+lowering took %.2fs", t1 - t0)
             # print(lowered.as_text())  # StableHLO text representation
 
             # Then compile and inspect the compiled artifact
             compiled = lowered.compile()
+            t2 = time.time()
+            logger.info("gen_trajectories_gpu: XLA compilation took %.2fs", t2 - t1)
             print(compiled.cost_analysis())  # FLOPs, memory estimates per op
             ##DEBUG TRACING & COMPILE complete:
 
             self._jit_gen_trajs = compiled
 
-        result = self._jit_gen_trajs(policy_store, mjx_data, keys)
-        logger.debug(
-            "gen_trajectories_gpu: jit(vmap) complete — wstates shape=%s rewards shape=%s",
-            result[0].shape,
-            result[4].shape,
-        )
-        ## TODO: Added for debugging, remove this later
-        jax.block_until_ready(result)
+        t_exec = time.time()
+        with jax.profiler.trace("/tmp/jax_profile"):
+            result = self._jit_gen_trajs(policy_store, mjx_data, keys)
+            jax.block_until_ready(result)
+        t_exec_done = time.time()
+        logger.info("gen_trajectories_gpu: execution took %.2fs (profile saved to /tmp/jax_profile)", t_exec_done - t_exec)
         return result
 
     def train_an_epoch_gpu(

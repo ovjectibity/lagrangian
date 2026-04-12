@@ -218,7 +218,7 @@ class TrainingWorkflow:
                 runtime_info = self.trainer.train_an_epoch_gpu(
                     wstates, action_samples, rewards, model_outputs
                 )
-                logger.info("Training the epoch=%s. ",i)
+                logger.info("Trained the epoch=%s. ",i)
                 mean_entropy = 0.0  # entropy not computed in GPU path yet
                 mean_reward = float(jax.numpy.mean(rewards))
                 # PostUpdate on GPU: save after the scan completes if num_updates is a multiple of n

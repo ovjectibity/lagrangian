@@ -108,7 +108,11 @@ class MjxSimulator(Simulator):
         else:
             logger.info("MjxSimulator: loading model from path: %s", model_path)
             self._model = mujoco.MjModel.from_xml_path(model_path)
-        logger.info("MjxSimulator: model loaded (nq=%s nu=%s nv=%s)", self._model.nq, self._model.nu, self._model.nv)
+        logger.info(
+            "MjxSimulator: model loaded (nq=%s nu=%s nv=%s ngeom=%s nbody=%s ncon=%s npair=%s)",
+            self._model.nq, self._model.nu, self._model.nv,
+            self._model.ngeom, self._model.nbody, self._model.ncon, self._model.npair,
+        )
         logger.info("MjxSimulator: creating MjData")
         self._data = mujoco.MjData(self._model)
         logger.info("MjxSimulator: running mj_forward")

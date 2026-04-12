@@ -4,9 +4,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     DEBIAN_FRONTEND=noninteractive \
-    # XLA_FLAGS=--xla_dump_to=/tmp/xla_dump \
-    WS_PING_TIMEOUT_SECONDS=none \
-    JAX_COMPILATION_CACHE_DIR=/tmp/jax_cache
+    XLA_FLAGS=--xla_dump_to=/tmp/xla_dump \
+    WS_PING_TIMEOUT_SECONDS=none 
+    # JAX_COMPILATION_CACHE_DIR=/tmp/jax_cache
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

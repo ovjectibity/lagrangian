@@ -46,7 +46,7 @@ def decimate_stl(
 
     # Step 2: quadric decimation if a target was specified and mesh exceeds it
     if target_faces is not None and len(mesh.faces) > target_faces:
-        mesh = mesh.simplify_quadric_decimation(target_faces)
+        mesh = mesh.simplify_quadric_decimation(face_count=target_faces)
 
     final_verts = len(mesh.vertices)
     final_faces = len(mesh.faces)
