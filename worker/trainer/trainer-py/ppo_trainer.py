@@ -18,6 +18,7 @@ from simulator import Simulator
 Array = jax.Array
 Params = Any
 
+# jax.config.update("jax_log_compiles", True)
 
 @dataclass
 class Trajectory:
@@ -162,6 +163,8 @@ class PPOTrainer:
         self._rng_key = random.PRNGKey(seed)
         self.policy_opt = self._init_adam_state(self.model.get_policy_store())
         self.value_opt = self._init_adam_state(self.model.get_value_store())
+        self._jit_gen_trajs: Any = None
+        self._jit_train_epoch: Any = None
 
     @staticmethod
     def _init_adam_state(params: Params) -> dict[str, Any]:
@@ -518,6 +521,7 @@ class PPOTrainer:
         self,
         mjx_data: Any,
         rng_key: Array,
+        policy_store: Params | None = None,
     ) -> tuple[Array, Array, Array, Array, Array]:
         """Generate a single trajectory on GPU using lax.scan.
 
@@ -544,7 +548,8 @@ class PPOTrainer:
         simulator_step_fn = self.simulator.forward_dyn_pure  # type: ignore[attr-defined]
         policy_fn = self.model.get_pure_policy_fn()
         reward_fn = self.model.get_pure_reward_fn()
-        policy_store = self.model.get_policy_store()
+        if policy_store is None:
+            policy_store = self.model.get_policy_store()
         output_mode = self.model.get_control_policy_output_mode()
 
         # Derive initial wstate and cstate from mjx_data directly (pure, no side effects)
@@ -639,12 +644,32 @@ class PPOTrainer:
             self.traj_depth,
         )
         keys = jax.random.split(rng_key, num_trajs)
+        policy_store = self.model.get_policy_store()
         logger.debug("gen_trajectories_gpu: split %s RNG keys, launching jit(vmap)", num_trajs)
 
-        def single_traj(key: Array) -> tuple[Array, Array, Array, Array, Array]:
-            return self.gen_trajectory_gpu(mjx_data, key)
+        def single_traj(ps: Params, md: Any, key: Array) -> tuple[Array, Array, Array, Array, Array]:
+            return self.gen_trajectory_gpu(md, key, ps)
 
-        result = jax.jit(jax.vmap(single_traj))(keys)
+        all_trajs = jax.vmap(single_traj, in_axes=(None, None, 0))
+
+        if self._jit_gen_trajs is None:
+            ##DEBUG TRACING & COMPILE:
+            # See what JAX will actually compile before running it
+            jaxpr = jax.make_jaxpr(all_trajs)(policy_store, mjx_data, keys)
+            print(jaxpr)  # full trace as a Jaxpr (JAX's IR before HLO lowering)
+
+            # Go one step further: lower to StableHLO
+            lowered = jax.jit(all_trajs).lower(policy_store, mjx_data, keys)
+            print(lowered.as_text())  # StableHLO text representation
+
+            # Then compile and inspect the compiled artifact
+            compiled = lowered.compile()
+            print(compiled.cost_analysis())  # FLOPs, memory estimates per op
+            ##DEBUG TRACING & COMPILE complete:
+
+            self._jit_gen_trajs = compiled
+
+        result = self._jit_gen_trajs(policy_store, mjx_data, keys)
         logger.debug(
             "gen_trajectories_gpu: jit(vmap) complete — wstates shape=%s rewards shape=%s",
             result[0].shape,
@@ -716,39 +741,50 @@ class PPOTrainer:
         epsilon = self.epsilon
         learning_rate = self.learning_rate
 
-        def update_step(
+        num_updates = self.num_updates
+
+        def update_all_steps_fn(
             carry: tuple[Params, Params, dict, dict],
-            _: None,
+            wstates_t_a: Array,
+            action_samples_a: Array,
+            start_log_probs_a: Array,
+            gaes_a: Array,
+            rtgs_a: Array,
         ) -> tuple[tuple[Params, Params, dict, dict], tuple[Array, Array, Array, Array]]:
-            policy_store_c, value_store_c, policy_opt_c, value_opt_c = carry
-            (
-                policy_store_next,
-                value_store_next,
-                policy_opt_next,
-                value_opt_next,
-                p_loss,
-                v_loss,
-                p_grad_norm,
-                v_grad_norm,
-            ) = learning_step(
-                policy_store_c,
-                value_store_c,
-                policy_opt_c,
-                value_opt_c,
-                policy_fn,
-                value_fn,
-                wstates_t,
-                action_samples,
-                start_log_probs,
-                gaes,
-                rtgs,
-                epsilon,
-                action_size,
-                learning_rate,
-            )
-            return (policy_store_next, value_store_next, policy_opt_next, value_opt_next), (
-                p_loss, v_loss, p_grad_norm, v_grad_norm,
-            )
+            def update_step(
+                carry: tuple[Params, Params, dict, dict],
+                _: None,
+            ) -> tuple[tuple[Params, Params, dict, dict], tuple[Array, Array, Array, Array]]:
+                policy_store_c, value_store_c, policy_opt_c, value_opt_c = carry
+                (
+                    policy_store_next,
+                    value_store_next,
+                    policy_opt_next,
+                    value_opt_next,
+                    p_loss,
+                    v_loss,
+                    p_grad_norm,
+                    v_grad_norm,
+                ) = learning_step(
+                    policy_store_c,
+                    value_store_c,
+                    policy_opt_c,
+                    value_opt_c,
+                    policy_fn,
+                    value_fn,
+                    wstates_t_a,
+                    action_samples_a,
+                    start_log_probs_a,
+                    gaes_a,
+                    rtgs_a,
+                    epsilon,
+                    action_size,
+                    learning_rate,
+                )
+                return (policy_store_next, value_store_next, policy_opt_next, value_opt_next), (
+                    p_loss, v_loss, p_grad_norm, v_grad_norm,
+                )
+            return jax.lax.scan(update_step, carry, None, length=num_updates)
 
         logger.info(
             "train_an_epoch_gpu: launching jit(lax.scan) over %s update steps", self.num_updates
@@ -759,9 +795,27 @@ class PPOTrainer:
             self.policy_opt,
             self.value_opt,
         )
+
+        if self._jit_train_epoch is None:
+            ##DEBUG TRACING & COMPILE:
+            # See what JAX will actually compile before running it
+            jaxpr = jax.make_jaxpr(update_all_steps_fn)(init_carry, wstates_t, action_samples, start_log_probs, gaes, rtgs)
+            print(jaxpr)  # full trace as a Jaxpr (JAX's IR before HLO lowering)
+
+            # Go one step further: lower to StableHLO
+            lowered = jax.jit(update_all_steps_fn).lower(init_carry, wstates_t, action_samples, start_log_probs, gaes, rtgs)
+            print(lowered.as_text())  # StableHLO text representation
+
+            # Then compile and inspect the compiled artifact
+            compiled = lowered.compile()
+            print(compiled.cost_analysis())  # FLOPs, memory estimates per op
+            ##DEBUG TRACING & COMPILE complete:
+
+            self._jit_train_epoch = compiled
+
         (policy_store_final, value_store_final, policy_opt_final, value_opt_final), (
             p_losses, v_losses, p_grad_norms, v_grad_norms,
-        ) = jax.jit(lambda c: jax.lax.scan(update_step, c, None, length=self.num_updates))(init_carry)
+        ) = self._jit_train_epoch(init_carry, wstates_t, action_samples, start_log_probs, gaes, rtgs)
 
         self.policy_opt = policy_opt_final
         self.value_opt = value_opt_final
