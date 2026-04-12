@@ -199,6 +199,10 @@ unsafe fn extract_mesh_data_as_obj(m: *const mujoco::mjModel, mesh_id: i32) -> O
         let mesh_faceadr = (*m).mesh_faceadr.add(mesh_id as usize).read() as usize;
         let mesh_facenum = (*m).mesh_facenum.add(mesh_id as usize).read() as usize;
 
+        if (*m).mesh_vert.is_null() || (*m).mesh_face.is_null() {
+            return None;
+        }
+
         let vertices =
             std::slice::from_raw_parts((*m).mesh_vert.add(mesh_vertadr * 3), mesh_vertnum * 3);
         let faces =
@@ -250,6 +254,8 @@ pub unsafe fn create_model(
             let geom_size_ptr = (*m).geom_size.add(i as usize * 3);
             let geom_group_ptr = (*m).geom_group.add(i as usize);
             let geom_dataid = (*m).geom_dataid.add(i as usize).read();
+
+            // println!("Debug: Finished getting the geom pointers");
 
             let geom_t = mujoco_geom_type_to_geom_type(geom_type_val as u32);
             let mesh_obj = if let Some(GeomType::Mesh) = geom_t {

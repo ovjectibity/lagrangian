@@ -3,8 +3,9 @@ FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    DEBIAN_FRONTEND=noninteractive \ 
-    XLA_FLAGS=--xla_dump_to=/tmp/xla_dump
+    DEBIAN_FRONTEND=noninteractive \
+    XLA_FLAGS=--xla_dump_to=/tmp/xla_dump \
+    WS_PING_TIMEOUT_SECONDS=none
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

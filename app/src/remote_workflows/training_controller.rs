@@ -521,6 +521,9 @@ impl TrainingWorkerController {
                 Message::Close(_) => {
                     return Err("Worker websocket closed before training completion".into());
                 }
+                Message::Ping(payload) => {
+                    ws.send(Message::Pong(payload)).await?;
+                }
                 _ => {}
             }
         }
