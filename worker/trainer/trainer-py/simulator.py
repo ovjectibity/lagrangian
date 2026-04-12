@@ -109,14 +109,18 @@ class MjxSimulator(Simulator):
             logger.info("MjxSimulator: loading model from path: %s", model_path)
             self._model = mujoco.MjModel.from_xml_path(model_path)
         logger.info(
-            "MjxSimulator: model loaded (nq=%s nu=%s nv=%s ngeom=%s nbody=%s ncon=%s npair=%s)",
+            "MjxSimulator: model loaded (nq=%s nu=%s nv=%s ngeom=%s nbody=%s nconmax=%s npair=%s)",
             self._model.nq, self._model.nu, self._model.nv,
-            self._model.ngeom, self._model.nbody, self._model.ncon, self._model.npair,
+            self._model.ngeom, self._model.nbody, self._model.nconmax, self._model.npair,
         )
         logger.info("MjxSimulator: creating MjData")
         self._data = mujoco.MjData(self._model)
         logger.info("MjxSimulator: running mj_forward")
         mujoco.mj_forward(self._model, self._data)
+        logger.info(
+            "MjxSimulator: after mj_forward — ncon=%s (allocated contact buffer size=%s)",
+            self._data.ncon, self._data.contact.dist.shape[0],
+        )
         logger.info("MjxSimulator: calling mjx.put_model")
         self._mjx_model = mjx.put_model(self._model)
         logger.info("MjxSimulator: calling mjx.put_data")

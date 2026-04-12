@@ -19,3 +19,5 @@ worker/trainer/docker_images
 app/checkpoints
 .envrc-2
 scripts/.venv
+jax_profile
+jax_profile/*
