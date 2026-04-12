@@ -205,6 +205,7 @@ class TrainingWorkflow:
             freq = self.training_controller.checkpoint_frequency
 
             if use_gpu:
+                logger.info("Getting trajectories for epoch=%s",i)
                 base_rng, epoch_rng = jax.random.split(base_rng)
                 wstates, _, model_outputs, action_samples, rewards = (
                     self.trainer.gen_trajectories_gpu(
@@ -213,9 +214,11 @@ class TrainingWorkflow:
                         epoch_rng,
                     )
                 )
+                logger.info("Got trajectories for epoch=%s. Training the epoch now",i)
                 runtime_info = self.trainer.train_an_epoch_gpu(
                     wstates, action_samples, rewards, model_outputs
                 )
+                logger.info("Training the epoch=%s. ",i)
                 mean_entropy = 0.0  # entropy not computed in GPU path yet
                 mean_reward = float(jax.numpy.mean(rewards))
                 # PostUpdate on GPU: save after the scan completes if num_updates is a multiple of n

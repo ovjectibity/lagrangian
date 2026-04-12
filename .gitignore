@@ -18,3 +18,4 @@ worker/trainer/docker_images
 .keys
 app/checkpoints
 .envrc-2
+scripts/.venv

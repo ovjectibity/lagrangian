@@ -655,12 +655,12 @@ class PPOTrainer:
         if self._jit_gen_trajs is None:
             ##DEBUG TRACING & COMPILE:
             # See what JAX will actually compile before running it
-            jaxpr = jax.make_jaxpr(all_trajs)(policy_store, mjx_data, keys)
-            print(jaxpr)  # full trace as a Jaxpr (JAX's IR before HLO lowering)
+            # jaxpr = jax.make_jaxpr(all_trajs)(policy_store, mjx_data, keys)
+            # print(jaxpr)  # full trace as a Jaxpr (JAX's IR before HLO lowering)
 
             # Go one step further: lower to StableHLO
             lowered = jax.jit(all_trajs).lower(policy_store, mjx_data, keys)
-            print(lowered.as_text())  # StableHLO text representation
+            # print(lowered.as_text())  # StableHLO text representation
 
             # Then compile and inspect the compiled artifact
             compiled = lowered.compile()
@@ -675,6 +675,8 @@ class PPOTrainer:
             result[0].shape,
             result[4].shape,
         )
+        ## TODO: Added for debugging, remove this later
+        jax.block_until_ready(result)
         return result
 
     def train_an_epoch_gpu(
@@ -799,12 +801,12 @@ class PPOTrainer:
         if self._jit_train_epoch is None:
             ##DEBUG TRACING & COMPILE:
             # See what JAX will actually compile before running it
-            jaxpr = jax.make_jaxpr(update_all_steps_fn)(init_carry, wstates_t, action_samples, start_log_probs, gaes, rtgs)
-            print(jaxpr)  # full trace as a Jaxpr (JAX's IR before HLO lowering)
+            # jaxpr = jax.make_jaxpr(update_all_steps_fn)(init_carry, wstates_t, action_samples, start_log_probs, gaes, rtgs)
+            # print(jaxpr)  # full trace as a Jaxpr (JAX's IR before HLO lowering)
 
             # Go one step further: lower to StableHLO
             lowered = jax.jit(update_all_steps_fn).lower(init_carry, wstates_t, action_samples, start_log_probs, gaes, rtgs)
-            print(lowered.as_text())  # StableHLO text representation
+            # print(lowered.as_text())  # StableHLO text representation
 
             # Then compile and inspect the compiled artifact
             compiled = lowered.compile()
