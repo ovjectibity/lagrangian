@@ -960,7 +960,8 @@ async fn handle_stop_training(
         rt.set_mode(WorkflowMode::Idle);
     }
 
-    // Mark run StoppedByUser in Postgres + clear context
+    // Mark run StoppedByUser in Postgres + send
+    // final checkpoints + clear context
     {
         let ctx = active_context().lock().await;
         if let (Some(exp_id), Some(run_id)) = (
@@ -976,6 +977,31 @@ async fn handle_stop_training(
                     &TrainingRunStatus::StoppedByUser,
                 )
                 .await;
+
+            // Send checkpoints for the completed run
+            // before clearing the context
+            let checkpoints = postgres_orm()
+                .get_checkpoint_refs_for_run(
+                    &exp_id, &run_id,
+                )
+                .await
+                .unwrap_or_default();
+            let ckpt_msg = clientmessages::ClientMessage
+                ::CheckpointsForRunMessage(
+                    clientmessages
+                    ::CheckpointsForRunMessage {
+                        training_run_id: run_id.clone(),
+                        checkpoints,
+                    },
+                );
+            if let Ok(json) =
+                serde_json::to_string(&ckpt_msg)
+            {
+                let _ = stream
+                    .send(ws::Message::Text(json))
+                    .await;
+            }
+
             let mut ctx =
                 active_context().lock().await;
             ctx.experiment_id = None;
