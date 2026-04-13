@@ -217,6 +217,18 @@ impl TrainingWorkerController {
     where
         F: FnMut(&TrainingUpdatesMessage) + Send,
     {
+        // Reconnect WS if the previous connection was closed
+        if self.worker_ws.is_none() {
+            self.connect_worker_wss().await?;
+        } else {
+            // Probe the existing connection with a ping; reconnect if stale
+            let ws = self.worker_ws.as_mut().unwrap();
+            if ws.send(Message::Ping(Vec::new().into())).await.is_err() {
+                self.worker_ws = None;
+                self.connect_worker_wss().await?;
+            }
+        }
+
         let (model_zip_base64, mjcf_entrypoint) = match model_path {
             Some(path) => match load_mjcf_package_zip_base64(&path) {
                 Ok((zip_b64, entrypoint)) => (Some(zip_b64), Some(entrypoint)),
