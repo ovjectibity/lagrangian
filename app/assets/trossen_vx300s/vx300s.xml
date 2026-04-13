@@ -78,9 +78,9 @@
         <geom type="mesh" contype="0" conaffinity="0" density="0" group="2" material="black"/>
       </default>
         <default class="collision">
-          <geom group="3" type="mesh"/>
+          <geom group="3" type="mesh" contype="0" conaffinity="0"/>
           <default class="finger_collision">
-          <geom condim="4" solimp="2 1 0.01" solref="0.01 1" friction="2 0.05 0.01"/>
+          <geom condim="4" solimp="2 1 0.01" solref="0.01 1" friction="2 0.05 0.01" contype="0" conaffinity="0"/>
           </default>
         </default>
     </default>
@@ -95,6 +95,7 @@
       size="2 2 0.1"
       rgba="0.25 0.25 0.25 1"
       friction="1 0.005 0.0001"
+      contype="0" conaffinity="0"
     />
     <body name="left_box_body" pos="0.35 0.22 0.05">
       <freejoint name="left_box_free"/>
@@ -104,6 +105,7 @@
         size="0.07 0.07 0.05"
         rgba="0.35 0.35 0.4 1"
         friction="1 0.005 0.0001"
+        contype="0" conaffinity="0"
       />
     </body>
     <body name="right_box_body" pos="0.35 -0.22 0.05">
@@ -114,6 +116,7 @@
         size="0.07 0.07 0.05"
         rgba="0.35 0.35 0.4 1"
         friction="1 0.005 0.0001"
+        contype="0" conaffinity="0"
       />
     </body>
     <body name="target_cube_body" pos="0.35 0.22 0.125">
@@ -124,43 +127,44 @@
         size="0.025 0.025 0.025"
         rgba="0.8 0.2 0.2 1"
         friction="2 0.05 0.01"
+        contype="0" conaffinity="0"
       />
     </body>
     <body name="base_link" childclass="vx300s">
       <inertial pos="-0.0534774 -0.000562575 0.0205961" quat="-0.00292324 0.712517 0.00480387 0.701633" mass="0.969034"
         diaginertia="0.0071633 0.00602451 0.00169819"/>
       <geom quat="1 0 0 1" class="visual" mesh="vx300s_1_base"/>
-      <geom quat="1 0 0 1" mesh="vx300s_1_base" class="collision" contype="0" conaffinity="0"/>
+      <geom quat="1 0 0 1" mesh="vx300s_1_base" class="collision"/>
       <body name="shoulder_link" pos="0 0 0.079">
         <inertial pos="0.000259233 -3.3552e-06 0.0116129" quat="-0.476119 0.476083 0.52279 0.522826" mass="0.798614"
           diaginertia="0.00120156 0.00113744 0.0009388"/>
         <joint name="waist" class="waist"/>
         <geom pos="0 0 -0.003" quat="1 0 0 1" class="visual" mesh="vx300s_2_shoulder"/>
-        <geom pos="0 0 -0.003" quat="1 0 0 1" mesh="vx300s_2_shoulder" class="collision" contype="0" conaffinity="0"/>
+        <geom pos="0 0 -0.003" quat="1 0 0 1" mesh="vx300s_2_shoulder" class="collision"/>
         <body name="upper_arm_link" pos="0 0 0.04805">
           <inertial pos="0.0206949 4e-10 0.226459" quat="0 0.0728458 0 0.997343" mass="0.792592"
             diaginertia="0.00911338 0.008925 0.000759317"/>
           <joint name="shoulder" class="shoulder"/>
           <geom quat="1 0 0 1" class="visual" mesh="vx300s_3_upper_arm"/>
-          <geom quat="1 0 0 1" class="collision" mesh="vx300s_3_upper_arm" contype="0" conaffinity="0"/>
+          <geom quat="1 0 0 1" class="collision" mesh="vx300s_3_upper_arm"/>
           <body name="upper_forearm_link" pos="0.05955 0 0.3">
             <inertial pos="0.105723 0 0" quat="-0.000621631 0.704724 0.0105292 0.709403" mass="0.322228"
               diaginertia="0.00144107 0.00134228 0.000152047"/>
             <joint name="elbow" class="elbow"/>
             <geom class="visual" mesh="vx300s_4_upper_forearm"/>
-            <geom class="collision" mesh="vx300s_4_upper_forearm" contype="0" conaffinity="0"/>
+            <geom class="collision" mesh="vx300s_4_upper_forearm"/>
             <body name="lower_forearm_link" pos="0.2 0 0">
               <inertial pos="0.0513477 0.00680462 0" quat="-0.702604 -0.0796724 -0.702604 0.0796724" mass="0.414823"
                 diaginertia="0.0005911 0.000546493 0.000155707"/>
               <joint name="forearm_roll" class="forearm_roll"/>
               <geom quat="0 1 0 0" class="visual" mesh="vx300s_5_lower_forearm"/>
-              <geom quat="0 1 0 0" class="collision" mesh="vx300s_5_lower_forearm" contype="0" conaffinity="0"/>
+              <geom quat="0 1 0 0" class="collision" mesh="vx300s_5_lower_forearm"/>
               <body name="wrist_link" pos="0.1 0 0">
                 <inertial pos="0.046743 -7.6652e-06 0.010565" quat="-0.00100191 0.544586 0.0026583 0.8387"
                   mass="0.115395" diaginertia="5.45707e-05 4.63101e-05 4.32692e-05"/>
                 <joint name="wrist_angle" class="wrist_angle"/>
                 <geom quat="1 0 0 1" class="visual" mesh="vx300s_6_wrist"/>
-                <geom quat="1 0 0 1" class="collision" mesh="vx300s_6_wrist" contype="0" conaffinity="0"/>
+                <geom quat="1 0 0 1" class="collision" mesh="vx300s_6_wrist"/>
                 <body name="gripper_link" pos="0.069744 0 0">
                   <inertial pos="0.0395662 -2.56311e-07 0.00400649" quat="0.62033 0.619916 -0.339682 0.339869"
                     mass="0.251652" diaginertia="0.000689546 0.000650316 0.000468142"/>
@@ -222,7 +226,21 @@
   </actuator>
 
   <contact>
-    <exclude body1="base_link" body2="shoulder_link"/>
+    <!-- Explicit collision pairs only — all geoms default to contype=0 conaffinity=0 -->
+    <!-- Finger pads ↔ target cube (gripping) -->
+    <pair geom1="left_finger_pad_tip" geom2="target_cube"/>
+    <pair geom1="left_finger_pad_inner" geom2="target_cube"/>
+    <pair geom1="right_finger_pad_tip" geom2="target_cube"/>
+    <pair geom1="right_finger_pad_inner" geom2="target_cube"/>
+    <!-- Cube ↔ environment (resting/placing) -->
+    <pair geom1="target_cube" geom2="ground_plane"/>
+    <pair geom1="target_cube" geom2="left_box"/>
+    <pair geom1="target_cube" geom2="right_box"/>
+    <!-- Boxes ↔ ground (resting) -->
+    <pair geom1="left_box" geom2="ground_plane"/>
+    <pair geom1="right_box" geom2="ground_plane"/>
+    <!-- Boxes ↔ each other -->
+    <pair geom1="left_box" geom2="right_box"/>
   </contact>
 
   <keyframe>

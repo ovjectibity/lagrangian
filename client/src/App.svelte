@@ -2,7 +2,6 @@
   import { onMount, onDestroy } from 'svelte';
   import Viewport from './lib/viewport.svelte';
   import MenuBar from './lib/menubar.svelte';
-  import DropdownList from './lib/dropdownlist.svelte';
   import ModeSelector from './lib/modeselector.svelte';
   import TabbedContainer from './lib/tabbedcontainer.svelte';
   import Logger from './lib/logger.svelte';
