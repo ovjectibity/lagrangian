@@ -699,7 +699,14 @@ async fn handle_start_training_remote(
     };
 
     let tx_tc = tx_train.clone();
-    let id_c = training_id.clone();
+    // Use the run ID as the worker-side training ID
+    // so each run gets its own checkpoint directory.
+    // Fall back to the client-supplied task ID if
+    // no run was created (should not happen).
+    let id_c = spawn_run_id
+        .clone()
+        .unwrap_or_else(|| training_id.clone());
+    let id_c_clone = id_c.clone();
     let worker_slot = remote_worker_slot().clone();
     let h = tokio::spawn(async move {
         let tx_updates = tx_tc.clone();
@@ -726,7 +733,7 @@ async fn handle_start_training_remote(
                             ::StopTraining(
                                 clientmessages
                                 ::StopTrainingMessage {
-                                    id: id_c.clone(),
+                                    id: id_c_clone.clone(),
                                 },
                             ),
                         )
@@ -783,7 +790,7 @@ async fn handle_start_training_remote(
 
         let result = worker
             .run_training_job(
-                id_c.clone(),
+                id_c_clone.clone(),
                 training_controller,
                 Some(model_path.clone()),
                 mjcf,
@@ -919,7 +926,7 @@ async fn handle_start_training_remote(
                 workermessages::TrainingTaskMessage
                 ::StopTraining(
                     clientmessages::StopTrainingMessage {
-                        id: id_c.clone(),
+                        id: id_c_clone.clone(),
                     },
                 ),
             )
@@ -928,7 +935,7 @@ async fn handle_start_training_remote(
     let stop_flag =
         Arc::new(AtomicBool::new(false));
     training_tasks.insert(
-        training_id,
+        id_c,
         (h, stop_flag),
     );
     true
