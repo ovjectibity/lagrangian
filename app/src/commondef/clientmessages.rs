@@ -1,95 +1,23 @@
 use serde;
 use typeshare::typeshare;
 
-use crate::commondef::model;
 use crate::commondef::testing::SimulationParams;
 use crate::commondef::training::{
-    TrainingGraph, TrainingMetrics, TrainingRunState,
+    TrainingMetrics, TrainingRunState,
 };
-use crate::commondef::experiments::{
-    CheckpointReference, TrainingExperiment, TrainingExperimentRun
-};
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content = "content")]
-#[typeshare]
-pub enum ServerMessage {
-    LoadModelMessage,
-    StartTrainingMessage(StartTrainingMessage),
-    StopTrainingMessage(StopTrainingMessage),
-    StartSimulationMessage(StartSimulationMessage),
-    StopSimulationMessage(StopSimulationMessage),
-    CreateExperimentMessage,
-    CreateRunMessage(CreateRunMessage),
-    LoadRunMessage(LoadRunMessage),
-    GetAllCheckpointsMessage,
-    GetCheckpointInfoMessage(GetCheckpointInfoMessage),
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct StartTrainingMessage {
-    pub id: String,
-    pub experiment_id: Option<String>,
-    pub training_graph: TrainingGraph,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct StopTrainingMessage {
-    pub id: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct StartSimulationMessage {
-    pub simulation_params: SimulationParams,
-    pub id: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct StopSimulationMessage {
-    pub id: String,
-}
+use crate::commondef::experiments::CheckpointReference;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ClientMessage {
-    SetModelMessage(SetModelMessage),
-    LoadModelMessage(LoadModelMessage),
     SimulUpdateMessage(SimulUpdateMessage),
     TrainingUpdatesMessage(TrainingUpdatesMessage),
     StopTrainingMessage(StopTrainingMessage),
     StopSimulationMessage(StopSimulationMessage),
-    ExperimentCreatedMessage(ExperimentCreatedMessage),
-    RunCreatedMessage(RunCreatedMessage),
-    RunLoadedMessage(RunLoadedMessage),
-    ActiveContextMessage(ActiveContextMessage),
-    ExperimentsListMessage(ExperimentsListMessage),
-    ExperimentRunsMessage(ExperimentRunsMessage),
-    AllCheckpointsMessage(AllCheckpointsMessage),
-    CheckpointInfoMessage(CheckpointInfoMessage),
-    CheckpointsForRunMessage(CheckpointsForRunMessage),
 }
 
 impl ClientMessage {
-    pub fn new_set_model_message(wb: model::WorldBody) -> Self {
-        ClientMessage::SetModelMessage(SetModelMessage { set_model: wb })
-    }
-
-    pub fn new_load_model_message(id: String, wb: model::WorldBody) -> Self {
-        ClientMessage::LoadModelMessage(LoadModelMessage { id: id, model: wb })
-    }
-
-    pub fn new_simul_update_message(id: String, updates: Vec<ModelForward>) -> Self {
-        ClientMessage::SimulUpdateMessage(SimulUpdateMessage {
-            id: id,
-            updates: updates,
-        })
-    }
-
     pub fn to_binary_simul_update(id: String, update: ModelForward) -> Vec<u8> {
         let id_bytes = id.as_bytes();
         let nbody = update.xpos.len() / 3;
@@ -113,19 +41,6 @@ impl ClientMessage {
         }
         binary_data
     }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct SetModelMessage {
-    pub set_model: model::WorldBody,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct LoadModelMessage {
-    pub id: String,
-    pub model: model::WorldBody,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -154,78 +69,6 @@ pub struct TrainingUpdatesMessage {
     serde::Serialize, serde::Deserialize,
 )]
 #[typeshare]
-pub struct CreateRunMessage {
-    pub training_experiment_id: String,
-}
-
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
-#[typeshare]
-pub struct LoadRunMessage {
-    pub training_experiment_id: String,
-    pub run_id: String,
-}
-
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
-#[typeshare]
-pub struct ExperimentCreatedMessage {
-    pub experiment: TrainingExperiment,
-}
-
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
-#[typeshare]
-pub struct RunCreatedMessage {
-    pub run: TrainingExperimentRun,
-}
-
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
-#[typeshare]
-pub struct RunLoadedMessage {
-    pub run: TrainingExperimentRun,
-}
-
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
-#[typeshare]
-pub struct ActiveContextMessage {
-    pub experiment: TrainingExperiment,
-    pub run: Option<TrainingExperimentRun>,
-}
-
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
-#[typeshare]
-pub struct ExperimentsListMessage {
-    pub experiments: Vec<TrainingExperiment>,
-}
-
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
-#[typeshare]
-pub struct ExperimentRunsMessage {
-    pub training_experiment_id: String,
-    pub runs: Vec<TrainingExperimentRun>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
 pub struct TrainingUpdate {
     pub training_run_state: TrainingRunState,
     pub logs: Vec<String>,
@@ -233,39 +76,21 @@ pub struct TrainingUpdate {
     pub checkpoints: Vec<CheckpointReference>,
 }
 
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
-pub struct GetCheckpointInfoMessage {
-    pub checkpoint_id: String,
+pub struct StartSimulationMessage {
+    pub simulation_params: SimulationParams,
+    pub id: String,
 }
 
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
-pub struct AllCheckpointsMessage {
-    pub checkpoints: Vec<CheckpointReference>,
+pub struct StopSimulationMessage {
+    pub id: String,
 }
 
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
-pub struct CheckpointInfoMessage {
-    pub checkpoint: CheckpointReference,
-}
-
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
-#[typeshare]
-pub struct CheckpointsForRunMessage {
-    pub training_run_id: String,
-    pub checkpoints: Vec<CheckpointReference>,
+pub struct StopTrainingMessage {
+    pub id: String,
 }
