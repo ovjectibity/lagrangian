@@ -2,7 +2,7 @@ use serde;
 use typeshare::typeshare;
 
 use crate::commondef::training::{
-    TrainingGraph, TrainingMetrics, TrainingRunState,
+    FFNModel, TrainingGraph, TrainingMetrics, TrainingRunState,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -19,7 +19,7 @@ pub enum TrainingRemoteWorkerServerMessage {
 pub struct StartTrainingMessage {
     pub id: String,
     pub training_graph: TrainingGraph,
-    pub checkpoint: Option<Checkpoint>
+    pub checkpoints: Vec<Checkpoint>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -55,8 +55,11 @@ pub struct TrainingUpdatesMessage {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct Checkpoint {
+    pub id: Option<String>,
     pub model_zip_base64: Option<String>,
     pub model_zip_path: Option<String>,
+    pub control_model_ffn: Option<FFNModel>,
+    pub value_model_ffn: Option<FFNModel>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

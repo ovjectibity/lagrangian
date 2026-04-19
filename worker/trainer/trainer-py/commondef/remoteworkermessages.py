@@ -6,8 +6,16 @@ from __future__ import annotations
 from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Literal, Optional, Union
+from commondef.training import TrainingGraph, TrainingRunState, TrainingMetrics, FFNModel
 
-from commondef.training import Checkpoint, TrainingGraph, TrainingUpdate
+class Checkpoint(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: Optional[str] = Field(default=None)
+    model_zip_base_64: Optional[str] = Field(alias="model_zip_base64", default=None)
+    model_zip_path: Optional[str] = Field(default=None)
+    control_model_ffn: Optional[FFNModel] = Field(default=None)
+    value_model_ffn: Optional[FFNModel] = Field(default=None)
 
 class LoadModelMessage(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -20,10 +28,16 @@ class LoadModelMessage(BaseModel):
 class StartTrainingMessage(BaseModel):
     id: str
     training_graph: TrainingGraph
-    checkpoint: Optional[Checkpoint] = None
+    checkpoints: List[Checkpoint]
 
 class StopTrainingMessage(BaseModel):
     id: str
+
+class TrainingUpdate(BaseModel):
+    training_run_state: TrainingRunState
+    logs: List[str]
+    metrics: List[TrainingMetrics]
+    checkpoints: List[Checkpoint]
 
 class TrainingUpdatesMessage(BaseModel):
     id: str

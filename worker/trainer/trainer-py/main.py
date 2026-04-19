@@ -525,7 +525,7 @@ async def run_server(host: str, port: int, shared_secret: str) -> None:
     ssl_context = _maybe_ssl_context()
     protocol = "wss" if ssl_context else "ws"
     max_size = _env_optional_int("WS_MAX_MESSAGE_BYTES", 256 * 1024 * 1024)
-    ping_interval = _env_optional_int("WS_PING_INTERVAL_SECONDS", 20)
+    ping_interval = _env_optional_int("WS_PING_INTERVAL_SECONDS", None)
     ping_timeout = _env_optional_int("WS_PING_TIMEOUT_SECONDS", 20)
     logger.info("Starting websocket server on %s://%s:%s", protocol, host, port)
     logger.info(

@@ -11,13 +11,14 @@ from typing import Any, Callable
 import orbax.checkpoint as ocp
 
 from commondef.remoteworkermessages import (
+    Checkpoint,
     StopTrainingMessage,
     TrainingRemoteWorkerClientMessageStopTrainingMessage,
     TrainingRemoteWorkerClientMessageTrainingUpdatesMessage,
+    TrainingUpdate,
     TrainingUpdatesMessage,
 )
 from commondef.training import (
-    Checkpoint,
     CheckpointFrequencyTypes,
     MetricsData,
     PPOTrainingMethod,
@@ -32,7 +33,6 @@ from commondef.training import (
     TrainingMetricsValueLoss,
     TrainingRunState,
     TrainingRunStatePPOTrainingRunState,
-    TrainingUpdate,
 )
 from ppo_trainer import PPOTrainer, PPOTrainedModel
 from simulator import Simulator

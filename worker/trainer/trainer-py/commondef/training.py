@@ -5,14 +5,8 @@ from __future__ import annotations
 
 from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Union
 
-
-class Checkpoint(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    model_zip_base_64: Optional[str] = Field(alias="model_zip_base64", default=None)
-    model_zip_path: Optional[str] = Field(default=None)
 
 class FFNModel(BaseModel):
     num_hidden_layers: int
@@ -29,20 +23,30 @@ class RewardSystem(BaseModel):
 
 class ControlModelTypes(str, Enum):
     FFN = "FFN"
+    CHECKPOINT = "Checkpoint"
 
 class ControlModelFFN(BaseModel):
     type: Literal[ControlModelTypes.FFN] = ControlModelTypes.FFN
     content: FFNModel
 
-ControlModel = ControlModelFFN
+class ControlModelCheckpoint(BaseModel):
+    type: Literal[ControlModelTypes.CHECKPOINT] = ControlModelTypes.CHECKPOINT
+    content: str
+
+ControlModel = Union[ControlModelFFN, ControlModelCheckpoint]
 class ValueModelTypes(str, Enum):
     FFN = "FFN"
+    CHECKPOINT = "Checkpoint"
 
 class ValueModelFFN(BaseModel):
     type: Literal[ValueModelTypes.FFN] = ValueModelTypes.FFN
     content: FFNModel
 
-ValueModel = ValueModelFFN
+class ValueModelCheckpoint(BaseModel):
+    type: Literal[ValueModelTypes.CHECKPOINT] = ValueModelTypes.CHECKPOINT
+    content: str
+
+ValueModel = Union[ValueModelFFN, ValueModelCheckpoint]
 class PPOTrainingMethod(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -102,14 +106,6 @@ class TrainingJobController(BaseModel):
 class TrainingGraph(BaseModel):
     training_job_controller: TrainingJobController
 
-class TrainingRunStateTypes(str, Enum):
-    PPO_TRAINING_RUN_STATE = "PPOTrainingRunState"
-
-class TrainingRunStatePPOTrainingRunState(BaseModel):
-    type: Literal[TrainingRunStateTypes.PPO_TRAINING_RUN_STATE] = TrainingRunStateTypes.PPO_TRAINING_RUN_STATE
-    content: PPOTrainingRunState
-
-TrainingRunState = TrainingRunStatePPOTrainingRunState
 class TrainingMetricsTypes(str, Enum):
     MEAN_REWARD = "MeanReward"
     MEAN_POLICY_LOSS = "MeanPolicyLoss"
@@ -143,25 +139,11 @@ class TrainingMetricsValueGradientNorm(BaseModel):
     content: MetricsData
 
 TrainingMetrics = Union[TrainingMetricsMeanReward, TrainingMetricsMeanPolicyLoss, TrainingMetricsValueLoss, TrainingMetricsMeanEntropy, TrainingMetricsPolicyGradientNorm, TrainingMetricsValueGradientNorm]
-class TrainingUpdate(BaseModel):
-    training_run_state: TrainingRunState
-    logs: List[str]
-    metrics: List[TrainingMetrics]
-    checkpoints: List[Checkpoint]
+class TrainingRunStateTypes(str, Enum):
+    PPO_TRAINING_RUN_STATE = "PPOTrainingRunState"
 
-class TrainingExperimentRun(BaseModel):
-    experiment_id: str
-    run_name: str
-    run_id: str
-    created_at: str
-    run_start_at: str
-    run_end_at: str
-    training_graph: TrainingGraph
-    training_update: List[TrainingUpdate]
+class TrainingRunStatePPOTrainingRunState(BaseModel):
+    type: Literal[TrainingRunStateTypes.PPO_TRAINING_RUN_STATE] = TrainingRunStateTypes.PPO_TRAINING_RUN_STATE
+    content: PPOTrainingRunState
 
-class TrainingExperiment(BaseModel):
-    experiment_id: str
-    experiment_name: str
-    created_at: str
-    experiment_runs: List[TrainingExperimentRun]
-
+TrainingRunState = TrainingRunStatePPOTrainingRunState

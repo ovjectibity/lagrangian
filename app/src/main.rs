@@ -745,47 +745,98 @@ async fn handle_start_training_remote(
         let worker = guard
             .as_mut()
             .expect("worker should be initialised");
-        // Build checkpoint payload if control model
-        // references a prior checkpoint.
-        let worker_checkpoint = {
+        // Build checkpoint payloads for control and value
+        // models that reference prior checkpoints. Deduplicated
+        // by checkpoint ID so the same zip isn't sent twice.
+        let worker_checkpoints: Vec<
+            crate::commondef::remoteworkermessages::Checkpoint
+        > = {
+            use std::collections::HashMap;
             use crate::commondef::training::{
                 ControlModel as CM,
+                ValueModel as VM,
                 TrainingMethod as TM,
             };
+            use crate::commondef::remoteworkermessages
+                ::Checkpoint as WC;
+            let mut map: HashMap<String, WC> =
+                HashMap::new();
+
             if let TM::PPO(ref ppo) =
                 training_controller.training_method
             {
                 if let CM::Checkpoint(ref src_id) =
                     ppo.control_model
                 {
-                    let ckpt_ref = postgres_orm()
+                    if let Some(r) = postgres_orm()
                         .get_checkpoint_ref(src_id)
                         .await
                         .ok()
-                        .flatten();
-                    if let Some(r) = ckpt_ref {
-                        let bytes =
-                            std::fs::read(&r.path)
-                            .ok();
-                        bytes.map(|b| {
-                            crate::commondef
-                            ::remoteworkermessages
-                            ::Checkpoint {
-                                model_zip_base64: Some(
-                                    BASE64.encode(&b)
-                                ),
-                                model_zip_path: None,
-                            }
-                        })
-                    } else {
-                        None
+                        .flatten()
+                    {
+                        if let Some(bytes) =
+                            std::fs::read(&r.path).ok()
+                        {
+                            map.insert(
+                                src_id.clone(),
+                                WC {
+                                    id: Some(
+                                        src_id.clone()
+                                    ),
+                                    model_zip_base64: Some(
+                                        BASE64.encode(&bytes)
+                                    ),
+                                    model_zip_path: None,
+                                    control_model_ffn:
+                                        r.control_model_params
+                                        .clone(),
+                                    value_model_ffn:
+                                        r.value_model_params
+                                        .clone(),
+                                },
+                            );
+                        }
                     }
-                } else {
-                    None
                 }
-            } else {
-                None
+                if let VM::Checkpoint(ref src_id) =
+                    ppo.value_model
+                {
+                    if !map.contains_key(src_id) {
+                        if let Some(r) = postgres_orm()
+                            .get_checkpoint_ref(src_id)
+                            .await
+                            .ok()
+                            .flatten()
+                        {
+                            if let Some(bytes) =
+                                std::fs::read(&r.path).ok()
+                            {
+                                map.insert(
+                                    src_id.clone(),
+                                    WC {
+                                        id: Some(
+                                            src_id.clone()
+                                        ),
+                                        model_zip_base64: Some(
+                                            BASE64.encode(
+                                                &bytes
+                                            )
+                                        ),
+                                        model_zip_path: None,
+                                        control_model_ffn:
+                                            r.control_model_params
+                                            .clone(),
+                                        value_model_ffn:
+                                            r.value_model_params
+                                            .clone(),
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
             }
+            map.into_values().collect()
         };
 
         let result = worker
@@ -794,7 +845,7 @@ async fn handle_start_training_remote(
                 training_controller,
                 Some(model_path.clone()),
                 mjcf,
-                worker_checkpoint,
+                worker_checkpoints,
                 move |update| {
                     let mut client_updates: Vec<
                         clientmessages::TrainingUpdate
