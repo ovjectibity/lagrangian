@@ -2,7 +2,7 @@
   import { onDestroy } from "svelte";
   import type {
     TrainingExperimentRun,
-  } from "../commondef/messages";
+  } from "../commondef/experiments";
 
   const {
     run,

@@ -6,7 +6,7 @@
   import type {
     TrainingExperiment,
     TrainingExperimentRun,
-  } from "../commondef/messages";
+  } from "../commondef/experiments";
 
   const {
     experiments = [],

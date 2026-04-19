@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { CheckpointReference } from '../commondef/training';
+  import type { CheckpointReference } from '../commondef/experiments';
 
   const { checkpoints = [] } = $props<{ checkpoints?: CheckpointReference[] }>();
 

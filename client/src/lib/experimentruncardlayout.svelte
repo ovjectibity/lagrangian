@@ -1,7 +1,7 @@
 <script lang="ts">
   import type {
     TrainingExperimentRun,
-  } from "../commondef/messages";
+  } from "../commondef/experiments";
 
   import ExperimentRunCard
     from "./experimentruncard.svelte";
