@@ -24,12 +24,20 @@ from pydantic import ValidationError
 from websockets.exceptions import ConnectionClosed
 
 from commondef.remoteworkermessages import (
+    Checkpoint,
     LoadModelMessage,
     StartTrainingMessage,
     StopTrainingMessage,
     TrainingRemoteWorkerServerMessageTypes,
 )
-from commondef.training import PPOTrainingMethod, TrainingAccelerationMode
+from commondef.training import (
+    ControlModelCheckpoint,
+    ControlModelFFN,
+    PPOTrainingMethod,
+    TrainingAccelerationMode,
+    ValueModelCheckpoint,
+    ValueModelFFN,
+)
 from samples.arm import ArmModel
 from simulator import MjxSimulator, MujocoSimulator, Simulator
 from training import CallbackTrainingTaskSink, TrainingWorkflow
@@ -123,22 +131,43 @@ def _build_default_model(simulator: Simulator) -> ArmModel:
 def _build_model_for_training(
     simulator: Simulator,
     params: PPOTrainingMethod,
+    checkpoints: list[Checkpoint],
 ) -> ArmModel:
-    control_params = params.control_model.content
-    value_params = params.value_model.content
+    checkpoints_by_id = {c.id: c for c in checkpoints if c.id is not None}
+
+    if isinstance(params.control_model, ControlModelFFN):
+        control_ffn = params.control_model.content
+    else:
+        ckpt_id = params.control_model.content
+        if not ckpt_id or ckpt_id not in checkpoints_by_id:
+            raise ValueError(f"Checkpoint ID '{ckpt_id}' for control model not found in provided checkpoints")
+        control_ffn = checkpoints_by_id[ckpt_id].control_model_ffn
+        if control_ffn is None:
+            raise ValueError(f"Checkpoint '{ckpt_id}' is missing control_model_ffn architecture params")
+
+    if isinstance(params.value_model, ValueModelFFN):
+        value_ffn = params.value_model.content
+    else:
+        ckpt_id = params.value_model.content
+        if not ckpt_id or ckpt_id not in checkpoints_by_id:
+            raise ValueError(f"Checkpoint ID '{ckpt_id}' for value model not found in provided checkpoints")
+        value_ffn = checkpoints_by_id[ckpt_id].value_model_ffn
+        if value_ffn is None:
+            raise ValueError(f"Checkpoint '{ckpt_id}' is missing value_model_ffn architecture params")
+
     policy, policy_store = ArmModel.init_policy(
-        input_dimension=int(control_params.input_dim),
-        output_dimension=int(control_params.output_dim),
-        hidden_layer_dimension=int(control_params.hidden_layer_dim),
-        num_layers=int(control_params.num_hidden_layers),
+        input_dimension=int(control_ffn.input_dim),
+        output_dimension=int(control_ffn.output_dim),
+        hidden_layer_dimension=int(control_ffn.hidden_layer_dim),
+        num_layers=int(control_ffn.num_hidden_layers),
         add_softmax=False,
         control_policy=True,
     )
     value, value_store = ArmModel.init_policy(
-        input_dimension=int(value_params.input_dim),
-        output_dimension=int(value_params.output_dim),
-        hidden_layer_dimension=int(value_params.hidden_layer_dim),
-        num_layers=int(value_params.num_hidden_layers),
+        input_dimension=int(value_ffn.input_dim),
+        output_dimension=int(value_ffn.output_dim),
+        hidden_layer_dimension=int(value_ffn.hidden_layer_dim),
+        num_layers=int(value_ffn.num_hidden_layers),
         add_softmax=False,
         control_policy=False,
     )
@@ -173,8 +202,8 @@ def _load_checkpoint_into_model(
         os.path.join(restore_dir, "value"),
         item=model.get_value_store(),
     )
-    model.load_policy_store(policy_store)
-    model.load_value_store(value_store)
+    model.policy_store = policy_store
+    model.value_store = value_store
     logger.info(
         "Checkpoint loaded into model: training_id=%s restore_dir=%s",
         training_id,
@@ -365,29 +394,32 @@ async def handle_connection(
                     )
 
                 ppo_params = training_controller.training_method.content
-                runtime.model = _build_model_for_training(runtime.simulator, ppo_params)
-                if (
-                    start_msg.checkpoint is not None
-                    and start_msg.checkpoint.model_zip_base64 is not None
-                ):
-                    try:
-                        _load_checkpoint_into_model(
-                            runtime.model,
-                            start_msg.checkpoint.model_zip_base64,
-                            training_id,
-                        )
-                    except Exception as exc:
-                        logger.exception(
-                            "Failed to load checkpoint for training_id=%s: %s",
-                            training_id,
-                            exc,
-                        )
-                        await send_queue.put(
-                            _log_message_payload(
-                                f"Checkpoint load failed: {type(exc).__name__}: {exc}",
-                                training_id=training_id,
+                try:
+                    runtime.model = _build_model_for_training(runtime.simulator, ppo_params, start_msg.checkpoints)
+                except Exception as exc:
+                    logger.exception("Failed to build model for training_id=%s: %s", training_id, exc)
+                    await send_queue.put(_log_message_payload(f"Failed to build model: {type(exc).__name__}: {exc}", training_id=training_id))
+                    continue
+                for ckpt in start_msg.checkpoints:
+                    if ckpt.model_zip_base_64 is not None:
+                        try:
+                            _load_checkpoint_into_model(
+                                runtime.model,
+                                ckpt.model_zip_base_64,
+                                training_id,
                             )
-                        )
+                        except Exception as exc:
+                            logger.exception(
+                                "Failed to load checkpoint for training_id=%s: %s",
+                                training_id,
+                                exc,
+                            )
+                            await send_queue.put(
+                                _log_message_payload(
+                                    f"Checkpoint load failed: {type(exc).__name__}: {exc}",
+                                    training_id=training_id,
+                                )
+                            )
                 workflow = TrainingWorkflow(
                     training_id=training_id,
                     training_controller=training_controller,
