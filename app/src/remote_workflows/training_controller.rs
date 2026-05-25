@@ -266,6 +266,14 @@ impl TrainingWorkerController {
             None => (None, None),
         };
 
+        let sim_model_id = match &training_controller.training_method {
+            TrainingMethod::PPO(p) => p.simulation_model.clone(),
+        };
+        let mut simulation_models = std::collections::HashMap::new();
+        if let Some(ref zip_b64) = model_zip_base64 {
+            simulation_models.insert(sim_model_id, zip_b64.clone());
+        }
+
         self.send_to_worker(&TrainingRemoteWorkerServerMessage::LoadModelMessage(
             LoadModelMessage {
                 id: training_id.clone(),
@@ -275,14 +283,6 @@ impl TrainingWorkerController {
             },
         ))
         .await?;
-
-        let sim_model_id = match &training_controller.training_method {
-            TrainingMethod::PPO(ref p) => p.simulation_model.clone(),
-        };
-        let mut simulation_models = std::collections::HashMap::new();
-        if let Some(ref zip_b64) = model_zip_base64 {
-            simulation_models.insert(sim_model_id, zip_b64.clone());
-        }
 
         self.send_to_worker(&TrainingRemoteWorkerServerMessage::StartTrainingMessage(
             StartTrainingMessage {

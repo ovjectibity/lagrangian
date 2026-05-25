@@ -242,7 +242,7 @@ pub async fn start_training(
     let sim_model_id = match &controller
         .training_method
     {
-        TrainingMethod::PPO(ref p) =>
+        TrainingMethod::PPO(p) =>
             p.simulation_model.clone(),
     };
     let model_ref = crate::postgres_orm()
