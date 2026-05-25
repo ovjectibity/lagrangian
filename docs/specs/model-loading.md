@@ -29,3 +29,33 @@
 ## Schema change
 
 `model_references` table: add `name TEXT NOT NULL DEFAULT ''` column.
+
+---
+
+## Training graph uses saved model
+
+**Scope:** Server-side (Rust) + Python remote worker. No client changes.
+
+### `PPOTrainingMethod.simulation_model` (new mandatory field)
+
+- Type: `String` — a model ID referencing a `model_references` row
+- Mandatory — the training start API returns HTTP 400 if the ID is not found in `model_references`
+
+### Training start API behaviour changes
+
+- Extract `simulation_model` ID from `body.training_graph.training_job_controller.training_method` (PPO variant)
+- Call `get_model_reference(sim_model_id)` on the DB → 400 if not found
+- Use `model_ref.path` for both local and remote training (removes `TEST_MJCF_MODEL` env var dependency)
+- Local (`AllOnServer`): `WorkflowRuntime::load(model_ref.path)` — XML paths only; ZIP models require remote mode
+- Remote: model is packaged (zip + entrypoint) and sent to worker
+
+### `StartTrainingMessage.simulation_models` (new field)
+
+- Type: `HashMap<String, String>` — key: model ID, value: base64-encoded model zip
+- Populated by the server for all models referenced in the training graph
+- The Python worker uses this to reinitialize its MuJoCo simulator on `StartTrainingMessage`
+
+### Remote worker behaviour changes
+
+- On `StartTrainingMessage`: look up `ppo_params.simulation_model` in `start_msg.simulation_models`. If present, extract the zip, auto-detect the XML entrypoint, and reinitialize `runtime.model_path` and `runtime.mjcf`. The simulator re-init that follows then picks up the updated paths.
+- `ArmModel` (policy/value network) is unaffected by simulation model changes.

@@ -237,6 +237,32 @@ def _extract_model_bundle_to_tempdir(
         raise
 
 
+def _extract_sim_model_from_zip(
+    model_zip_base64: str,
+) -> tuple[tempfile.TemporaryDirectory, str]:
+    tempdir = tempfile.TemporaryDirectory(prefix="lagrangian-sim-model-")
+    root = Path(tempdir.name).resolve()
+    try:
+        zip_bytes = base64.b64decode(model_zip_base64)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            for member in zf.namelist():
+                member_path = (root / member).resolve()
+                if member_path != root and root not in member_path.parents:
+                    raise ValueError(f"Unsafe zip member: {member}")
+            zf.extractall(root)
+            xml_files = [
+                m for m in zf.namelist()
+                if "/" not in m and m.endswith(".xml")
+            ]
+            if not xml_files:
+                raise FileNotFoundError("No XML found at zip root")
+        entrypoint_path = (root / xml_files[0]).resolve()
+        return tempdir, str(entrypoint_path)
+    except Exception:
+        tempdir.cleanup()
+        raise
+
+
 def _log_message_payload(msg: str, training_id: str = "system") -> dict[str, Any]:
     return {
         "type": "TrainingUpdatesMessage",
@@ -382,6 +408,15 @@ async def handle_connection(
 
                 training_controller = start_msg.training_graph.training_job_controller
                 acceleration_mode = training_controller.acceleration_mode
+                ppo_params = training_controller.training_method.content
+                sim_model_zip = start_msg.simulation_models.get(ppo_params.simulation_model)
+                if sim_model_zip:
+                    if runtime.model_tmpdir is not None:
+                        runtime.model_tmpdir.cleanup()
+                    sim_tmpdir, sim_model_path = _extract_sim_model_from_zip(sim_model_zip)
+                    runtime.model_tmpdir = sim_tmpdir
+                    runtime.model_path = sim_model_path
+                    runtime.mjcf = None
                 if acceleration_mode == TrainingAccelerationMode.MLCPUSIMULATIONCPU:
                     logger.info("Using MujocoSimulator (CPU) for training_id=%s", training_id)
                     runtime.simulator = MujocoSimulator(
@@ -392,8 +427,6 @@ async def handle_connection(
                     runtime.simulator = MjxSimulator(
                         model_path=runtime.model_path, mjcf=runtime.mjcf
                     )
-
-                ppo_params = training_controller.training_method.content
                 try:
                     runtime.model = _build_model_for_training(runtime.simulator, ppo_params, start_msg.checkpoints)
                 except Exception as exc:

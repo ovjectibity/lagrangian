@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 from commondef.training import TrainingGraph, TrainingRunState, TrainingMetrics, FFNModel
 
 class Checkpoint(BaseModel):
@@ -29,6 +29,7 @@ class StartTrainingMessage(BaseModel):
     id: str
     training_graph: TrainingGraph
     checkpoints: List[Checkpoint]
+    simulation_models: Dict[str, str]
 
 class StopTrainingMessage(BaseModel):
     id: str

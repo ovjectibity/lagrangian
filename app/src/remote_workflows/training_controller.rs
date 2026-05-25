@@ -34,13 +34,39 @@ use crate::commondef::remoteworkermessages::{
     Checkpoint, LoadModelMessage, StartTrainingMessage, StopTrainingMessage,
     TrainingRemoteWorkerClientMessage, TrainingRemoteWorkerServerMessage, TrainingUpdatesMessage,
 };
-use crate::commondef::training::{TrainingGraph, TrainingJobController};
+use crate::commondef::training::{TrainingGraph, TrainingJobController, TrainingMethod};
 
 type DynError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, DynError>;
 type WorkerWs = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
+fn find_xml_in_zip_root(zip_bytes: &[u8]) -> Result<String> {
+    use std::io::Cursor;
+    let cursor = Cursor::new(zip_bytes);
+    let mut archive = zip::ZipArchive::new(cursor)?;
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i)?;
+        let name = entry.name().to_string();
+        if !name.contains('/') && name.ends_with(".xml") {
+            return Ok(name);
+        }
+    }
+    Err("No XML file at zip root".into())
+}
+
 fn load_mjcf_package_zip_base64(model_path: &str) -> Result<(String, String)> {
+    let path = Path::new(model_path);
+
+    if path.extension().and_then(|e| e.to_str()) == Some("zip") {
+        let zip_bytes = fs::read(path)?;
+        let entrypoint = find_xml_in_zip_root(&zip_bytes)?;
+        println!(
+            "Using model zip directly {:?} ({} bytes), entrypoint={}",
+            path, zip_bytes.len(), entrypoint
+        );
+        return Ok((BASE64.encode(&zip_bytes), entrypoint));
+    }
+
     let model_path = Path::new(model_path);
     let model_dir = model_path.parent().ok_or("model_path has no parent directory")?;
     let default_entrypoint = model_path
@@ -250,6 +276,14 @@ impl TrainingWorkerController {
         ))
         .await?;
 
+        let sim_model_id = match &training_controller.training_method {
+            TrainingMethod::PPO(ref p) => p.simulation_model.clone(),
+        };
+        let mut simulation_models = std::collections::HashMap::new();
+        if let Some(ref zip_b64) = model_zip_base64 {
+            simulation_models.insert(sim_model_id, zip_b64.clone());
+        }
+
         self.send_to_worker(&TrainingRemoteWorkerServerMessage::StartTrainingMessage(
             StartTrainingMessage {
                 id: training_id.clone(),
@@ -257,6 +291,7 @@ impl TrainingWorkerController {
                     training_job_controller: training_controller,
                 },
                 checkpoints,
+                simulation_models,
             },
         ))
         .await?;

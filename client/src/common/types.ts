@@ -132,6 +132,7 @@ export interface PPOTrainingMethod {
 	reward_function: RewardSystem;
 	control_model: ControlModel;
 	value_model: ValueModel;
+	simulation_model: string;
 }
 
 export interface PPOTrainingRunState {
@@ -195,6 +196,7 @@ export interface StartTrainingMessage {
 	id: string;
 	training_graph: TrainingGraph;
 	checkpoints: Checkpoint[];
+	simulation_models: Record<string, string>;
 }
 
 export interface StopSimulationMessage {
@@ -254,14 +256,14 @@ export interface TrainingUpdate {
 	training_run_state: TrainingRunState;
 	logs: string[];
 	metrics: TrainingMetrics[];
-	checkpoints: Checkpoint[];
+	checkpoints: CheckpointReference[];
 }
 
 export interface TrainingUpdate {
 	training_run_state: TrainingRunState;
 	logs: string[];
 	metrics: TrainingMetrics[];
-	checkpoints: CheckpointReference[];
+	checkpoints: Checkpoint[];
 }
 
 export interface TrainingUpdatesMessage {

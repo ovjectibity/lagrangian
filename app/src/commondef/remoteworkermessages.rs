@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde;
 use typeshare::typeshare;
 
@@ -20,6 +22,7 @@ pub struct StartTrainingMessage {
     pub id: String,
     pub training_graph: TrainingGraph,
     pub checkpoints: Vec<Checkpoint>,
+    pub simulation_models: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -46,6 +46,7 @@ pub struct PPOTrainingMethod {
     pub reward_function: RewardSystem,
     pub control_model: ControlModel,
     pub value_model: ValueModel,
+    pub simulation_model: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

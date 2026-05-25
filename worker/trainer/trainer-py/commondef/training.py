@@ -60,6 +60,7 @@ class PPOTrainingMethod(BaseModel):
     reward_function: RewardSystem
     control_model: ControlModel
     value_model: ValueModel
+    simulation_model: str
 
 class PPOTrainingRunState(BaseModel):
     epoch_index: int

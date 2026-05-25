@@ -1,4 +1,3 @@
-use std::env;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -240,8 +239,18 @@ pub async fn start_training(
         Arc::new(AtomicBool::new(false));
     let stop_flag_c = stop_flag.clone();
 
-    let model_path =
-        env::var("TEST_MJCF_MODEL").ok();
+    let sim_model_id = match &controller
+        .training_method
+    {
+        TrainingMethod::PPO(ref p) =>
+            p.simulation_model.clone(),
+    };
+    let model_ref = crate::postgres_orm()
+        .get_model_reference(&sim_model_id)
+        .await
+        .map_err(|_| Status::InternalServerError)?
+        .ok_or(Status::BadRequest)?;
+    let model_path = model_ref.path.clone();
 
     if is_local {
         let ppo_params = match controller
@@ -253,8 +262,7 @@ pub async fn start_training(
         let run_id_c = run_id.clone();
         let h = rocket::tokio::task::spawn_blocking(
             move || {
-                let path = model_path
-                    .unwrap_or_default();
+                let path = model_path;
                 let mut runtime =
                     match WorkflowRuntime::load(
                         path,
@@ -307,11 +315,6 @@ pub async fn start_training(
             .insert(run_id.clone(), (h, stop_flag));
     } else {
         // Remote training
-        let model_path_str =
-            model_path.unwrap_or_default();
-        let mjcf =
-            std::fs::read_to_string(&model_path_str)
-            .unwrap_or_default();
         let remote_cfg =
             match crate::build_remote_training_worker_config()
             {
@@ -342,7 +345,7 @@ pub async fn start_training(
                 run_id_c,
                 exp_id_c,
                 controller,
-                mjcf,
+                model_path,
                 remote_cfg,
                 worker_slot,
                 tx_c,
@@ -497,7 +500,7 @@ async fn spawn_remote_training_task(
     run_id: String,
     exp_id: String,
     controller: TrainingJobController,
-    mjcf: String,
+    model_path: String,
     remote_cfg: crate::remote_workflows
         ::training_controller
         ::TrainingWorkerControllerConfig,
@@ -632,11 +635,14 @@ async fn spawn_remote_training_task(
         map.into_values().collect()
     };
 
+    let mjcf =
+        std::fs::read_to_string(&model_path)
+        .unwrap_or_default();
     let result = worker
         .run_training_job(
             run_id.clone(),
             controller.clone(),
-            None,
+            Some(model_path),
             mjcf,
             worker_checkpoints,
             |update| {
