@@ -261,6 +261,8 @@ fn rocket() -> _ {
         .mount("/api", routes![
             api_hello,
             api::models::get_default_model,
+            api::models::list_models,
+            api::models::save_model,
             api::checkpoints::list_checkpoints,
             api::checkpoints::get_checkpoint,
             api::experiments::list_experiments,

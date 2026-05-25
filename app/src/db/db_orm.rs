@@ -484,6 +484,7 @@ impl PostgresOrm {
     pub async fn create_model_reference(
         &self,
         id: &str,
+        name: &str,
         path: &str,
         model_type: &str,
     ) -> Result<ModelReference, sqlx::Error>
@@ -491,15 +492,30 @@ impl PostgresOrm {
         sqlx::query_as::<_, ModelReference>(
             "INSERT INTO model_references (
                 id, created_at,
-                path, model_type
+                name, path, model_type
             )
-            VALUES ($1, NOW(), $2, $3)
+            VALUES ($1, NOW(), $2, $3, $4)
             RETURNING *",
         )
         .bind(id)
+        .bind(name)
         .bind(path)
         .bind(model_type)
         .fetch_one(&self.pool)
+        .await
+    }
+
+    /// Fetch all model references ordered
+    /// by created_at descending.
+    pub async fn get_all_model_references(
+        &self,
+    ) -> Result<Vec<ModelReference>, sqlx::Error>
+    {
+        sqlx::query_as::<_, ModelReference>(
+            "SELECT * FROM model_references
+            ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
         .await
     }
 

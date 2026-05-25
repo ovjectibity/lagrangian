@@ -13,5 +13,8 @@
 ## Shared type definitions between the Rust backend and the Typescript frontend
 1. Use typeshare to generate Typescript definitions from Rust struct definitions using the following command in the project root directory: 
 ```bash 
-`typeshare app/src/model_def.rs --lang=typescript --output-file=/client/src/common/types.ts` 
+`typeshare app/src/ --lang=typescript --output-file=client/src/common/types.ts` 
 ```
+
+## Structured feature implementation
+1. Before writing any code for a structured feature, write the high-level spec to `docs/specs/{feature}.md` and the implementation plan to `docs/specs/{feature}-impl.md`.

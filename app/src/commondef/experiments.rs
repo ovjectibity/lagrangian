@@ -98,6 +98,7 @@ pub struct TrainingGraphRecord {
 pub struct ModelReference {
     pub created_at: Timestamp,
     pub id: String,
+    pub name: String,
     pub path: String,
     pub model_type: String,
 }

@@ -165,9 +165,14 @@ CREATE TABLE IF NOT EXISTS training_runs (
 CREATE TABLE IF NOT EXISTS model_references (
     id           TEXT        PRIMARY KEY,
     created_at   TIMESTAMPTZ NOT NULL,
+    name         TEXT        NOT NULL DEFAULT '',
     path         TEXT        NOT NULL,
     model_type   TEXT        NOT NULL
 );
+
+ALTER TABLE model_references
+    ADD COLUMN IF NOT EXISTS
+    name TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS checkpoint_references (
     id                     TEXT        PRIMARY KEY,

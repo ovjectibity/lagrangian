@@ -1,0 +1,11 @@
+<mujoco model="pendulum">
+  <worldbody>
+    <body name="pendulum" pos="0 0 1">
+      <geom type="capsule" fromto="0 0 0 0 0 -0.5" size="0.05"/>
+      <joint name="pivot" type="hinge" axis="0 1 0"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor joint="pivot" gear="50" ctrllimited="true" ctrlrange="-0.2 0.2"/>
+  </actuator>
+</mujoco>
