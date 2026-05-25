@@ -143,6 +143,7 @@ When generating code, the agent must adhere to these meta-rules:
     * *Good:* `let names: Vec<String> = users.map(...).collect();`
 4.  **Clippy Linting:** Pre-emptively fix common Clippy warnings (e.g., use `if let` instead of `match` for single options, avoid `&String` -> use `&str`).
 5.  **Minimal Formatting Churn:** Do not collapse existing multi-line code into single-line expressions/functions just for style. Preserve the file's existing wrapping/layout unless a formatting change is required for correctness, linting, or the specific task.
+6.  **Always verify by compiling:** After making any code changes, run `cargo check` (or `cargo build`) to confirm the code compiles without errors before considering the task complete.
 
 ---
 
