@@ -281,13 +281,24 @@ pub fn validate_python_reward(
         let result = match out {
             Ok(o) if o.status.success() => Ok(()),
             Ok(o) => {
-                let s = String::from_utf8_lossy(
-                    &o.stderr,
-                )
-                .to_string();
-                Err(format!(
-                    "dummy run failed:\n{s}"
-                ))
+                let stderr =
+                    String::from_utf8_lossy(
+                        &o.stderr,
+                    );
+                // Python reward runs on the GPU
+                // worker which has JAX installed;
+                // a missing module on the server is
+                // not a user code error.
+                if stderr.contains(
+                    "ModuleNotFoundError",
+                ) || stderr.contains("ImportError")
+                {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "dummy run failed:\n{stderr}"
+                    ))
+                }
             }
             Err(e) => {
                 Err(format!("python3 exec: {e}"))

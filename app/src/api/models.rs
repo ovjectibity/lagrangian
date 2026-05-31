@@ -92,12 +92,6 @@ pub async fn save_model(
     mut form: Form<ModelUploadForm<'_>>,
 ) -> Result<Json<SaveModelResponse>, Status>
 {
-    let original_name = form
-        .file
-        .name()
-        .unwrap_or("model.xml")
-        .to_string();
-
     let id = uuid::Uuid::new_v4().to_string();
 
     let models_dir = env::var("MODELS_DIR")
@@ -112,71 +106,129 @@ pub async fn save_model(
         .await
         .map_err(|_| Status::InternalServerError)?;
 
-    let dest = dest_dir.join(&original_name);
-
-    // persist_to works for both in-memory and
-    // on-disk temp files (small files stay in
-    // memory and path() would return None)
+    // Persist to a scratch path first; works for
+    // both in-memory and on-disk temp files.
+    let scratch = dest_dir.join("upload.tmp");
     form.file
-        .persist_to(&dest)
+        .persist_to(&scratch)
         .await
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|_| {
+            let _ = std::fs::remove_dir_all(&dest_dir);
+            Status::InternalServerError
+        })?;
 
     let bytes =
-        rocket::tokio::fs::read(&dest)
+        rocket::tokio::fs::read(&scratch)
         .await
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|_| {
+            let _ = std::fs::remove_dir_all(&dest_dir);
+            Status::InternalServerError
+        })?;
 
     let is_zip = bytes.len() >= 4
         && bytes[..4] == [0x50, 0x4B, 0x03, 0x04];
 
-    if is_zip {
+    // xml_path: path stored in DB for MuJoCo to load
+    let (xml_path, xml_name) = if is_zip {
         let cursor = Cursor::new(bytes.as_slice());
         let mut archive =
-            ZipArchive::new(cursor)
-            .map_err(|_| Status::BadRequest)?;
+            ZipArchive::new(cursor).map_err(|_| {
+                let _ =
+                    std::fs::remove_dir_all(&dest_dir);
+                Status::BadRequest
+            })?;
 
-        let xml_bytes: Option<Vec<u8>> =
-            (0..archive.len()).find_map(|i| {
-                let mut entry =
-                    archive.by_index(i).ok()?;
-                let name =
-                    entry.name().to_string();
-                if name.contains('/')
-                    || !name.ends_with(".xml")
-                {
-                    return None;
-                }
-                let mut buf = Vec::new();
-                entry.read_to_end(&mut buf).ok()?;
-                Some(buf)
-            });
+        // Extract all entries; track root XML path.
+        let mut found_xml: Option<PathBuf> = None;
+        for i in 0..archive.len() {
+            let mut entry =
+                archive.by_index(i).map_err(|_| {
+                    Status::BadRequest
+                })?;
+            let entry_name =
+                entry.name().to_string();
+            // Skip directory entries
+            if entry_name.ends_with('/') {
+                continue;
+            }
+            let out =
+                dest_dir.join(&entry_name);
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|_| {
+                        Status::InternalServerError
+                    })?;
+            }
+            let mut buf = Vec::new();
+            entry
+                .read_to_end(&mut buf)
+                .map_err(|_| Status::BadRequest)?;
+            std::fs::write(&out, &buf)
+                .map_err(|_| {
+                    Status::InternalServerError
+                })?;
+            // A root-level XML is the MJCF entry.
+            if !entry_name.contains('/')
+                && entry_name.ends_with(".xml")
+                && has_mujoco_root(&buf)
+            {
+                found_xml = Some(out);
+            }
+        }
+        let _ =
+            rocket::tokio::fs::remove_file(&scratch)
+            .await;
 
-        let xml_bytes =
-            xml_bytes.ok_or(Status::BadRequest)?;
-        if !has_mujoco_root(&xml_bytes) {
-            let _ = std::fs::remove_dir_all(
-                &dest_dir,
-            );
+        let xml = found_xml.ok_or_else(|| {
+            let _ =
+                std::fs::remove_dir_all(&dest_dir);
+            Status::BadRequest
+        })?;
+        let name = xml
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("model.xml")
+            .to_string();
+        (xml, name)
+    } else {
+        if !has_mujoco_root(&bytes) {
+            let _ =
+                std::fs::remove_dir_all(&dest_dir);
             return Err(Status::BadRequest);
         }
-    } else if !has_mujoco_root(&bytes) {
-        let _ = std::fs::remove_dir_all(&dest_dir);
-        return Err(Status::BadRequest);
-    }
+        let original_name = form
+            .file
+            .name()
+            .unwrap_or("model")
+            .to_string()
+            + ".xml";
+        let dest = dest_dir.join(&original_name);
+        rocket::tokio::fs::rename(&scratch, &dest)
+            .await
+            .map_err(|_| {
+                let _ =
+                    std::fs::remove_dir_all(&dest_dir);
+                Status::InternalServerError
+            })?;
+        (dest, original_name)
+    };
 
     let full_path =
-        dest.to_string_lossy().into_owned();
+        xml_path.to_string_lossy().into_owned();
 
     crate::postgres_orm()
         .create_model_reference(
             &id,
-            &original_name,
+            &xml_name,
             &full_path,
             "mjcf",
         )
         .await
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|_| {
+            let _ =
+                std::fs::remove_dir_all(&dest_dir);
+            Status::InternalServerError
+        })?;
 
     Ok(Json(SaveModelResponse { id }))
 }

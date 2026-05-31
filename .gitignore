@@ -21,3 +21,4 @@ app/checkpoints
 scripts/.venv
 jax_profile
 jax_profile/*
+tests/data/*
