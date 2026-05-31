@@ -11,8 +11,8 @@ import time
 
 import requests
 
-BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
-MODEL_PATH = "app/assets/trossen_vx300s/vx300s.xml"
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000/api")
+MODEL_PATH = os.environ.get("MODEL_PATH","") 
 
 # ── Rust reward function ─────────────────────────────────
 RUST_REWARD = '''
@@ -120,7 +120,7 @@ def upload_model() -> str:
     with open(MODEL_PATH, "rb") as f:
         xml_bytes = f.read()
     r = requests.post(
-        f"{BASE_URL}/models",
+        f"{BASE_URL}/models/save_model",
         files={"file": ("vx300s.xml", xml_bytes, "application/xml")},
     )
     assert r.status_code == 200, f"upload model: {r.status_code} {r.text}"
@@ -131,22 +131,22 @@ def upload_model() -> str:
 
 def create_experiment() -> str:
     r = requests.post(
-        f"{BASE_URL}/experiments",
+        f"{BASE_URL}/training/experiments",
         json={"name": "reward-fn-test"},
     )
     assert r.status_code == 200, f"create experiment: {r.status_code} {r.text}"
-    exp_id = r.json()["id"]
+    exp_id = r.json()["experiment"]["training_experiment_id"]
     print(f"  exp_id={exp_id}")
     return exp_id
 
 
 def create_run(exp_id: str) -> str:
     r = requests.post(
-        f"{BASE_URL}/experiments/{exp_id}/runs",
-        json={"name": "run-0"},
+        f"{BASE_URL}/training/experiments/{exp_id}/runs",
+        json={},
     )
     assert r.status_code == 200, f"create run: {r.status_code} {r.text}"
-    run_id = r.json()["id"]
+    run_id = r.json()["run"]["id"]
     print(f"  run_id={run_id}")
     return run_id
 

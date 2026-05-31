@@ -61,6 +61,9 @@ pub fn validate_and_compile_rust_reward(
     let src_path = dir.join("reward.rs");
     let so_path = dir.join("reward.so");
 
+    // catch_unwind prevents index-out-of-bounds
+    // panics during the dummy run (empty slices)
+    // from aborting the host process.
     let wrapper = "\n\
         #[no_mangle]\n\
         pub extern \"C\" fn reward_c_abi(\n\
@@ -73,18 +76,21 @@ pub fn validate_and_compile_rust_reward(
             contacts: *const (usize, usize),\n\
             contacts_len: usize,\n\
         ) -> f64 {\n\
-            unsafe {\n\
-                reward(\n\
-                    std::slice::from_raw_parts(\
-                        prev, prev_len),\n\
-                    std::slice::from_raw_parts(\
-                        curr, curr_len),\n\
-                    std::slice::from_raw_parts(\
-                        act, act_len),\n\
-                    std::slice::from_raw_parts(\
-                        contacts, contacts_len),\n\
-                )\n\
-            }\n\
+            let r = std::panic::catch_unwind(|| {\n\
+                unsafe {\n\
+                    reward(\n\
+                        std::slice::from_raw_parts(\
+                            prev, prev_len),\n\
+                        std::slice::from_raw_parts(\
+                            curr, curr_len),\n\
+                        std::slice::from_raw_parts(\
+                            act, act_len),\n\
+                        std::slice::from_raw_parts(\
+                            contacts, contacts_len),\n\
+                    )\n\
+                }\n\
+            });\n\
+            r.unwrap_or(f64::NAN)\n\
         }\n";
 
     {
@@ -98,6 +104,8 @@ pub fn validate_and_compile_rust_reward(
         .args([
             "--crate-type",
             "cdylib",
+            "-C",
+            "panic=unwind",
             "-o",
             so_path.to_str().unwrap(),
             src_path.to_str().unwrap(),

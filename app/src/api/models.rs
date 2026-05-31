@@ -92,14 +92,38 @@ pub async fn save_model(
     mut form: Form<ModelUploadForm<'_>>,
 ) -> Result<Json<SaveModelResponse>, Status>
 {
-    let file_path = form
+    let original_name = form
         .file
-        .path()
-        .ok_or(Status::InternalServerError)?
-        .to_path_buf();
+        .name()
+        .unwrap_or("model.xml")
+        .to_string();
+
+    let id = uuid::Uuid::new_v4().to_string();
+
+    let models_dir = env::var("MODELS_DIR")
+        .map_err(|_| Status::InternalServerError)?;
+
+    let dest_dir: PathBuf =
+        [models_dir.as_str(), id.as_str()]
+        .iter()
+        .collect();
+
+    rocket::tokio::fs::create_dir_all(&dest_dir)
+        .await
+        .map_err(|_| Status::InternalServerError)?;
+
+    let dest = dest_dir.join(&original_name);
+
+    // persist_to works for both in-memory and
+    // on-disk temp files (small files stay in
+    // memory and path() would return None)
+    form.file
+        .persist_to(&dest)
+        .await
+        .map_err(|_| Status::InternalServerError)?;
 
     let bytes =
-        rocket::tokio::fs::read(&file_path)
+        rocket::tokio::fs::read(&dest)
         .await
         .map_err(|_| Status::InternalServerError)?;
 
@@ -131,38 +155,15 @@ pub async fn save_model(
         let xml_bytes =
             xml_bytes.ok_or(Status::BadRequest)?;
         if !has_mujoco_root(&xml_bytes) {
+            let _ = std::fs::remove_dir_all(
+                &dest_dir,
+            );
             return Err(Status::BadRequest);
         }
     } else if !has_mujoco_root(&bytes) {
+        let _ = std::fs::remove_dir_all(&dest_dir);
         return Err(Status::BadRequest);
     }
-
-    let original_name = form
-        .file
-        .name()
-        .unwrap_or("model.xml")
-        .to_string();
-
-    let id = uuid::Uuid::new_v4().to_string();
-
-    let models_dir = env::var("MODELS_DIR")
-        .map_err(|_| Status::InternalServerError)?;
-
-    let dest_dir: PathBuf =
-        [models_dir.as_str(), id.as_str()]
-        .iter()
-        .collect();
-
-    rocket::tokio::fs::create_dir_all(&dest_dir)
-        .await
-        .map_err(|_| Status::InternalServerError)?;
-
-    let dest = dest_dir.join(&original_name);
-
-    form.file
-        .persist_to(&dest)
-        .await
-        .map_err(|_| Status::InternalServerError)?;
 
     let full_path =
         dest.to_string_lossy().into_owned();
