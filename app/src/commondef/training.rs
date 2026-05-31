@@ -51,7 +51,15 @@ pub struct PPOTrainingMethod {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
+pub enum RewardLanguage {
+    Rust,
+    Python,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
 pub struct RewardSystem {
+    pub language: RewardLanguage,
     pub reward_function_code: String,
 }
 

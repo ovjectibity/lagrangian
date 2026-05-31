@@ -18,7 +18,12 @@ class MetricsData(BaseModel):
     x_axis: List[float]
     y_axis: List[float]
 
+class RewardLanguage(str, Enum):
+    RUST = "Rust"
+    PYTHON = "Python"
+
 class RewardSystem(BaseModel):
+    language: RewardLanguage
     reward_function_code: str
 
 class ControlModelTypes(str, Enum):

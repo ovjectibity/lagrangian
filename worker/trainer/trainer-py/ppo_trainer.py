@@ -152,6 +152,7 @@ class PPOTrainer:
         learning_rate: float = 1e-3,
         gamma_lambda: tuple[float, float] = (0.99, 0.95),
         seed: int = 0,
+        user_reward_fn: Callable | None = None,
     ) -> None:
         self.num_trajs = num_trajs
         self.traj_depth = traj_depth
@@ -166,6 +167,7 @@ class PPOTrainer:
         self.value_opt = self._init_adam_state(self.model.get_value_store())
         self._jit_gen_trajs: Any = None
         self._jit_train_epoch: Any = None
+        self._user_reward_fn = user_reward_fn
 
     @staticmethod
     def _init_adam_state(params: Params) -> dict[str, Any]:
@@ -555,7 +557,11 @@ class PPOTrainer:
         )
         simulator_step_fn = self.simulator.forward_dyn_pure  # type: ignore[attr-defined]
         policy_fn = self.model.get_pure_policy_fn()
-        reward_fn = self.model.get_pure_reward_fn()
+        reward_fn = (
+            self._user_reward_fn
+            if self._user_reward_fn is not None
+            else self.model.get_pure_reward_fn()
+        )
         if policy_store is None:
             policy_store = self.model.get_policy_store()
         output_mode = self.model.get_control_policy_output_mode()

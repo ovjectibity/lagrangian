@@ -19,8 +19,11 @@ use crate::commondef::clientmessages::{
     TrainingUpdatesMessage,
 };
 use crate::commondef::experiments::TrainingRunStatus;
+use tch::Tensor;
+
 use crate::commondef::training::{
     ControlModel,
+    RewardLanguage,
     TrainingGraph,
     TrainingJobController,
     TrainingMethod,
@@ -252,6 +255,73 @@ pub async fn start_training(
         .ok_or(Status::BadRequest)?;
     let model_path = model_ref.path.clone();
 
+    let (reward_lang, reward_code) =
+        match &controller.training_method {
+            TrainingMethod::PPO(p) => (
+                p.reward_function.language.clone(),
+                p.reward_function
+                    .reward_function_code
+                    .clone(),
+            ),
+        };
+    if is_local
+        && !matches!(
+            reward_lang,
+            RewardLanguage::Rust,
+        )
+    {
+        return Err(Status::BadRequest);
+    }
+    if !is_local
+        && !matches!(
+            reward_lang,
+            RewardLanguage::Python,
+        )
+    {
+        return Err(Status::BadRequest);
+    }
+    let user_reward_lib = if is_local {
+        let code = reward_code.clone();
+        let lib = rocket::tokio::task
+            ::spawn_blocking(move || {
+                crate::api::reward_validation
+                    ::validate_and_compile_rust_reward(
+                        &code,
+                    )
+            })
+            .await
+            .map_err(|_| {
+                Status::InternalServerError
+            })?
+            .map_err(|e| {
+                println!(
+                    "Reward validation \
+                     failed: {e}"
+                );
+                Status::UnprocessableEntity
+            })?;
+        Some(lib)
+    } else {
+        let code = reward_code.clone();
+        rocket::tokio::task
+            ::spawn_blocking(move || {
+                crate::api::reward_validation
+                    ::validate_python_reward(&code)
+            })
+            .await
+            .map_err(|_| {
+                Status::InternalServerError
+            })?
+            .map_err(|e| {
+                println!(
+                    "Reward validation \
+                     failed: {e}"
+                );
+                Status::UnprocessableEntity
+            })?;
+        None
+    };
+
     if is_local {
         let ppo_params = match controller
             .training_method
@@ -294,11 +364,107 @@ pub async fn start_training(
                 let sim = runtime.simulator_handle();
                 let model =
                     runtime.ppo_model_handle();
+                use std::sync::Arc as StdArc;
+                let reward_fn: Option<
+                    Box<
+                        dyn Fn(
+                            &Tensor,
+                            &Tensor,
+                            &Tensor,
+                            Option<
+                                &[(usize, usize)]
+                            >,
+                        ) -> f64
+                            + Send,
+                    >,
+                > = user_reward_lib.map(|lib| {
+                    let lib = StdArc::new(lib);
+                    let lib_c = lib.clone();
+                    Box::new(
+                        move |prev: &Tensor,
+                              curr: &Tensor,
+                              act: &Tensor,
+                              contacts: Option<
+                                  &[(usize, usize)]
+                              >| {
+                            unsafe {
+                                type RawFn =
+                                    unsafe extern "C"
+                                    fn(
+                                        *const f64,
+                                        usize,
+                                        *const f64,
+                                        usize,
+                                        *const f64,
+                                        usize,
+                                        *const (
+                                            usize,
+                                            usize,
+                                        ),
+                                        usize,
+                                    ) -> f64;
+                                let f: libloading
+                                    ::Symbol<RawFn> =
+                                    lib_c
+                                    .get(
+                                        b"reward_c_abi"
+                                    )
+                                    .expect(
+                                        "reward_c_abi"
+                                    );
+                                let pv =
+                                    Vec::<f64>
+                                    ::try_from(
+                                        prev
+                                        .shallow_clone()
+                                    )
+                                    .unwrap_or_default();
+                                let cv =
+                                    Vec::<f64>
+                                    ::try_from(
+                                        curr
+                                        .shallow_clone()
+                                    )
+                                    .unwrap_or_default();
+                                let av =
+                                    Vec::<f64>
+                                    ::try_from(
+                                        act
+                                        .shallow_clone()
+                                    )
+                                    .unwrap_or_default();
+                                let cs = contacts
+                                    .unwrap_or(&[]);
+                                f(
+                                    pv.as_ptr(),
+                                    pv.len(),
+                                    cv.as_ptr(),
+                                    cv.len(),
+                                    av.as_ptr(),
+                                    av.len(),
+                                    cs.as_ptr(),
+                                    cs.len(),
+                                )
+                            }
+                        },
+                    ) as Box<
+                        dyn Fn(
+                            &Tensor,
+                            &Tensor,
+                            &Tensor,
+                            Option<
+                                &[(usize, usize)]
+                            >,
+                        ) -> f64
+                            + Send,
+                    >
+                });
                 let wf = TrainingWorkflow::new(
                     run_id_c,
                     ppo_params,
                     sim,
                     model,
+                    reward_fn,
                 );
                 if let Ok(mut wf) = wf {
                     wf.run_training_blocking(

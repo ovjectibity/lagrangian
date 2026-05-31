@@ -263,6 +263,31 @@ def _extract_sim_model_from_zip(
         raise
 
 
+def _load_user_reward_fn(code: str) -> Any:
+    import jax.numpy as jnp
+    import numpy as np
+    import math
+    import functools
+    import itertools
+    ns: dict[str, Any] = {
+        "jax": jax,
+        "jnp": jnp,
+        "numpy": np,
+        "np": np,
+        "math": math,
+        "functools": functools,
+        "itertools": itertools,
+        "__builtins__": {},
+    }
+    exec(compile(code, "<reward_fn>", "exec"), ns)
+    fn = ns.get("reward")
+    if fn is None or not callable(fn):
+        raise ValueError(
+            "reward function not found in code"
+        )
+    return fn
+
+
 def _log_message_payload(msg: str, training_id: str = "system") -> dict[str, Any]:
     return {
         "type": "TrainingUpdatesMessage",
@@ -453,11 +478,15 @@ async def handle_connection(
                                     training_id=training_id,
                                 )
                             )
+                user_reward_fn = _load_user_reward_fn(
+                    ppo_params.reward_function.reward_function_code
+                )
                 workflow = TrainingWorkflow(
                     training_id=training_id,
                     training_controller=training_controller,
                     simulator=runtime.simulator,
                     model=runtime.model,
+                    user_reward_fn=user_reward_fn,
                 )
                 stop_event = threading.Event()
                 sink = CallbackTrainingTaskSink(thread_safe_send)

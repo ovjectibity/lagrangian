@@ -21,3 +21,5 @@ chrono = { version = "0.4", features = ["serde"] }
 mongodb = "3.2"
 uuid = { version = "1", features = ["v4"] }
 zip = "2"
+syn = { version = "2", features = ["full"] }
+libloading = "0.8"

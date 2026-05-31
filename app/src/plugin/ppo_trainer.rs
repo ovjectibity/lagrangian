@@ -71,6 +71,17 @@ pub struct PPOTrainer {
     model: Arc<Mutex<dyn PPOTrainedModel + Send>>,
     policy_opt: nn::Optimizer,
     value_opt: nn::Optimizer,
+    user_reward_fn: Option<
+        Box<
+            dyn Fn(
+                &Tensor,
+                &Tensor,
+                &Tensor,
+                Option<&[(usize, usize)]>,
+            ) -> f64
+                + Send,
+        >,
+    >,
 }
 
 pub trait PPOTrainedModel {
@@ -121,6 +132,17 @@ impl PPOTrainer {
         num_updates: i32,
         epsilon: f64,
         gamma_lambda: (f64, f64),
+        user_reward_fn: Option<
+            Box<
+                dyn Fn(
+                    &Tensor,
+                    &Tensor,
+                    &Tensor,
+                    Option<&[(usize, usize)]>,
+                ) -> f64
+                    + Send,
+            >,
+        >,
     ) -> Result<Self, tch::TchError> {
         let policy_opt = {
             let m = model.lock().expect("Model mutex poisoned");
@@ -140,6 +162,7 @@ impl PPOTrainer {
             model: model,
             policy_opt: policy_opt,
             value_opt: value_opt,
+            user_reward_fn: user_reward_fn,
         })
     }
 
@@ -220,12 +243,27 @@ impl PPOTrainer {
                         simulator.get_contact_body_index_pairs(),
                     )
                 };
-                let reward = self.model.lock().expect("Model mutex poisoned").get_reward(
-                    &cstate,
-                    &cstate_next,
-                    &sampled_action,
-                    Some(&contact_pairs),
-                );
+                let reward =
+                    if let Some(ref f) =
+                        self.user_reward_fn
+                    {
+                        f(
+                            &cstate,
+                            &cstate_next,
+                            &sampled_action,
+                            Some(&contact_pairs),
+                        )
+                    } else {
+                        self.model
+                            .lock()
+                            .expect("Model mutex poisoned")
+                            .get_reward(
+                                &cstate,
+                                &cstate_next,
+                                &sampled_action,
+                                Some(&contact_pairs),
+                            )
+                    };
                 println!("Got reward during gen_traj as: {:?}", reward);
                 rewards.push(reward);
                 wstates.push(wstate);

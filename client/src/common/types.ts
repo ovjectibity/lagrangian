@@ -109,7 +109,13 @@ export interface ModelReference {
 	model_type: string;
 }
 
+export enum RewardLanguage {
+	Rust = "Rust",
+	Python = "Python",
+}
+
 export interface RewardSystem {
+	language: RewardLanguage;
 	reward_function_code: string;
 }
 
@@ -256,14 +262,14 @@ export interface TrainingUpdate {
 	training_run_state: TrainingRunState;
 	logs: string[];
 	metrics: TrainingMetrics[];
-	checkpoints: CheckpointReference[];
+	checkpoints: Checkpoint[];
 }
 
 export interface TrainingUpdate {
 	training_run_state: TrainingRunState;
 	logs: string[];
 	metrics: TrainingMetrics[];
-	checkpoints: Checkpoint[];
+	checkpoints: CheckpointReference[];
 }
 
 export interface TrainingUpdatesMessage {

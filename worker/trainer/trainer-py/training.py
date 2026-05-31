@@ -75,6 +75,7 @@ class TrainingWorkflow:
         training_controller: TrainingJobController,
         simulator: Simulator,
         model: PPOTrainedModel,
+        user_reward_fn: Callable | None = None,
     ) -> None:
         self.id = training_id
         self.simulator = simulator
@@ -89,6 +90,7 @@ class TrainingWorkflow:
             num_updates=self.params.num_updates,
             epsilon=self.params.epsilon,
             gamma_lambda=(self.params.gamma, self.params.lambda_),
+            user_reward_fn=user_reward_fn,
         )
         self._ckpt_dir = f"/tmp/checkpoints/{training_id}"
         os.makedirs(self._ckpt_dir, exist_ok=True)
