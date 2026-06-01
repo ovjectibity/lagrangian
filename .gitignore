@@ -22,3 +22,6 @@ scripts/.venv
 jax_profile
 jax_profile/*
 tests/data/*
+tests/data
+sdk/node_modules
+sdk/dist

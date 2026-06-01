@@ -41,14 +41,6 @@ export interface FFNModel {
 	input_dim: number;
 }
 
-export interface Checkpoint {
-	id?: string;
-	model_zip_base64?: string;
-	model_zip_path?: string;
-	control_model_ffn?: FFNModel;
-	value_model_ffn?: FFNModel;
-}
-
 export interface CheckpointReference {
 	created_at: Timestamp;
 	id: string;
@@ -58,13 +50,6 @@ export interface CheckpointReference {
 	checkpoint_type: string;
 	control_model_params?: FFNModel;
 	value_model_params?: FFNModel;
-}
-
-export interface LoadModelMessage {
-	id: string;
-	mjcf: string;
-	model_zip_base64?: string;
-	mjcf_entrypoint?: string;
 }
 
 export interface LogStream {
@@ -168,48 +153,7 @@ export interface StartSimulationMessage {
 	id: string;
 }
 
-export type TrainingMethod = 
-	| { type: "PPO", content: PPOTrainingMethod };
-
-export enum TrainingAccelerationMode {
-	MLGPUSimulationCPU = "MLGPUSimulationCPU",
-	MLGPUSimulationGPU = "MLGPUSimulationGPU",
-	MLCPUSimulationCPU = "MLCPUSimulationCPU",
-	AllOnServer = "AllOnServer",
-}
-
-export enum ComputeInstance {
-	AWSG4dn = "AWSG4dn",
-}
-
-export type CheckpointFrequency = 
-	| { type: "PostEpoch", content: number }
-	| { type: "PostUpdate", content: number }
-	| { type: "LastOnly", content?: undefined };
-
-export interface TrainingJobController {
-	training_method: TrainingMethod;
-	acceleration_mode: TrainingAccelerationMode;
-	compute_instance: ComputeInstance;
-	checkpoint_frequency: CheckpointFrequency;
-}
-
-export interface TrainingGraph {
-	training_job_controller: TrainingJobController;
-}
-
-export interface StartTrainingMessage {
-	id: string;
-	training_graph: TrainingGraph;
-	checkpoints: Checkpoint[];
-	simulation_models: Record<string, string>;
-}
-
 export interface StopSimulationMessage {
-	id: string;
-}
-
-export interface StopTrainingMessage {
 	id: string;
 }
 
@@ -247,6 +191,36 @@ export interface TrainingExperimentRun {
 	model_refs: string[];
 }
 
+export type TrainingMethod = 
+	| { type: "PPO", content: PPOTrainingMethod };
+
+export enum TrainingAccelerationMode {
+	MLGPUSimulationCPU = "MLGPUSimulationCPU",
+	MLGPUSimulationGPU = "MLGPUSimulationGPU",
+	MLCPUSimulationCPU = "MLCPUSimulationCPU",
+	AllOnServer = "AllOnServer",
+}
+
+export enum ComputeInstance {
+	AWSG4dn = "AWSG4dn",
+}
+
+export type CheckpointFrequency = 
+	| { type: "PostEpoch", content: number }
+	| { type: "PostUpdate", content: number }
+	| { type: "LastOnly", content?: undefined };
+
+export interface TrainingJobController {
+	training_method: TrainingMethod;
+	acceleration_mode: TrainingAccelerationMode;
+	compute_instance: ComputeInstance;
+	checkpoint_frequency: CheckpointFrequency;
+}
+
+export interface TrainingGraph {
+	training_job_controller: TrainingJobController;
+}
+
 export interface TrainingGraphRecord {
 	created_at: Timestamp;
 	id: string;
@@ -262,19 +236,7 @@ export interface TrainingUpdate {
 	training_run_state: TrainingRunState;
 	logs: string[];
 	metrics: TrainingMetrics[];
-	checkpoints: Checkpoint[];
-}
-
-export interface TrainingUpdate {
-	training_run_state: TrainingRunState;
-	logs: string[];
-	metrics: TrainingMetrics[];
 	checkpoints: CheckpointReference[];
-}
-
-export interface TrainingUpdatesMessage {
-	id: string;
-	updates: TrainingUpdate[];
 }
 
 export interface TrainingUpdatesMessage {
@@ -291,13 +253,4 @@ export type ClientMessage =
 	| { type: "TrainingUpdatesMessage", content: TrainingUpdatesMessage }
 	| { type: "StopTrainingMessage", content: StopTrainingMessage }
 	| { type: "StopSimulationMessage", content: StopSimulationMessage };
-
-export type TrainingRemoteWorkerClientMessage = 
-	| { type: "TrainingUpdatesMessage", content: TrainingUpdatesMessage }
-	| { type: "StopTrainingMessage", content: StopTrainingMessage };
-
-export type TrainingRemoteWorkerServerMessage = 
-	| { type: "LoadModelMessage", content: LoadModelMessage }
-	| { type: "StartTrainingMessage", content: StartTrainingMessage }
-	| { type: "StopTrainingMessage", content: StopTrainingMessage };
 
