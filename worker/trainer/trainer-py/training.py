@@ -34,6 +34,7 @@ from commondef.training import (
     TrainingRunState,
     TrainingRunStatePPOTrainingRunState,
 )
+from pretrained.pi0 import Pi0Model
 from ppo_trainer import PPOTrainer, PPOTrainedModel
 from simulator import Simulator
 
@@ -133,6 +134,13 @@ class TrainingWorkflow:
         epoch_index: int,
         update_index: int,
     ) -> None:
+        if isinstance(self.model, Pi0Model):
+            logger.info(
+                "Checkpoint skipped for Pi-0 workload: training_id=%s label=%s",
+                self.id,
+                label,
+            )
+            return
         base = os.path.join(self._ckpt_dir, label)
         self._checkpointer.save(os.path.join(base, "policy"),     self.model.get_policy_store())
         self._checkpointer.save(os.path.join(base, "value"),      self.model.get_value_store())

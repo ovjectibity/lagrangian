@@ -33,11 +33,14 @@ from commondef.remoteworkermessages import (
 from commondef.training import (
     ControlModelCheckpoint,
     ControlModelFFN,
+    ControlModelPretrainedVLA,
+    ControlOutputModeFlowMatchingAction,
     PPOTrainingMethod,
     TrainingAccelerationMode,
     ValueModelCheckpoint,
     ValueModelFFN,
 )
+from pretrained.pi0 import Pi0Model
 from samples.arm import ArmModel
 from simulator import MjxSimulator, MujocoSimulator, Simulator
 from training import CallbackTrainingTaskSink, TrainingWorkflow
@@ -134,6 +137,15 @@ def _build_model_for_training(
     checkpoints: list[Checkpoint],
 ) -> ArmModel:
     checkpoints_by_id = {c.id: c for c in checkpoints if c.id is not None}
+
+    if isinstance(params.control_model, ControlModelPretrainedVLA):
+        if not isinstance(params.control_output_mode, ControlOutputModeFlowMatchingAction):
+            raise ValueError(
+                "PretrainedVLA control model requires control_output_mode=FlowMatchingAction(FlowNoise)"
+            )
+        vla_spec = params.control_model.content
+        noise_ffn_spec = params.control_output_mode.content.content.noise_model
+        return Pi0Model(vla_spec.content, noise_ffn_spec)
 
     if isinstance(params.control_model, ControlModelFFN):
         control_ffn = params.control_model.content

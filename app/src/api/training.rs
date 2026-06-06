@@ -629,6 +629,7 @@ async fn build_ctrl_val_json(
                                     .ok()
                             })
                     }),
+            ControlModel::PretrainedVLA(_) => None,
         }
     } else {
         None

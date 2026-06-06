@@ -52,6 +52,18 @@ export interface CheckpointReference {
 	value_model_params?: FFNModel;
 }
 
+export interface ControlModelInput {
+	all_cameras: boolean;
+	qpos_state: boolean;
+	qvel_state: boolean;
+	xpos_state: boolean;
+	xquat_state: boolean;
+}
+
+export interface FlowNoiseConfig {
+	noise_model: FFNModel;
+}
+
 export interface LogStream {
 	created_at: Timestamp;
 	id: string;
@@ -106,11 +118,16 @@ export interface RewardSystem {
 
 export type ControlModel = 
 	| { type: "FFN", content: FFNModel }
-	| { type: "Checkpoint", content: string };
+	| { type: "Checkpoint", content: string }
+	| { type: "PretrainedVLA", content: PretrainedVLA };
 
 export type ValueModel = 
 	| { type: "FFN", content: FFNModel }
 	| { type: "Checkpoint", content: string };
+
+export type ControlOutputMode = 
+	| { type: "ActionMean", content?: undefined }
+	| { type: "FlowMatchingAction", content: FlowMatchingAction };
 
 export interface PPOTrainingMethod {
 	num_trajs: number;
@@ -124,6 +141,7 @@ export interface PPOTrainingMethod {
 	control_model: ControlModel;
 	value_model: ValueModel;
 	simulation_model: string;
+	control_output_mode: ControlOutputMode;
 }
 
 export interface PPOTrainingRunState {
@@ -244,6 +262,17 @@ export interface TrainingUpdatesMessage {
 	updates: TrainingUpdate[];
 }
 
+export enum ControlPolicyOutputMode {
+	TargetPositions = "TargetPositions",
+	TargetVelocities = "TargetVelocities",
+	TargetTorques = "TargetTorques",
+}
+
+export interface VLAModel {
+	input: ControlModelInput;
+	output: ControlPolicyOutputMode;
+}
+
 export interface WorldBody {
 	bodies: Body[];
 }
@@ -253,4 +282,10 @@ export type ClientMessage =
 	| { type: "TrainingUpdatesMessage", content: TrainingUpdatesMessage }
 	| { type: "StopTrainingMessage", content: StopTrainingMessage }
 	| { type: "StopSimulationMessage", content: StopSimulationMessage };
+
+export type FlowMatchingAction = 
+	| { type: "FlowNoise", content: FlowNoiseConfig };
+
+export type PretrainedVLA = 
+	| { type: "Pi0", content: VLAModel };
 

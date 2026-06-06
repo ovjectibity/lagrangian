@@ -6,7 +6,13 @@ from __future__ import annotations
 from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Dict, List, Literal, Optional, Union
-from commondef.training import TrainingGraph, TrainingRunState, TrainingMetrics, FFNModel
+
+
+class FFNModel(BaseModel):
+    num_hidden_layers: int
+    hidden_layer_dim: int
+    output_dim: int
+    input_dim: int
 
 class Checkpoint(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -17,6 +23,16 @@ class Checkpoint(BaseModel):
     control_model_ffn: Optional[FFNModel] = Field(default=None)
     value_model_ffn: Optional[FFNModel] = Field(default=None)
 
+class ControlModelInput(BaseModel):
+    all_cameras: bool
+    qpos_state: bool
+    qvel_state: bool
+    xpos_state: bool
+    xquat_state: bool
+
+class FlowNoiseConfig(BaseModel):
+    noise_model: FFNModel
+
 class LoadModelMessage(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -24,6 +40,121 @@ class LoadModelMessage(BaseModel):
     mjcf: str
     model_zip_base_64: Optional[str] = Field(alias="model_zip_base64", default=None)
     mjcf_entrypoint: Optional[str] = Field(default=None)
+
+class MetricsData(BaseModel):
+    x_axis: List[float]
+    y_axis: List[float]
+
+class RewardLanguage(str, Enum):
+    RUST = "Rust"
+    PYTHON = "Python"
+class RewardSystem(BaseModel):
+    language: RewardLanguage
+    reward_function_code: str
+
+class ControlModelTypes(str, Enum):
+    FFN = "FFN"
+    CHECKPOINT = "Checkpoint"
+    PRETRAINED_VLA = "PretrainedVLA"
+
+class ControlModelFFN(BaseModel):
+    type: Literal[ControlModelTypes.FFN] = ControlModelTypes.FFN
+    content: FFNModel
+
+class ControlModelCheckpoint(BaseModel):
+    type: Literal[ControlModelTypes.CHECKPOINT] = ControlModelTypes.CHECKPOINT
+    content: str
+
+class ControlModelPretrainedVLA(BaseModel):
+    type: Literal[ControlModelTypes.PRETRAINED_VLA] = ControlModelTypes.PRETRAINED_VLA
+    content: PretrainedVLA
+
+ControlModel = Union[ControlModelFFN, ControlModelCheckpoint, ControlModelPretrainedVLA]
+class ValueModelTypes(str, Enum):
+    FFN = "FFN"
+    CHECKPOINT = "Checkpoint"
+
+class ValueModelFFN(BaseModel):
+    type: Literal[ValueModelTypes.FFN] = ValueModelTypes.FFN
+    content: FFNModel
+
+class ValueModelCheckpoint(BaseModel):
+    type: Literal[ValueModelTypes.CHECKPOINT] = ValueModelTypes.CHECKPOINT
+    content: str
+
+ValueModel = Union[ValueModelFFN, ValueModelCheckpoint]
+class ControlOutputModeTypes(str, Enum):
+    ACTION_MEAN = "ActionMean"
+    FLOW_MATCHING_ACTION = "FlowMatchingAction"
+
+class ControlOutputModeActionMean(BaseModel):
+    type: Literal[ControlOutputModeTypes.ACTION_MEAN] = ControlOutputModeTypes.ACTION_MEAN
+
+class ControlOutputModeFlowMatchingAction(BaseModel):
+    type: Literal[ControlOutputModeTypes.FLOW_MATCHING_ACTION] = ControlOutputModeTypes.FLOW_MATCHING_ACTION
+    content: FlowMatchingAction
+
+ControlOutputMode = Union[ControlOutputModeActionMean, ControlOutputModeFlowMatchingAction]
+class PPOTrainingMethod(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    num_trajs: int
+    num_steps_per_traj: int
+    num_epochs: int
+    num_updates: int
+    epsilon: float
+    gamma: float
+    lambda_: float = Field(alias="lambda")
+    reward_function: RewardSystem
+    control_model: ControlModel
+    value_model: ValueModel
+    simulation_model: str
+    control_output_mode: ControlOutputMode
+
+class PPOTrainingRunState(BaseModel):
+    epoch_index: int
+    update_index: int
+
+class TrainingMethodTypes(str, Enum):
+    PPO = "PPO"
+
+class TrainingMethodPPO(BaseModel):
+    type: Literal[TrainingMethodTypes.PPO] = TrainingMethodTypes.PPO
+    content: PPOTrainingMethod
+
+TrainingMethod = TrainingMethodPPO
+class TrainingAccelerationMode(str, Enum):
+    MLGPUSIMULATIONCPU = "MLGPUSimulationCPU"
+    MLGPUSIMULATIONGPU = "MLGPUSimulationGPU"
+    MLCPUSIMULATIONCPU = "MLCPUSimulationCPU"
+    ALLONSERVER = "AllOnServer"
+class ComputeInstance(str, Enum):
+    AWSG4DN = "AWSG4dn"
+class CheckpointFrequencyTypes(str, Enum):
+    POST_EPOCH = "PostEpoch"
+    POST_UPDATE = "PostUpdate"
+    LAST_ONLY = "LastOnly"
+
+class CheckpointFrequencyPostEpoch(BaseModel):
+    type: Literal[CheckpointFrequencyTypes.POST_EPOCH] = CheckpointFrequencyTypes.POST_EPOCH
+    content: int
+
+class CheckpointFrequencyPostUpdate(BaseModel):
+    type: Literal[CheckpointFrequencyTypes.POST_UPDATE] = CheckpointFrequencyTypes.POST_UPDATE
+    content: int
+
+class CheckpointFrequencyLastOnly(BaseModel):
+    type: Literal[CheckpointFrequencyTypes.LAST_ONLY] = CheckpointFrequencyTypes.LAST_ONLY
+
+CheckpointFrequency = Union[CheckpointFrequencyPostEpoch, CheckpointFrequencyPostUpdate, CheckpointFrequencyLastOnly]
+class TrainingJobController(BaseModel):
+    training_method: TrainingMethod
+    acceleration_mode: TrainingAccelerationMode
+    compute_instance: ComputeInstance
+    checkpoint_frequency: CheckpointFrequency
+
+class TrainingGraph(BaseModel):
+    training_job_controller: TrainingJobController
 
 class StartTrainingMessage(BaseModel):
     id: str
@@ -34,6 +165,47 @@ class StartTrainingMessage(BaseModel):
 class StopTrainingMessage(BaseModel):
     id: str
 
+class TrainingRunStateTypes(str, Enum):
+    PPO_TRAINING_RUN_STATE = "PPOTrainingRunState"
+
+class TrainingRunStatePPOTrainingRunState(BaseModel):
+    type: Literal[TrainingRunStateTypes.PPO_TRAINING_RUN_STATE] = TrainingRunStateTypes.PPO_TRAINING_RUN_STATE
+    content: PPOTrainingRunState
+
+TrainingRunState = TrainingRunStatePPOTrainingRunState
+class TrainingMetricsTypes(str, Enum):
+    MEAN_REWARD = "MeanReward"
+    MEAN_POLICY_LOSS = "MeanPolicyLoss"
+    VALUE_LOSS = "ValueLoss"
+    MEAN_ENTROPY = "MeanEntropy"
+    POLICY_GRADIENT_NORM = "PolicyGradientNorm"
+    VALUE_GRADIENT_NORM = "ValueGradientNorm"
+
+class TrainingMetricsMeanReward(BaseModel):
+    type: Literal[TrainingMetricsTypes.MEAN_REWARD] = TrainingMetricsTypes.MEAN_REWARD
+    content: MetricsData
+
+class TrainingMetricsMeanPolicyLoss(BaseModel):
+    type: Literal[TrainingMetricsTypes.MEAN_POLICY_LOSS] = TrainingMetricsTypes.MEAN_POLICY_LOSS
+    content: MetricsData
+
+class TrainingMetricsValueLoss(BaseModel):
+    type: Literal[TrainingMetricsTypes.VALUE_LOSS] = TrainingMetricsTypes.VALUE_LOSS
+    content: MetricsData
+
+class TrainingMetricsMeanEntropy(BaseModel):
+    type: Literal[TrainingMetricsTypes.MEAN_ENTROPY] = TrainingMetricsTypes.MEAN_ENTROPY
+    content: MetricsData
+
+class TrainingMetricsPolicyGradientNorm(BaseModel):
+    type: Literal[TrainingMetricsTypes.POLICY_GRADIENT_NORM] = TrainingMetricsTypes.POLICY_GRADIENT_NORM
+    content: MetricsData
+
+class TrainingMetricsValueGradientNorm(BaseModel):
+    type: Literal[TrainingMetricsTypes.VALUE_GRADIENT_NORM] = TrainingMetricsTypes.VALUE_GRADIENT_NORM
+    content: MetricsData
+
+TrainingMetrics = Union[TrainingMetricsMeanReward, TrainingMetricsMeanPolicyLoss, TrainingMetricsValueLoss, TrainingMetricsMeanEntropy, TrainingMetricsPolicyGradientNorm, TrainingMetricsValueGradientNorm]
 class TrainingUpdate(BaseModel):
     training_run_state: TrainingRunState
     logs: List[str]
@@ -44,6 +216,30 @@ class TrainingUpdatesMessage(BaseModel):
     id: str
     updates: List[TrainingUpdate]
 
+class ControlPolicyOutputMode(str, Enum):
+    TARGETPOSITIONS = "TargetPositions"
+    TARGETVELOCITIES = "TargetVelocities"
+    TARGETTORQUES = "TargetTorques"
+class VLAModel(BaseModel):
+    input: ControlModelInput
+    output: ControlPolicyOutputMode
+
+class FlowMatchingActionTypes(str, Enum):
+    FLOW_NOISE = "FlowNoise"
+
+class FlowMatchingActionFlowNoise(BaseModel):
+    type: Literal[FlowMatchingActionTypes.FLOW_NOISE] = FlowMatchingActionTypes.FLOW_NOISE
+    content: FlowNoiseConfig
+
+FlowMatchingAction = FlowMatchingActionFlowNoise
+class PretrainedVLATypes(str, Enum):
+    PI_0 = "Pi0"
+
+class PretrainedVLAPi0(BaseModel):
+    type: Literal[PretrainedVLATypes.PI_0] = PretrainedVLATypes.PI_0
+    content: VLAModel
+
+PretrainedVLA = PretrainedVLAPi0
 class TrainingRemoteWorkerClientMessageTypes(str, Enum):
     TRAINING_UPDATES_MESSAGE = "TrainingUpdatesMessage"
     STOP_TRAINING_MESSAGE = "StopTrainingMessage"

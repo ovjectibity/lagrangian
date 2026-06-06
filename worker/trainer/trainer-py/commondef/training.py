@@ -8,11 +8,21 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Literal, Union
 
 
+class ControlModelInput(BaseModel):
+    all_cameras: bool
+    qpos_state: bool
+    qvel_state: bool
+    xpos_state: bool
+    xquat_state: bool
+
 class FFNModel(BaseModel):
     num_hidden_layers: int
     hidden_layer_dim: int
     output_dim: int
     input_dim: int
+
+class FlowNoiseConfig(BaseModel):
+    noise_model: FFNModel
 
 class MetricsData(BaseModel):
     x_axis: List[float]
@@ -21,7 +31,6 @@ class MetricsData(BaseModel):
 class RewardLanguage(str, Enum):
     RUST = "Rust"
     PYTHON = "Python"
-
 class RewardSystem(BaseModel):
     language: RewardLanguage
     reward_function_code: str
@@ -29,6 +38,7 @@ class RewardSystem(BaseModel):
 class ControlModelTypes(str, Enum):
     FFN = "FFN"
     CHECKPOINT = "Checkpoint"
+    PRETRAINED_VLA = "PretrainedVLA"
 
 class ControlModelFFN(BaseModel):
     type: Literal[ControlModelTypes.FFN] = ControlModelTypes.FFN
@@ -38,7 +48,11 @@ class ControlModelCheckpoint(BaseModel):
     type: Literal[ControlModelTypes.CHECKPOINT] = ControlModelTypes.CHECKPOINT
     content: str
 
-ControlModel = Union[ControlModelFFN, ControlModelCheckpoint]
+class ControlModelPretrainedVLA(BaseModel):
+    type: Literal[ControlModelTypes.PRETRAINED_VLA] = ControlModelTypes.PRETRAINED_VLA
+    content: PretrainedVLA
+
+ControlModel = Union[ControlModelFFN, ControlModelCheckpoint, ControlModelPretrainedVLA]
 class ValueModelTypes(str, Enum):
     FFN = "FFN"
     CHECKPOINT = "Checkpoint"
@@ -52,6 +66,18 @@ class ValueModelCheckpoint(BaseModel):
     content: str
 
 ValueModel = Union[ValueModelFFN, ValueModelCheckpoint]
+class ControlOutputModeTypes(str, Enum):
+    ACTION_MEAN = "ActionMean"
+    FLOW_MATCHING_ACTION = "FlowMatchingAction"
+
+class ControlOutputModeActionMean(BaseModel):
+    type: Literal[ControlOutputModeTypes.ACTION_MEAN] = ControlOutputModeTypes.ACTION_MEAN
+
+class ControlOutputModeFlowMatchingAction(BaseModel):
+    type: Literal[ControlOutputModeTypes.FLOW_MATCHING_ACTION] = ControlOutputModeTypes.FLOW_MATCHING_ACTION
+    content: FlowMatchingAction
+
+ControlOutputMode = Union[ControlOutputModeActionMean, ControlOutputModeFlowMatchingAction]
 class PPOTrainingMethod(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -66,6 +92,7 @@ class PPOTrainingMethod(BaseModel):
     control_model: ControlModel
     value_model: ValueModel
     simulation_model: str
+    control_output_mode: ControlOutputMode
 
 class PPOTrainingRunState(BaseModel):
     epoch_index: int
@@ -112,6 +139,30 @@ class TrainingJobController(BaseModel):
 class TrainingGraph(BaseModel):
     training_job_controller: TrainingJobController
 
+class ControlPolicyOutputMode(str, Enum):
+    TARGETPOSITIONS = "TargetPositions"
+    TARGETVELOCITIES = "TargetVelocities"
+    TARGETTORQUES = "TargetTorques"
+class VLAModel(BaseModel):
+    input: ControlModelInput
+    output: ControlPolicyOutputMode
+
+class FlowMatchingActionTypes(str, Enum):
+    FLOW_NOISE = "FlowNoise"
+
+class FlowMatchingActionFlowNoise(BaseModel):
+    type: Literal[FlowMatchingActionTypes.FLOW_NOISE] = FlowMatchingActionTypes.FLOW_NOISE
+    content: FlowNoiseConfig
+
+FlowMatchingAction = FlowMatchingActionFlowNoise
+class PretrainedVLATypes(str, Enum):
+    PI_0 = "Pi0"
+
+class PretrainedVLAPi0(BaseModel):
+    type: Literal[PretrainedVLATypes.PI_0] = PretrainedVLATypes.PI_0
+    content: VLAModel
+
+PretrainedVLA = PretrainedVLAPi0
 class TrainingMetricsTypes(str, Enum):
     MEAN_REWARD = "MeanReward"
     MEAN_POLICY_LOSS = "MeanPolicyLoss"

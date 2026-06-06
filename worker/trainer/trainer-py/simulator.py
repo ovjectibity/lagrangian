@@ -90,6 +90,21 @@ class Simulator(ABC):
     ) -> Array:
         pass
 
+    @abstractmethod
+    def render_all_cameras(self) -> Array:
+        """Render all cameras attached to the model.
+
+        Resolution is fixed at 244×244 RGB (uint8 → float32 in [0, 1]).
+        Returns a flat Array of shape [ncam * 244 * 244 * 3] suitable for
+        concatenation with state vectors.
+        """
+        pass
+
+
+# Camera render resolution (hardcoded; to be standardised in training graph later).
+_CAM_HEIGHT = 244
+_CAM_WIDTH = 244
+
 
 class MjxSimulator(Simulator):
     def __init__(
@@ -358,6 +373,19 @@ class MjxSimulator(Simulator):
         xpos = np.asarray(self._data.xpos[: self._model.nbody], dtype=np.float64).reshape(-1)
         xquat = np.asarray(self._data.xquat[: self._model.nbody], dtype=np.float64).reshape(-1)
         return jnp.asarray(np.concatenate([xpos, xquat], axis=0))
+
+    def render_all_cameras(self) -> Array:
+        self._sync_cpu_from_mjx()
+        ncam = int(self._model.ncam)
+        frames: list[np.ndarray] = []
+        with mujoco.Renderer(self._model, height=_CAM_HEIGHT, width=_CAM_WIDTH) as renderer:
+            for cam_id in range(ncam):
+                renderer.update_scene(self._data, camera=cam_id)
+                frame = renderer.render()  # (H, W, 3) uint8
+                frames.append(frame.astype(np.float32) / 255.0)
+        if not frames:
+            return jnp.zeros((_CAM_HEIGHT * _CAM_WIDTH * 3,), dtype=jnp.float32)
+        return jnp.asarray(np.concatenate([f.reshape(-1) for f in frames], axis=0))
 
     def get_world_body(self) -> Any | None:
         self._sync_cpu_from_mjx()
@@ -672,6 +700,18 @@ class MujocoSimulator(Simulator):
         xpos = np.asarray(self._data.xpos[:self._model.nbody], dtype=np.float64).reshape(-1)
         xquat = np.asarray(self._data.xquat[:self._model.nbody], dtype=np.float64).reshape(-1)
         return jnp.asarray(np.concatenate([xpos, xquat], axis=0))
+
+    def render_all_cameras(self) -> Array:
+        ncam = int(self._model.ncam)
+        frames: list[np.ndarray] = []
+        with mujoco.Renderer(self._model, height=_CAM_HEIGHT, width=_CAM_WIDTH) as renderer:
+            for cam_id in range(ncam):
+                renderer.update_scene(self._data, camera=cam_id)
+                frame = renderer.render()  # (H, W, 3) uint8
+                frames.append(frame.astype(np.float32) / 255.0)
+        if not frames:
+            return jnp.zeros((_CAM_HEIGHT * _CAM_WIDTH * 3,), dtype=jnp.float32)
+        return jnp.asarray(np.concatenate([f.reshape(-1) for f in frames], axis=0))
 
     def get_world_body(self) -> Any | None:
         geoms_by_body: dict[int, list[dict[str, Any]]] = defaultdict(list)

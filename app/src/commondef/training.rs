@@ -2,11 +2,44 @@ use serde;
 use typeshare::typeshare;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub enum ControlPolicyOutputMode {
+    TargetPositions,
+    TargetVelocities,
+    TargetTorques,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct ControlModelInput {
+    pub all_cameras: bool,
+    pub qpos_state: bool,
+    pub qvel_state: bool,
+    pub xpos_state: bool,
+    pub xquat_state: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct VLAModel {
+    pub input: ControlModelInput,
+    pub output: ControlPolicyOutputMode,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum PretrainedVLA {
+    Pi0(VLAModel),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ControlModel {
     FFN(FFNModel),
     Checkpoint(String),
+    PretrainedVLA(PretrainedVLA),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -34,6 +67,27 @@ pub enum TrainingMethod {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum FlowMatchingAction {
+    FlowNoise(FlowNoiseConfig),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct FlowNoiseConfig {
+    pub noise_model: FFNModel,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum ControlOutputMode {
+    ActionMean,
+    FlowMatchingAction(FlowMatchingAction),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct PPOTrainingMethod {
     pub num_trajs: i32,
@@ -47,6 +101,7 @@ pub struct PPOTrainingMethod {
     pub control_model: ControlModel,
     pub value_model: ValueModel,
     pub simulation_model: String,
+    pub control_output_mode: ControlOutputMode,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

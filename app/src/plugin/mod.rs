@@ -1,6 +1,7 @@
 use tch::{Tensor, nn};
 
 use crate::commondef::model::WorldBody;
+pub use crate::commondef::training::ControlPolicyOutputMode;
 
 pub mod mj_simulator;
 pub mod ppo_trainer;
@@ -40,26 +41,3 @@ pub trait ControlPolicyModel {
     ) -> f64;
 }
 
-pub struct ControlModelInput {
-    //Get the world state & model state for reward calculation + model input
-    //Get sensor data
-    //Generalised positions - nq
-    //User controls
-    //TODO: interface for the user to provide the reward calculations
-    // generalised_model_positions: Vec<f64>,
-}
-
-#[derive(Debug, Clone)]
-pub enum ControlPolicyOutputMode {
-    TargetPositions,
-    TargetVelocities,
-    TargetTorques,
-}
-
-pub struct DirectActuation {
-    actuation: Vec<f64>,
-}
-
-pub struct TargetPositions {
-    positions: Vec<f64>,
-}
