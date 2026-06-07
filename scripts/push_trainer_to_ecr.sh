@@ -143,6 +143,7 @@ fi
 echo "Building image from worker/trainer/Dockerfile as ${LOCAL_IMAGE} ..."
 docker build \
   --platform linux/amd64 \
+  --load \
   -f "${REPO_ROOT}/worker/trainer/Dockerfile" \
   "${REPO_ROOT}/worker/trainer" \
   -t "${LOCAL_IMAGE}"

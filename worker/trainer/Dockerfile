@@ -17,8 +17,6 @@ RUN apt-get update \
         python3-pip \
         libgl1 \
         libglib2.0-0 \
-        git \
-        git-lfs \
     && ln -sf /usr/bin/python3.11 /usr/bin/python \
     && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
     && rm -rf /var/lib/apt/lists/*
@@ -29,8 +27,9 @@ COPY trainer-py/requirements.txt ./requirements.txt
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
-RUN git lfs install \
-    && git clone https://huggingface.co/lerobot/pi0_libero_base /opt/lagrangian/pi0
+RUN python3 -c "\
+from huggingface_hub import snapshot_download; \
+snapshot_download('lerobot/pi0_libero_base', local_dir='/opt/lagrangian/pi0')"
 
 COPY trainer-py/ ./
 

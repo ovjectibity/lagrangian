@@ -109,6 +109,7 @@ function buildTrainingGraph(modelId) {
             },
           },
           simulation_model: modelId,
+          control_output_mode: { type: "ActionMean" },
         },
       },
       acceleration_mode: "AllOnServer",
