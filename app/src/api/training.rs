@@ -827,9 +827,11 @@ async fn spawn_remote_training_task(
                                         uuid::Uuid
                                         ::new_v4()
                                         .to_string();
+                                    let base = std::env::var("CHECKPOINTS_DIR")
+                                        .unwrap_or_else(|_| "checkpoints".to_string());
                                     let dir = format!(
-                                        "checkpoints\
-                                         /{}/{}",
+                                        "{}/{}/{}",
+                                        base,
                                         exp_id,
                                         run_id,
                                     );

@@ -4,3 +4,4 @@ pydantic
 mujoco-mjx==3.6.0
 orbax-checkpoint
 flax
+huggingface_hub
