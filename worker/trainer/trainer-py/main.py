@@ -287,7 +287,7 @@ def _load_user_reward_fn(code: str) -> Any:
         "math": math,
         "functools": functools,
         "itertools": itertools,
-        "__builtins__": {},
+        "__builtins__": {"__import__": __import__},
     }
     exec(compile(code, "<reward_fn>", "exec"), ns)
     fn = ns.get("reward")
