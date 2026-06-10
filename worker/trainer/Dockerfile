@@ -27,9 +27,12 @@ COPY trainer-py/requirements.txt ./requirements.txt
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
-RUN python3 -c "\
+RUN --mount=type=cache,target=/hf-cache \
+    python3 -c "\
+import shutil; \
 from huggingface_hub import snapshot_download; \
-snapshot_download('lerobot/pi0_libero_base', local_dir='/opt/lagrangian/pi0')"
+src = snapshot_download('lerobot/pi0_libero_base', cache_dir='/hf-cache'); \
+shutil.copytree(src, '/opt/lagrangian/pi0', dirs_exist_ok=True)"
 
 COPY trainer-py/ ./
 

@@ -37,13 +37,15 @@ for target in "${TS_TARGETS[@]}"; do
   echo "Generated: $target"
 done
 
-# --- Python: training.py (training types only) ---
-py_training_dir=$(mktemp -d)
-trap 'rm -rf "$py_training_dir"' EXIT
-cp "app/src/commondef/training.rs" "$py_training_dir/"
-typeshare "$py_training_dir" --lang=python \
-  --output-file="worker/trainer/trainer-py/commondef/training.py"
-echo "Generated: worker/trainer/trainer-py/commondef/training.py"
+# --- Python: training.py (re-export shim) ---
+# remoteworkermessages.py already contains all training types (inlined by typeshare
+# because it needs both files to resolve references). Making training.py a shim
+# ensures all code — regardless of which module it imports from — gets the same
+# class objects, so isinstance and Pydantic validation always agree.
+echo "# Auto-generated re-export shim — do not edit. Run scripts/gen_types.sh to regenerate.
+from commondef.remoteworkermessages import *" \
+  > "worker/trainer/trainer-py/commondef/training.py"
+echo "Generated: worker/trainer/trainer-py/commondef/training.py (re-export shim)"
 
 # --- Python: remoteworkermessages.py (remote worker protocol + training types) ---
 py_remote_dir=$(mktemp -d)

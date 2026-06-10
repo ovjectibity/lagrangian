@@ -20,7 +20,7 @@ class ArmModel(PPOTrainedModel):
         value_store: Params,
         nbody: int = 0,
     ) -> None:
-        self.control_output_mode = ControlPolicyOutputMode.TargetPositions
+        self.control_output_mode = ControlPolicyOutputMode.TARGETPOSITIONS
         self.policy = policy
         self.value = value
         self.policy_store = policy_store

@@ -256,7 +256,7 @@ class Pi0Model(PPOTrainedModel):
         return self._value_store
 
     def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
-        return ControlPolicyOutputMode.TARGET_POSITIONS
+        return ControlPolicyOutputMode.TARGETPOSITIONS
 
     def get_reward(
         self,

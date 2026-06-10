@@ -1,7 +1,9 @@
 jax[cuda13]
 websockets
 pydantic
-mujoco-mjx==3.6.0
+mujoco==3.9.0
+mujoco-mjx==3.9.0
 orbax-checkpoint
 flax
 huggingface_hub
+# lerobot

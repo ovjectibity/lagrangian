@@ -279,11 +279,11 @@ class PPOTrainer:
         eps = random.normal(eps_key, shape=(action_output_size,))
         sampled_action = action_gaussian_mean + eps * action_gaussian_stdev
 
-        if output_mode == ControlPolicyOutputMode.TargetTorques:
+        if output_mode == ControlPolicyOutputMode.TARGETTORQUES:
             controls = sampled_action
-        elif output_mode == ControlPolicyOutputMode.TargetPositions:
+        elif output_mode == ControlPolicyOutputMode.TARGETPOSITIONS:
             controls = sampled_action
-        elif output_mode == ControlPolicyOutputMode.TargetVelocities:
+        elif output_mode == ControlPolicyOutputMode.TARGETVELOCITIES:
             controls = sampled_action
         else:
             raise ValueError(f"Unsupported control mode: {output_mode}")
@@ -323,11 +323,11 @@ class PPOTrainer:
             sampled_action = action_gaussian_mean + eps * action_gaussian_stdev
             logger.info("gen_trajectory: step %s/%s. Got the policy output")
             output_mode = self.model.get_control_policy_output_mode()
-            if output_mode == ControlPolicyOutputMode.TargetTorques:
+            if output_mode == ControlPolicyOutputMode.TARGETTORQUES:
                 controls = sampled_action
-            elif output_mode == ControlPolicyOutputMode.TargetPositions:
+            elif output_mode == ControlPolicyOutputMode.TARGETPOSITIONS:
                 controls = self.simulator.modify_target_position(sampled_action)
-            elif output_mode == ControlPolicyOutputMode.TargetVelocities:
+            elif output_mode == ControlPolicyOutputMode.TARGETVELOCITIES:
                 controls = self.simulator.get_target_controls_from_target_velocities(
                     sampled_action
                 )

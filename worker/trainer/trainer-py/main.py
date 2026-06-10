@@ -25,22 +25,19 @@ from websockets.exceptions import ConnectionClosed
 
 from commondef.remoteworkermessages import (
     Checkpoint,
-    LoadModelMessage,
-    StartTrainingMessage,
-    StopTrainingMessage,
-    TrainingRemoteWorkerServerMessageTypes,
-)
-from commondef.training import (
     ControlModelCheckpoint,
     ControlModelFFN,
     ControlModelPretrainedVLA,
     ControlOutputModeFlowMatchingAction,
+    LoadModelMessage,
     PPOTrainingMethod,
+    StartTrainingMessage,
+    StopTrainingMessage,
     TrainingAccelerationMode,
+    TrainingRemoteWorkerServerMessageTypes,
     ValueModelCheckpoint,
     ValueModelFFN,
 )
-from pretrained.pi0 import Pi0Model
 from samples.arm import ArmModel
 from simulator import MjxSimulator, MujocoSimulator, Simulator
 from training import CallbackTrainingTaskSink, TrainingWorkflow
@@ -143,6 +140,7 @@ def _build_model_for_training(
             raise ValueError(
                 "PretrainedVLA control model requires control_output_mode=FlowMatchingAction(FlowNoise)"
             )
+        from pretrained.pi0 import Pi0Model
         vla_spec = params.control_model.content
         noise_ffn_spec = params.control_output_mode.content.content.noise_model
         return Pi0Model(vla_spec.content, noise_ffn_spec)

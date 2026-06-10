@@ -175,10 +175,6 @@ pub async fn save_model(
                 found_xml = Some(out);
             }
         }
-        let _ =
-            rocket::tokio::fs::remove_file(&scratch)
-            .await;
-
         let xml = found_xml.ok_or_else(|| {
             let _ =
                 std::fs::remove_dir_all(&dest_dir);
@@ -189,6 +185,12 @@ pub async fn save_model(
             .and_then(|n| n.to_str())
             .unwrap_or("model.xml")
             .to_string();
+        let stem = xml
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("model");
+        let zip_dest = dest_dir.join(format!("{stem}.zip"));
+        let _ = rocket::tokio::fs::rename(&scratch, &zip_dest).await;
         (xml, name)
     } else {
         if !has_mujoco_root(&bytes) {

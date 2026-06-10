@@ -138,6 +138,7 @@ def build_training_graph(model_id: str) -> dict:
                         },
                     },
                     "simulation_model": model_id,
+                    "control_output_mode": {"type": "ActionMean"},
                 },
             },
             "acceleration_mode": "MLGPUSimulationGPU",
