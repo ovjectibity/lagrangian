@@ -60,12 +60,18 @@ def reward(prev_cstate, curr_cstate, action, contact_matrix):
 '''
 
 
+SIMULATION_XML = "vx300s.xml"
+
+
 def upload_model() -> str:
     model_dir = os.path.dirname(os.path.abspath(MODEL_PATH))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, _, files in os.walk(model_dir):
+            rel_root = os.path.relpath(root, model_dir)
             for fname in files:
+                if rel_root == "." and fname.endswith(".xml") and fname != SIMULATION_XML:
+                    continue
                 fpath = os.path.join(root, fname)
                 arcname = os.path.relpath(fpath, model_dir)
                 zf.write(fpath, arcname=arcname)

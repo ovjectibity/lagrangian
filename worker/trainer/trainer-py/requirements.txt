@@ -6,4 +6,5 @@ mujoco-mjx==3.9.0
 orbax-checkpoint
 flax
 huggingface_hub
-# lerobot
+safetensors
+sentencepiece

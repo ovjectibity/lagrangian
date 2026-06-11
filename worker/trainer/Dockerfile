@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu24.04
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -12,13 +12,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        python3.11 \
-        python3.11-dev \
-        python3-pip \
+        software-properties-common \
         libgl1 \
         libglib2.0-0 \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3.14 \
+        python3.14-dev \
+        python3.14-venv \
+    && python3.14 -m ensurepip --upgrade \
+    && ln -sf /usr/bin/python3.14 /usr/bin/python \
+    && ln -sf /usr/bin/python3.14 /usr/bin/python3 \
+    && ln -sf /usr/local/bin/pip3.14 /usr/local/bin/pip \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/lagrangian/worker/trainer-py
@@ -29,10 +35,11 @@ RUN pip install --upgrade pip \
 
 RUN --mount=type=cache,target=/hf-cache \
     python3 -c "\
-import shutil; \
-from huggingface_hub import snapshot_download; \
-src = snapshot_download('lerobot/pi0_libero_base', cache_dir='/hf-cache'); \
-shutil.copytree(src, '/opt/lagrangian/pi0', dirs_exist_ok=True)"
+import os; \
+from huggingface_hub import hf_hub_download; \
+os.makedirs('/opt/lagrangian/pi0', exist_ok=True); \
+[hf_hub_download('lerobot/pi0_libero_base', f, cache_dir='/hf-cache', local_dir='/opt/lagrangian/pi0') \
+ for f in ['model.safetensors', 'config.json']]"
 
 COPY trainer-py/ ./
 
