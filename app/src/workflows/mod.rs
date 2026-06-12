@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use crate::commondef::training::{ControlModel, PPOTrainingMethod, ValueModel};
+use crate::commondef::training::{ControlModel, ModelType, PPOTrainingMethod, ValueModel};
 use crate::plugin::mj_simulator::MjSimulator;
 use crate::plugin::ppo_trainer::PPOTrainedModel;
 use crate::plugin::{ControlPolicyModel, Simulator};
@@ -55,13 +55,31 @@ impl WorkflowRuntime {
     }
 
     pub fn configure_model_for_training(&self, params: &PPOTrainingMethod) -> Result<(), String> {
+        if matches!(&params.control_model, ControlModel::VLA(_)) {
+            let msg = "VLA control model is not supported for local training";
+            println!("{}", msg);
+            return Err(msg.into());
+        }
         let control_params = match &params.control_model {
-            ControlModel::FFN(m) => m,
-            _ => return Err("Checkpoint control model not supported".into()),
+            ControlModel::FFN(m) => {
+                if matches!(&m.model_type, ModelType::Checkpoint(_)) {
+                    let msg = "Checkpoint-based FFN control model is not supported for local training";
+                    println!("{}", msg);
+                    return Err(msg.into());
+                }
+                m
+            }
+            _ => unreachable!(),
         };
         let value_params = match &params.value_model {
-            ValueModel::FFN(m) => m,
-            _ => return Err("Checkpoint value model not supported".into()),
+            ValueModel::FFN(m) => {
+                if matches!(&m.model_type, ModelType::Checkpoint(_)) {
+                    let msg = "Checkpoint-based FFN value model is not supported for local training";
+                    println!("{}", msg);
+                    return Err(msg.into());
+                }
+                m
+            }
         };
         let (policy, policy_store) = ArmModel::init_policy(
             control_params.input_dim as i64,

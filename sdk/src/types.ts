@@ -34,7 +34,12 @@ export interface Body {
 	geoms?: Geom[];
 }
 
+export type ModelType = 
+	| { type: "Checkpoint", content: CheckpointType }
+	| { type: "New", content?: undefined };
+
 export interface FFNModel {
+	model_type: ModelType;
 	num_hidden_layers: number;
 	hidden_layer_dim: number;
 	output_dim: number;
@@ -118,12 +123,10 @@ export interface RewardSystem {
 
 export type ControlModel = 
 	| { type: "FFN", content: FFNModel }
-	| { type: "Checkpoint", content: string }
-	| { type: "PretrainedVLA", content: PretrainedVLA };
+	| { type: "VLA", content: VLAModel };
 
 export type ValueModel = 
-	| { type: "FFN", content: FFNModel }
-	| { type: "Checkpoint", content: string };
+	| { type: "FFN", content: FFNModel };
 
 export type ControlOutputMode = 
 	| { type: "ActionMean", content?: undefined }
@@ -163,7 +166,6 @@ export interface SimulUpdateMessage {
 export interface SimulationParams {
 	policy_id: string;
 	num_timesteps: number;
-	control_model: ControlModel;
 }
 
 export interface StartSimulationMessage {
@@ -269,6 +271,7 @@ export enum ControlPolicyOutputMode {
 }
 
 export interface VLAModel {
+	model_type: ModelType;
 	input: ControlModelInput;
 	output: ControlPolicyOutputMode;
 }
@@ -276,6 +279,10 @@ export interface VLAModel {
 export interface WorldBody {
 	bodies: Body[];
 }
+
+export type CheckpointType = 
+	| { type: "Pretrained", content: Pretrained }
+	| { type: "Checkpoint", content: string };
 
 export type ClientMessage = 
 	| { type: "SimulUpdateMessage", content: SimulUpdateMessage }
@@ -286,6 +293,7 @@ export type ClientMessage =
 export type FlowMatchingAction = 
 	| { type: "FlowNoise", content: FlowNoiseConfig };
 
-export type PretrainedVLA = 
-	| { type: "Pi0", content: VLAModel };
+export enum Pretrained {
+	Pi0 = "Pi0",
+}
 

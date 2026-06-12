@@ -15,9 +15,9 @@ import jax.numpy as jnp
 from jax import random
 
 from commondef.training import ControlPolicyOutputMode, FFNModel, VLAModel
+from ppo_model import FFNPPOModel
 from ppo_trainer import PPOTrainedModel, compute_flow_noise_log_prob
 from pretrained.pi0_jax import Pi0Jax
-from samples.arm import ArmModel
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ Params = Any
 
 
 def _init_ffn(ffn_spec: FFNModel, seed: int = 42) -> tuple[Callable, Params]:
-    policy_fn, params = ArmModel.init_policy(
+    policy_fn, params = FFNPPOModel.init_policy(
         input_dimension=ffn_spec.input_dim,
         output_dimension=ffn_spec.output_dim,
         hidden_layer_dimension=ffn_spec.hidden_layer_dim,

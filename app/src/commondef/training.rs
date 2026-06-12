@@ -21,16 +21,42 @@ pub struct ControlModelInput {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
-pub struct VLAModel {
-    pub input: ControlModelInput,
-    pub output: ControlPolicyOutputMode,
+pub enum Pretrained {
+    Pi0
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
-pub enum PretrainedVLA {
-    Pi0(VLAModel),
+pub enum CheckpointType {
+    Pretrained(Pretrained),
+    Checkpoint(String)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum ModelType {
+    Checkpoint(CheckpointType),
+    New
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct VLAModel {
+    pub model_type: ModelType,
+    pub input: ControlModelInput,
+    pub output: ControlPolicyOutputMode,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[typeshare]
+pub struct FFNModel {
+    pub model_type: ModelType,
+    pub num_hidden_layers: i32,
+    pub hidden_layer_dim: i32,
+    pub output_dim: i32,
+    pub input_dim: i32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -38,25 +64,14 @@ pub enum PretrainedVLA {
 #[typeshare]
 pub enum ControlModel {
     FFN(FFNModel),
-    Checkpoint(String),
-    PretrainedVLA(PretrainedVLA),
+    VLA(VLAModel)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ValueModel {
-    FFN(FFNModel),
-    Checkpoint(String),
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct FFNModel {
-    pub num_hidden_layers: i32,
-    pub hidden_layer_dim: i32,
-    pub output_dim: i32,
-    pub input_dim: i32,
+    FFN(FFNModel)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -22,7 +22,9 @@ use crate::commondef::experiments::TrainingRunStatus;
 use tch::Tensor;
 
 use crate::commondef::training::{
+    CheckpointType,
     ControlModel,
+    ModelType,
     RewardLanguage,
     TrainingGraph,
     TrainingJobController,
@@ -156,6 +158,66 @@ async fn resolve_ffn_json<M: serde::Serialize>(
     None
 }
 
+// ── Model-type validation ─────────────────────
+
+fn validate_model_types(
+    controller: &TrainingJobController,
+) -> Result<(), &'static str> {
+    let TrainingMethod::PPO(ref p) =
+        controller.training_method;
+
+    match &p.control_model {
+        ControlModel::FFN(m) => {
+            if matches!(
+                &m.model_type,
+                ModelType::Checkpoint(
+                    CheckpointType::Pretrained(_)
+                )
+            ) {
+                return Err(
+                    "Pretrained model type is not \
+                     allowed for FFN control models",
+                );
+            }
+        }
+        ControlModel::VLA(m) => {
+            match &m.model_type {
+                ModelType::New => {
+                    return Err(
+                        "VLA model must specify a \
+                         pretrained checkpoint, not New",
+                    );
+                }
+                ModelType::Checkpoint(
+                    CheckpointType::Checkpoint(_),
+                ) => {
+                    return Err(
+                        "Checkpoint (non-pretrained) is \
+                         not supported for VLA models; \
+                         only Pretrained(Pi0) is valid",
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let ValueModel::FFN(ref vm) = p.value_model;
+    if matches!(
+        &vm.model_type,
+        ModelType::Checkpoint(
+            CheckpointType::Pretrained(_)
+        )
+    ) {
+        return Err(
+            "Pretrained model type is not allowed \
+             for value models",
+        );
+    }
+
+    Ok(())
+}
+
 // ── Handlers ─────────────────────────────────
 
 #[post(
@@ -175,6 +237,12 @@ pub async fn start_training(
         body.into_inner().training_graph;
     let controller =
         training_graph.training_job_controller.clone();
+
+    if let Err(e) = validate_model_types(&controller) {
+        println!("start_training: invalid model types: {e}");
+        return Err(Status::UnprocessableEntity);
+    }
+
     let is_local = matches!(
         controller.acceleration_mode,
         crate::commondef::training
@@ -609,55 +677,49 @@ async fn build_ctrl_val_json(
     controller: &TrainingJobController,
 ) -> (Option<String>, Option<String>)
 {
-    let ctrl = if let TrainingMethod::PPO(ref p) =
-        controller.training_method
-    {
-        match &p.control_model {
-            ControlModel::FFN(m) =>
-                serde_json::to_string(m).ok(),
-            ControlModel::Checkpoint(id) =>
-                crate::postgres_orm()
-                    .get_checkpoint_ref(id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|r| {
-                        r.control_model_params
-                            .as_ref()
-                            .and_then(|m| {
-                                serde_json::to_string(m)
-                                    .ok()
-                            })
-                    }),
-            ControlModel::PretrainedVLA(_) => None,
-        }
-    } else {
-        None
+    let TrainingMethod::PPO(ref p) =
+        controller.training_method;
+
+    let ctrl = match &p.control_model {
+        ControlModel::FFN(m) => match &m.model_type {
+            ModelType::Checkpoint(
+                CheckpointType::Checkpoint(id),
+            ) => crate::postgres_orm()
+                .get_checkpoint_ref(id)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|r| {
+                    r.control_model_params
+                        .as_ref()
+                        .and_then(|m| {
+                            serde_json::to_string(m).ok()
+                        })
+                }),
+            _ => serde_json::to_string(m).ok(),
+        },
+        ControlModel::VLA(_) => None,
     };
 
-    let val = if let TrainingMethod::PPO(ref p) =
-        controller.training_method
-    {
-        match &p.value_model {
-            ValueModel::FFN(m) =>
-                serde_json::to_string(m).ok(),
-            ValueModel::Checkpoint(id) =>
-                crate::postgres_orm()
-                    .get_checkpoint_ref(id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|r| {
-                        r.value_model_params
-                            .as_ref()
-                            .and_then(|m| {
-                                serde_json::to_string(m)
-                                    .ok()
-                            })
-                    }),
+    let val = {
+        let ValueModel::FFN(ref m) = p.value_model;
+        match &m.model_type {
+            ModelType::Checkpoint(
+                CheckpointType::Checkpoint(id),
+            ) => crate::postgres_orm()
+                .get_checkpoint_ref(id)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|r| {
+                    r.value_model_params
+                        .as_ref()
+                        .and_then(|m| {
+                            serde_json::to_string(m).ok()
+                        })
+                }),
+            _ => serde_json::to_string(m).ok(),
         }
-    } else {
-        None
     };
 
     (ctrl, val)
@@ -680,7 +742,9 @@ async fn spawn_remote_training_task(
     use crate::commondef::remoteworkermessages
         ::Checkpoint as WC;
     use crate::commondef::training::{
+        CheckpointType as CT,
         ControlModel as CM,
+        ModelType as MT,
         TrainingMethod as TM,
         ValueModel as VM,
     };
@@ -722,11 +786,13 @@ async fn spawn_remote_training_task(
     let worker_checkpoints: Vec<WC> = {
         let mut map: HashMap<String, WC> =
             HashMap::new();
-        if let TM::PPO(ref ppo) =
-            controller.training_method
-        {
-            if let CM::Checkpoint(ref src_id) =
-                ppo.control_model
+        let TM::PPO(ref ppo) =
+            controller.training_method;
+
+        if let CM::FFN(ref m) = ppo.control_model {
+            if let MT::Checkpoint(
+                CT::Checkpoint(ref src_id),
+            ) = m.model_type
             {
                 if let Some(r) =
                     crate::postgres_orm()
@@ -759,46 +825,47 @@ async fn spawn_remote_training_task(
                     }
                 }
             }
-            if let VM::Checkpoint(ref src_id) =
-                ppo.value_model
-            {
-                if !map.contains_key(src_id) {
-                    if let Some(r) =
-                        crate::postgres_orm()
-                            .get_checkpoint_ref(src_id)
-                            .await
-                            .ok()
-                            .flatten()
+        }
+
+        let VM::FFN(ref vm) = ppo.value_model;
+        if let MT::Checkpoint(
+            CT::Checkpoint(ref src_id),
+        ) = vm.model_type
+        {
+            if !map.contains_key(src_id) {
+                if let Some(r) =
+                    crate::postgres_orm()
+                        .get_checkpoint_ref(src_id)
+                        .await
+                        .ok()
+                        .flatten()
+                {
+                    if let Ok(bytes) =
+                        std::fs::read(&r.path)
                     {
-                        if let Ok(bytes) =
-                            std::fs::read(&r.path)
-                        {
-                            map.insert(
-                                src_id.clone(),
-                                WC {
-                                    id: Some(
-                                        src_id.clone()
-                                    ),
-                                    model_zip_base64:
-                                        Some(BASE64
-                                            .encode(
-                                                &bytes,
-                                            )),
-                                    model_zip_path:
-                                        None,
-                                    control_model_ffn:
-                                        r.control_model_params
-                                        .clone(),
-                                    value_model_ffn:
-                                        r.value_model_params
-                                        .clone(),
-                                },
-                            );
-                        }
+                        map.insert(
+                            src_id.clone(),
+                            WC {
+                                id: Some(
+                                    src_id.clone(),
+                                ),
+                                model_zip_base64:
+                                    Some(BASE64
+                                        .encode(&bytes)),
+                                model_zip_path: None,
+                                control_model_ffn:
+                                    r.control_model_params
+                                    .clone(),
+                                value_model_ffn:
+                                    r.value_model_params
+                                    .clone(),
+                            },
+                        );
                     }
                 }
             }
         }
+
         map.into_values().collect()
     };
 

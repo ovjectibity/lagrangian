@@ -8,7 +8,20 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Dict, List, Literal, Optional, Union
 
 
+class ModelTypeTypes(str, Enum):
+    CHECKPOINT = "Checkpoint"
+    NEW = "New"
+
+class ModelTypeCheckpoint(BaseModel):
+    type: Literal[ModelTypeTypes.CHECKPOINT] = ModelTypeTypes.CHECKPOINT
+    content: CheckpointType
+
+class ModelTypeNew(BaseModel):
+    type: Literal[ModelTypeTypes.NEW] = ModelTypeTypes.NEW
+
+ModelType = Union[ModelTypeCheckpoint, ModelTypeNew]
 class FFNModel(BaseModel):
+    model_type: ModelType
     num_hidden_layers: int
     hidden_layer_dim: int
     output_dim: int
@@ -54,35 +67,25 @@ class RewardSystem(BaseModel):
 
 class ControlModelTypes(str, Enum):
     FFN = "FFN"
-    CHECKPOINT = "Checkpoint"
-    PRETRAINED_VLA = "PretrainedVLA"
+    VLA = "VLA"
 
 class ControlModelFFN(BaseModel):
     type: Literal[ControlModelTypes.FFN] = ControlModelTypes.FFN
     content: FFNModel
 
-class ControlModelCheckpoint(BaseModel):
-    type: Literal[ControlModelTypes.CHECKPOINT] = ControlModelTypes.CHECKPOINT
-    content: str
+class ControlModelVLA(BaseModel):
+    type: Literal[ControlModelTypes.VLA] = ControlModelTypes.VLA
+    content: VLAModel
 
-class ControlModelPretrainedVLA(BaseModel):
-    type: Literal[ControlModelTypes.PRETRAINED_VLA] = ControlModelTypes.PRETRAINED_VLA
-    content: PretrainedVLA
-
-ControlModel = Union[ControlModelFFN, ControlModelCheckpoint, ControlModelPretrainedVLA]
+ControlModel = Union[ControlModelFFN, ControlModelVLA]
 class ValueModelTypes(str, Enum):
     FFN = "FFN"
-    CHECKPOINT = "Checkpoint"
 
 class ValueModelFFN(BaseModel):
     type: Literal[ValueModelTypes.FFN] = ValueModelTypes.FFN
     content: FFNModel
 
-class ValueModelCheckpoint(BaseModel):
-    type: Literal[ValueModelTypes.CHECKPOINT] = ValueModelTypes.CHECKPOINT
-    content: str
-
-ValueModel = Union[ValueModelFFN, ValueModelCheckpoint]
+ValueModel = ValueModelFFN
 class ControlOutputModeTypes(str, Enum):
     ACTION_MEAN = "ActionMean"
     FLOW_MATCHING_ACTION = "FlowMatchingAction"
@@ -221,9 +224,23 @@ class ControlPolicyOutputMode(str, Enum):
     TARGETVELOCITIES = "TargetVelocities"
     TARGETTORQUES = "TargetTorques"
 class VLAModel(BaseModel):
+    model_type: ModelType
     input: ControlModelInput
     output: ControlPolicyOutputMode
 
+class CheckpointTypeTypes(str, Enum):
+    PRETRAINED = "Pretrained"
+    CHECKPOINT = "Checkpoint"
+
+class CheckpointTypePretrained(BaseModel):
+    type: Literal[CheckpointTypeTypes.PRETRAINED] = CheckpointTypeTypes.PRETRAINED
+    content: Pretrained
+
+class CheckpointTypeCheckpoint(BaseModel):
+    type: Literal[CheckpointTypeTypes.CHECKPOINT] = CheckpointTypeTypes.CHECKPOINT
+    content: str
+
+CheckpointType = Union[CheckpointTypePretrained, CheckpointTypeCheckpoint]
 class FlowMatchingActionTypes(str, Enum):
     FLOW_NOISE = "FlowNoise"
 
@@ -232,14 +249,8 @@ class FlowMatchingActionFlowNoise(BaseModel):
     content: FlowNoiseConfig
 
 FlowMatchingAction = FlowMatchingActionFlowNoise
-class PretrainedVLATypes(str, Enum):
-    PI_0 = "Pi0"
-
-class PretrainedVLAPi0(BaseModel):
-    type: Literal[PretrainedVLATypes.PI_0] = PretrainedVLATypes.PI_0
-    content: VLAModel
-
-PretrainedVLA = PretrainedVLAPi0
+class Pretrained(str, Enum):
+    PI0 = "Pi0"
 class TrainingRemoteWorkerClientMessageTypes(str, Enum):
     TRAINING_UPDATES_MESSAGE = "TrainingUpdatesMessage"
     STOP_TRAINING_MESSAGE = "StopTrainingMessage"

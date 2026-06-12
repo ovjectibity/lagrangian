@@ -25,9 +25,8 @@ from websockets.exceptions import ConnectionClosed
 
 from commondef.remoteworkermessages import (
     Checkpoint,
-    ControlModelCheckpoint,
     ControlModelFFN,
-    ControlModelPretrainedVLA,
+    ControlModelVLA,
     ControlOutputModeFlowMatchingAction,
     LoadModelMessage,
     PPOTrainingMethod,
@@ -35,10 +34,9 @@ from commondef.remoteworkermessages import (
     StopTrainingMessage,
     TrainingAccelerationMode,
     TrainingRemoteWorkerServerMessageTypes,
-    ValueModelCheckpoint,
-    ValueModelFFN,
 )
-from samples.arm import ArmModel
+from ppo_model import FFNPPOModel
+from ppo_trainer import PPOTrainedModel
 from simulator import MjxSimulator, MujocoSimulator, Simulator
 from training import CallbackTrainingTaskSink, TrainingWorkflow
 
@@ -48,7 +46,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class WorkerRuntime:
     simulator: Simulator
-    model: ArmModel
+    model: PPOTrainedModel | None = None
     model_path: str | None = None
     mjcf: str | None = None
     model_tmpdir: tempfile.TemporaryDirectory | None = None
@@ -98,74 +96,26 @@ def _extract_presented_secret(websocket: Any) -> str | None:
     return None
 
 
-def _build_default_model(simulator: Simulator) -> ArmModel:
-    input_dim = simulator.nq() + simulator.nv()
-    policy_output_dim = simulator.nu() * 2
-    hidden_dim = 256
-    num_hidden_layers = 3
-    policy, policy_store = ArmModel.init_policy(
-        input_dimension=input_dim,
-        output_dimension=policy_output_dim,
-        hidden_layer_dimension=hidden_dim,
-        num_layers=num_hidden_layers,
-        add_softmax=False,
-        control_policy=True,
-    )
-    value, value_store = ArmModel.init_policy(
-        input_dimension=input_dim,
-        output_dimension=1,
-        hidden_layer_dimension=hidden_dim,
-        num_layers=num_hidden_layers,
-        add_softmax=False,
-        control_policy=False,
-    )
-    return ArmModel.init_ppo_trained_model(
-        policy=policy,
-        val_estimator=value,
-        pol_store=policy_store,
-        val_estimator_store=value_store,
-        nbody=simulator.nbody(),
-    )
-
-
 def _build_model_for_training(
     simulator: Simulator,
     params: PPOTrainingMethod,
-    checkpoints: list[Checkpoint],
-) -> ArmModel:
-    checkpoints_by_id = {c.id: c for c in checkpoints if c.id is not None}
-
-    if isinstance(params.control_model, ControlModelPretrainedVLA):
+    reward_fn: Any,
+) -> PPOTrainedModel:
+    if isinstance(params.control_model, ControlModelVLA):
         if not isinstance(params.control_output_mode, ControlOutputModeFlowMatchingAction):
             raise ValueError(
-                "PretrainedVLA control model requires control_output_mode=FlowMatchingAction(FlowNoise)"
+                "VLA control model requires control_output_mode=FlowMatchingAction(FlowNoise)"
             )
         from pretrained.pi0 import Pi0Model
         vla_spec = params.control_model.content
         noise_ffn_spec = params.control_output_mode.content.content.noise_model
-        return Pi0Model(vla_spec.content, noise_ffn_spec)
+        return Pi0Model(vla_spec, noise_ffn_spec)
 
-    if isinstance(params.control_model, ControlModelFFN):
-        control_ffn = params.control_model.content
-    else:
-        ckpt_id = params.control_model.content
-        if not ckpt_id or ckpt_id not in checkpoints_by_id:
-            raise ValueError(f"Checkpoint ID '{ckpt_id}' for control model not found in provided checkpoints")
-        control_ffn = checkpoints_by_id[ckpt_id].control_model_ffn
-        if control_ffn is None:
-            raise ValueError(f"Checkpoint '{ckpt_id}' is missing control_model_ffn architecture params")
+    control_ffn = params.control_model.content
 
-    if isinstance(params.value_model, ValueModelFFN):
-        value_ffn = params.value_model.content
-    else:
-        ckpt_id = params.value_model.content
-        if not ckpt_id or ckpt_id not in checkpoints_by_id:
-            raise ValueError(f"Checkpoint ID '{ckpt_id}' for value model not found in provided checkpoints")
-        value_ffn = checkpoints_by_id[ckpt_id].value_model_ffn
-        if value_ffn is None:
-            raise ValueError(f"Checkpoint '{ckpt_id}' is missing value_model_ffn architecture params")
+    value_ffn = params.value_model.content
 
-    policy, policy_store = ArmModel.init_policy(
+    policy, policy_store = FFNPPOModel.init_policy(
         input_dimension=int(control_ffn.input_dim),
         output_dimension=int(control_ffn.output_dim),
         hidden_layer_dimension=int(control_ffn.hidden_layer_dim),
@@ -173,7 +123,7 @@ def _build_model_for_training(
         add_softmax=False,
         control_policy=True,
     )
-    value, value_store = ArmModel.init_policy(
+    value, value_store = FFNPPOModel.init_policy(
         input_dimension=int(value_ffn.input_dim),
         output_dimension=int(value_ffn.output_dim),
         hidden_layer_dimension=int(value_ffn.hidden_layer_dim),
@@ -181,17 +131,18 @@ def _build_model_for_training(
         add_softmax=False,
         control_policy=False,
     )
-    return ArmModel.init_ppo_trained_model(
+    return FFNPPOModel.init_ppo_trained_model(
         policy=policy,
         val_estimator=value,
         pol_store=policy_store,
         val_estimator_store=value_store,
         nbody=simulator.nbody(),
+        reward_fn=reward_fn,
     )
 
 
 def _load_checkpoint_into_model(
-    model: ArmModel,
+    model: PPOTrainedModel,
     model_zip_base64: str,
     training_id: str,
 ) -> None:
@@ -392,10 +343,8 @@ async def handle_connection(
                             load_msg.id,
                         )
                     simulator = MjxSimulator(model_path=resolved_model_path, mjcf=resolved_mjcf)
-                    model = _build_default_model(simulator)
                     runtime = WorkerRuntime(
                         simulator=simulator,
-                        model=model,
                         model_path=resolved_model_path,
                         mjcf=resolved_mjcf,
                         model_tmpdir=model_tmpdir,
@@ -452,6 +401,20 @@ async def handle_connection(
                     runtime.model_tmpdir = sim_tmpdir
                     runtime.model_path = sim_model_path
                     runtime.mjcf = None
+                try:
+                    user_reward_fn = _load_user_reward_fn(
+                        ppo_params.reward_function.reward_function_code
+                    )
+                except Exception as exc:
+                    logger.warning("No valid reward function for training_id=%s: %s", training_id, exc)
+                    await send_queue.put(
+                        _log_message_payload(
+                            f"Training not started: reward function invalid or missing: {exc}",
+                            training_id=training_id,
+                        )
+                    )
+                    continue
+
                 if acceleration_mode == TrainingAccelerationMode.MLCPUSIMULATIONCPU:
                     logger.info("Using MujocoSimulator (CPU) for training_id=%s", training_id)
                     runtime.simulator = MujocoSimulator(
@@ -463,7 +426,7 @@ async def handle_connection(
                         model_path=runtime.model_path, mjcf=runtime.mjcf
                     )
                 try:
-                    runtime.model = _build_model_for_training(runtime.simulator, ppo_params, start_msg.checkpoints)
+                    runtime.model = _build_model_for_training(runtime.simulator, ppo_params, user_reward_fn)
                 except Exception as exc:
                     logger.exception("Failed to build model for training_id=%s: %s", training_id, exc)
                     await send_queue.put(_log_message_payload(f"Failed to build model: {type(exc).__name__}: {exc}", training_id=training_id))
@@ -488,9 +451,6 @@ async def handle_connection(
                                     training_id=training_id,
                                 )
                             )
-                user_reward_fn = _load_user_reward_fn(
-                    ppo_params.reward_function.reward_function_code
-                )
                 workflow = TrainingWorkflow(
                     training_id=training_id,
                     training_controller=training_controller,
