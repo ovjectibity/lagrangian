@@ -1,39 +1,9 @@
-use crate::commondef::clientmessages::{
-    ModelForward, SimulUpdateMessage, StartSimulationMessage, StopSimulationMessage,
+use crate::commondef::training::{
     StopTrainingMessage, TrainingUpdatesMessage,
 };
-use crate::commondef::model;
-
-#[derive(Debug, Clone)]
-pub enum SimulatorThreadMessage {
-    LoadModel(SimulatorThreadLoadModelMessage),
-    SimulUpdate(SimulatorThreadSimulUpdateMessage),
-}
-
-impl SimulatorThreadMessage {
-    pub fn new_load_model_message(wb: model::WorldBody) -> Self {
-        SimulatorThreadMessage::LoadModel(SimulatorThreadLoadModelMessage { model: wb })
-    }
-
-    pub fn new_simul_update_message(xpos: Vec<f64>, xquat: Vec<f64>) -> Self {
-        SimulatorThreadMessage::SimulUpdate(SimulatorThreadSimulUpdateMessage {
-            update: ModelForward {
-                xpos: xpos,
-                xquat: xquat,
-            },
-        })
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SimulatorThreadLoadModelMessage {
-    pub model: model::WorldBody,
-}
-
-#[derive(Debug, Clone)]
-pub struct SimulatorThreadSimulUpdateMessage {
-    pub update: ModelForward,
-}
+use crate::commondef::testing::{
+    StopTestMessage, TestUpdateMessage,
+};
 
 #[derive(Debug, Clone)]
 pub enum TrainingTaskMessage {
@@ -42,8 +12,7 @@ pub enum TrainingTaskMessage {
 }
 
 #[derive(Debug, Clone)]
-pub enum TestingTaskMessage {
-    StartSimulation(StartSimulationMessage),
-    StopSimulation(StopSimulationMessage),
-    SimulationUpdates(SimulUpdateMessage),
+pub enum TestTaskMessage {
+    StopTestMessage(StopTestMessage),
+    TestUpdateMessage(TestUpdateMessage),
 }

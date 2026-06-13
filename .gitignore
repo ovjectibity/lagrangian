@@ -9,11 +9,11 @@
 /app/lib
 .env
 .envrc
-worker/trainer/trainer-py/.venv
-worker/trainer/trainer-py/__pycache__/
-worker/trainer/trainer-py/commondef/__pycache__/
-worker/trainer/trainer-py/samples/__pycache__/
-worker/trainer/docker_images
+worker/worker-py/.venv
+worker/worker-py/__pycache__/
+worker/worker-py/commondef/__pycache__/
+worker/worker-py/samples/__pycache__/
+worker/docker_images
 .aws-env
 .keys
 app/checkpoints

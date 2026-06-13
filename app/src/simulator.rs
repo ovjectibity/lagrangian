@@ -1,11 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
-use std::thread;
-
-use rocket::tokio::sync::mpsc;
 
 use crate::commondef::model::{Body, Geom, GeomType, WorldBody};
-use crate::commondef::workermessages;
 use crate::mujoco;
 
 pub fn get_test_model() -> WorldBody {
@@ -367,50 +363,6 @@ pub unsafe fn load_model(
         }
     }
     None
-}
-
-pub fn spawn_simulator(
-    model_name: String,
-    tx: mpsc::Sender<workermessages::SimulatorThreadMessage>,
-) {
-    let dyn_th = thread::spawn(move || {
-        unsafe {
-            if let Some((m, d)) = load_model(model_name.to_string(), true) {
-                //Run this to initialise the mjData struct
-                mujoco::mj_forward(m, d);
-                //Sending the base loaded model first
-                if let Some(b) = create_model(m, d) {
-                    if let Err(e) = tx.blocking_send(
-                        workermessages::SimulatorThreadMessage::new_load_model_message(b),
-                    ) {
-                        println!("Loading model for simul update failed {:?}", e);
-                    }
-                } else {
-                    println!("Could not get the model from create_model");
-                }
-
-                //Sending the simulation updates
-                while (*d).time < 100.0 {
-                    run_dynamics_step(m, d);
-                    let xpos: Vec<f64> =
-                        std::slice::from_raw_parts((*d).xpos, (*m).nbody as usize * 3).to_vec();
-                    let xquat: Vec<f64> =
-                        std::slice::from_raw_parts((*d).xquat, (*m).nbody as usize * 4).to_vec();
-                    if let Err(e) = tx.blocking_send(
-                        workermessages::SimulatorThreadMessage::new_simul_update_message(
-                            xpos, xquat,
-                        ),
-                    ) {
-                        println!(
-                            "Sending simul update failed from the simulator thread {:?}",
-                            e
-                        );
-                    }
-                }
-                cleanup_model(m, d);
-            }
-        }
-    });
 }
 
 pub unsafe fn load_test_model(file_name: String) -> Option<WorldBody> {

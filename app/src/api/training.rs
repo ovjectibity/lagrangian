@@ -13,12 +13,8 @@ use base64::engine::general_purpose::STANDARD
     as BASE64;
 
 use crate::api::ApiState;
-use crate::commondef::clientmessages::{
-    self as cm,
-    StopTrainingMessage,
-    TrainingUpdatesMessage,
-};
-use crate::commondef::experiments::TrainingRunStatus;
+use crate::commondef::clientmessages as cm;
+use crate::commondef::record::TrainingRunStatus;
 use tch::Tensor;
 
 use crate::commondef::training::{
@@ -26,9 +22,12 @@ use crate::commondef::training::{
     ControlModel,
     ModelType,
     RewardLanguage,
+    StopTrainingMessage,
     TrainingGraph,
     TrainingJobController,
     TrainingMethod,
+    TrainingUpdate,
+    TrainingUpdatesMessage,
     ValueModel,
 };
 use crate::commondef::workermessages::TrainingTaskMessage;
@@ -739,8 +738,7 @@ async fn spawn_remote_training_task(
     ctrl_json: Option<String>,
     val_json: Option<String>,
 ) {
-    use crate::commondef::remoteworkermessages
-        ::Checkpoint as WC;
+    use crate::commondef::training::Checkpoint as WC;
     use crate::commondef::training::{
         CheckpointType as CT,
         ControlModel as CM,
@@ -869,15 +867,11 @@ async fn spawn_remote_training_task(
         map.into_values().collect()
     };
 
-    let mjcf =
-        std::fs::read_to_string(&model_path)
-        .unwrap_or_default();
     let result = worker
         .run_training_job(
             run_id.clone(),
             controller.clone(),
             Some(model_path),
-            mjcf,
             worker_checkpoints,
             |update| {
                 let mut client_updates = vec![];
@@ -975,7 +969,7 @@ async fn spawn_remote_training_task(
                         }
                     }
                     client_updates.push(
-                        cm::TrainingUpdate {
+                        TrainingUpdate {
                             training_run_state:
                                 u.training_run_state
                                 .clone(),

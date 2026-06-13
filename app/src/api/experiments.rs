@@ -3,7 +3,7 @@ use rocket::serde::json::Json;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::commondef::experiments::{
+use crate::commondef::record::{
     CheckpointReference,
     TrainingExperiment,
     TrainingExperimentRun,

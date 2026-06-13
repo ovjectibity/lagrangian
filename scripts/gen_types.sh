@@ -14,7 +14,7 @@ set -euo pipefail
 TS_INCLUDE_FILES=(
   "app/src/commondef/clientmessages.rs"
   "app/src/commondef/model.rs"
-  "app/src/commondef/experiments.rs"
+  "app/src/commondef/record.rs"
   "app/src/commondef/training.rs"
   "app/src/commondef/testing.rs"
 )
@@ -55,5 +55,11 @@ cp "app/src/commondef/training.rs" "$py_remote_dir/"
 typeshare "$py_remote_dir" --lang=python \
   --output-file="worker/trainer/trainer-py/commondef/remoteworkermessages.py"
 echo "Generated: worker/trainer/trainer-py/commondef/remoteworkermessages.py"
+
+# --- MongoDB JSON Schema: schemas/training_graph.json ---
+mkdir -p schemas
+cargo run --manifest-path scripts/gen_mongo_schema/Cargo.toml -q \
+  > schemas/training_graph.json
+echo "Generated: schemas/training_graph.json"
 
 echo "Done."

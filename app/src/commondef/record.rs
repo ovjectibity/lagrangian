@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use typeshare::typeshare;
 
-use crate::commondef::training::{
+use crate::commondef::{testing::TestParams, training::{
     FFNModel, TrainingGraph, TrainingMetrics,
-};
+}};
 
 #[typeshare(serialized_as = "string")]
 pub type Timestamp = DateTime<Utc>;
@@ -80,7 +81,7 @@ pub struct LogStream {
     pub logs: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[typeshare]
 pub struct TrainingGraphRecord {
     pub created_at: Timestamp,
@@ -88,6 +89,44 @@ pub struct TrainingGraphRecord {
     pub training_experiment_id: String,
     pub training_run_id: String,
     pub graph: TrainingGraph,
+}
+
+#[derive(
+    Debug, Clone, Serialize,
+    Deserialize, sqlx::Type, PartialEq,
+)]
+#[typeshare]
+pub enum TestRunStatus {
+    Ongoing,
+    Completed,
+    StoppedByUser,
+    NotStarted,
+}
+
+#[derive(
+    Debug, Clone, Serialize,
+    Deserialize, FromRow,
+)]
+#[typeshare]
+pub struct TestRun {
+    pub project_id: String,
+    pub id: String,
+    pub created_at: Timestamp,
+    pub run_start_at: Option<Timestamp>,
+    pub run_end_at: Option<Timestamp>,
+    pub run_status: TestRunStatus,
+    pub logs_id: String,
+    pub metrics_id: String,
+    pub test_params_id: String
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[typeshare]
+pub struct TestParamsRecord {
+    pub created_at: Timestamp,
+    pub id: String,
+    pub test_run_id: String,
+    pub params: TestParams,
 }
 
 #[derive(

@@ -5,7 +5,7 @@
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
-use crate::commondef::experiments::{
+use crate::commondef::record::{
     CheckpointReference, ModelReference,
     Project, TrainingExperiment,
     TrainingExperimentRun, TrainingRunStatus,

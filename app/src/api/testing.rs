@@ -14,25 +14,25 @@ use base64::engine::general_purpose::STANDARD
 
 use crate::api::ApiState;
 use crate::commondef::clientmessages::ClientMessage;
-use crate::commondef::testing::SimulationParams;
-use crate::commondef::workermessages::TestingTaskMessage;
+use crate::commondef::testing::TestParams;
+use crate::commondef::workermessages::TestTaskMessage;
 use crate::workflows::{WorkflowMode, WorkflowRuntime};
 use crate::workflows::testing::TestingWorkflow;
 
 // ── Request / response types ─────────────────
 
 #[derive(Deserialize)]
-pub struct StartSimulationBody {
-    pub simulation_params: SimulationParams,
+pub struct StartTestBody {
+    pub test_params: TestParams,
 }
 
 #[derive(Serialize)]
-pub struct SimulationStartedResponse {
+pub struct TestStartedResponse {
     pub id: String,
 }
 
 #[derive(Serialize)]
-pub struct SimulationStoppedResponse {
+pub struct TestStoppedResponse {
     pub id: String,
 }
 
@@ -43,17 +43,17 @@ pub struct SimulationStoppedResponse {
     format = "json",
     data = "<body>"
 )]
-pub async fn start_simulation(
-    body: Json<StartSimulationBody>,
+pub async fn start_test(
+    body: Json<StartTestBody>,
     state: &State<ApiState>,
 ) -> Result<
-    Json<SimulationStartedResponse>,
+    Json<TestStartedResponse>,
     Status,
 >
 {
     let simul_id = Uuid::new_v4().to_string();
     let params =
-        body.into_inner().simulation_params;
+        body.into_inner().test_params;
     let model_path =
         env::var("TEST_MJCF_MODEL").ok();
 
@@ -68,7 +68,7 @@ pub async fn start_simulation(
 
     // Internal mpsc for the testing workflow
     let (tx_test, mut rx_test) =
-        mpsc::channel::<TestingTaskMessage>(64);
+        mpsc::channel::<TestTaskMessage>(64);
 
     // Relay: mpsc → broadcast
     // Simulation frames are base64-encoded binary.
@@ -77,24 +77,24 @@ pub async fn start_simulation(
     rocket::tokio::spawn(async move {
         while let Some(msg) = rx_test.recv().await {
             match msg {
-                TestingTaskMessage
-                ::SimulationUpdates(m) => {
-                    for update in m.updates {
-                        let binary =
-                            ClientMessage
-                            ::to_binary_simul_update(
-                                relay_id.clone(),
-                                update,
-                            );
-                        relay_sse_tx
-                            .send(BASE64.encode(&binary))
-                            .ok();
+                TestTaskMessage
+                ::TestUpdateMessage(m) => {
+                    for frame in m.updates {
+                        for update in frame {
+                            let binary =
+                                ClientMessage
+                                ::to_binary_simul_update(
+                                    relay_id.clone(),
+                                    update,
+                                );
+                            relay_sse_tx
+                                .send(BASE64.encode(&binary))
+                                .ok();
+                        }
                     }
                 }
-                TestingTaskMessage
-                ::StopSimulation(_) => break,
-                TestingTaskMessage
-                ::StartSimulation(_) => {}
+                TestTaskMessage
+                ::StopTestMessage(_) => break,
             }
         }
     });
@@ -138,17 +138,17 @@ pub async fn start_simulation(
         .await
         .insert(simul_id.clone(), h);
 
-    Ok(Json(SimulationStartedResponse {
+    Ok(Json(TestStartedResponse {
         id: simul_id,
     }))
 }
 
 #[post("/testing/simulations/<simul_id>/stop")]
-pub async fn stop_simulation(
+pub async fn stop_test(
     simul_id: String,
     state: &State<ApiState>,
 ) -> Result<
-    Json<SimulationStoppedResponse>,
+    Json<TestStoppedResponse>,
     Status,
 >
 {
@@ -160,13 +160,13 @@ pub async fn stop_simulation(
     {
         h.abort();
     }
-    Ok(Json(SimulationStoppedResponse {
+    Ok(Json(TestStoppedResponse {
         id: simul_id,
     }))
 }
 
 #[get("/testing/simulations/<simul_id>/updates")]
-pub async fn simulation_updates(
+pub async fn test_updates(
     simul_id: String,
     state: &State<ApiState>,
 ) -> EventStream![]

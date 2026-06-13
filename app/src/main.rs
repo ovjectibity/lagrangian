@@ -274,9 +274,9 @@ fn rocket() -> _ {
             api::training::start_training,
             api::training::stop_training,
             api::training::training_updates,
-            api::simulations::start_simulation,
-            api::simulations::stop_simulation,
-            api::simulations::simulation_updates,
+            api::testing::start_test,
+            api::testing::stop_test,
+            api::testing::test_updates,
         ])
         .mount(
             "/",

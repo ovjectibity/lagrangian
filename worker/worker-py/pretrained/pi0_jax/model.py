@@ -219,18 +219,9 @@ class Pi0Jax:
         # 9. Expert input: [state_tok] ++ action_tokens  [B, 1+chunk, expert_hidden]
         expert_in = jnp.concatenate([state_tok, action_tok], axis=1)
 
-        # 10. Project context lm_hidden → expert_hidden for cross-attention
-        context_proj = _dense_apply(
-            frozen_sg["lm"]["lm_head"]["kernel"],   # reuse lm_head as context projector?
-            None,
-            context,
-        ) if "lm_head" in frozen_sg.get("lm", {}) else context
-        # If lm_head kernel doesn't match expert_hidden, use identity (context passed as-is)
-        # The expert's k_proj/v_proj will handle the projection internally
-        context_for_expert = context
-
         # 11. Action expert [B, 1+chunk, expert_hidden]
-        expert_out = self._run_expert(trainable["expert"], expert_in, context_for_expert)
+        # context is [B, S, lm_hidden]; k_proj/v_proj inside each GemmaLayer handle the projection
+        expert_out = self._run_expert(trainable["expert"], expert_in, context)
 
         # Drop state token, keep action tokens
         action_out = expert_out[:, 1:, :]   # [B, chunk_size, expert_hidden]

@@ -9,7 +9,7 @@ use rocket::serde::json::Json;
 use serde::Serialize;
 use zip::ZipArchive;
 
-use crate::commondef::experiments::ModelReference;
+use crate::commondef::record::ModelReference;
 use crate::commondef::model::WorldBody;
 use crate::workflows::WorkflowRuntime;
 

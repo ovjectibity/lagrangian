@@ -31,10 +31,12 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::commondef::remoteworkermessages::{
-    Checkpoint, LoadModelMessage, StartTrainingMessage, StopTrainingMessage,
-    TrainingRemoteWorkerClientMessage, TrainingRemoteWorkerServerMessage, TrainingUpdatesMessage,
+    RemoteWorkerClientMessage, RemoteWorkerServerMessage, WorkerTrainingUpdatesMessage,
 };
-use crate::commondef::training::{TrainingGraph, TrainingJobController, TrainingMethod};
+use crate::commondef::training::{
+    Checkpoint, StartTrainingMessage, StopTrainingMessage, TrainingGraph,
+    TrainingJobController, TrainingMethod,
+};
 
 type DynError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, DynError>;
@@ -236,12 +238,11 @@ impl TrainingWorkerController {
         training_id: String,
         training_controller: TrainingJobController,
         model_path: Option<String>,
-        mjcf: String,
         checkpoints: Vec<Checkpoint>,
         mut on_update: F,
     ) -> Result<()>
     where
-        F: FnMut(&TrainingUpdatesMessage) + Send,
+        F: FnMut(&WorkerTrainingUpdatesMessage) + Send,
     {
         // Always reconnect before each job — the previous connection
         // may be in a half-open state where pings succeed but data
@@ -252,18 +253,18 @@ impl TrainingWorkerController {
         self.worker_ws = None;
         self.connect_worker_wss().await?;
 
-        let (model_zip_base64, mjcf_entrypoint) = match model_path {
+        let model_zip_base64 = match model_path {
             Some(path) => match load_mjcf_package_zip_base64(&path) {
-                Ok((zip_b64, entrypoint)) => (Some(zip_b64), Some(entrypoint)),
+                Ok((zip_b64, _entrypoint)) => Some(zip_b64),
                 Err(e) => {
                     println!(
-                        "Could not load prebuilt zipped model package from path {:?}: {:?}. Falling back to raw mjcf.",
+                        "Could not load prebuilt zipped model package from path {:?}: {:?}. Falling back to simulation_models.",
                         path, e
                     );
-                    (None, None)
+                    None
                 }
             },
-            None => (None, None),
+            None => None,
         };
 
         let sim_model_id = match &training_controller.training_method {
@@ -274,17 +275,7 @@ impl TrainingWorkerController {
             simulation_models.insert(sim_model_id, zip_b64.clone());
         }
 
-        self.send_to_worker(&TrainingRemoteWorkerServerMessage::LoadModelMessage(
-            LoadModelMessage {
-                id: training_id.clone(),
-                mjcf,
-                model_zip_base64,
-                mjcf_entrypoint,
-            },
-        ))
-        .await?;
-
-        self.send_to_worker(&TrainingRemoteWorkerServerMessage::StartTrainingMessage(
+        self.send_to_worker(&RemoteWorkerServerMessage::StartTrainingMessage(
             StartTrainingMessage {
                 id: training_id.clone(),
                 training_graph: TrainingGraph {
@@ -303,7 +294,7 @@ impl TrainingWorkerController {
 
     pub async fn stop_training_and_terminate(&mut self, training_id: &str) -> Result<()> {
         let _ = self
-            .send_to_worker(&TrainingRemoteWorkerServerMessage::StopTrainingMessage(
+            .send_to_worker(&RemoteWorkerServerMessage::StopTrainingMessage(
                 StopTrainingMessage {
                     id: training_id.to_string(),
                 },
@@ -521,7 +512,7 @@ impl TrainingWorkerController {
         }
     }
 
-    async fn send_to_worker(&mut self, message: &TrainingRemoteWorkerServerMessage) -> Result<()> {
+    async fn send_to_worker(&mut self, message: &RemoteWorkerServerMessage) -> Result<()> {
         let ws = self
             .worker_ws
             .as_mut()
@@ -537,7 +528,7 @@ impl TrainingWorkerController {
         on_update: &mut F,
     ) -> Result<()>
     where
-        F: FnMut(&TrainingUpdatesMessage) + Send,
+        F: FnMut(&WorkerTrainingUpdatesMessage) + Send,
     {
         let ws = self
             .worker_ws
@@ -548,17 +539,18 @@ impl TrainingWorkerController {
             let msg = msg?;
             match msg {
                 Message::Text(text) => {
-                    let parsed = serde_json::from_str::<TrainingRemoteWorkerClientMessage>(&text);
+                    let parsed = serde_json::from_str::<RemoteWorkerClientMessage>(&text);
                     if let Ok(ev) = parsed {
                         match ev {
-                            TrainingRemoteWorkerClientMessage::TrainingUpdatesMessage(update) => {
+                            RemoteWorkerClientMessage::TrainingUpdatesMessage(update) => {
                                 on_update(&update);
                             }
-                            TrainingRemoteWorkerClientMessage::StopTrainingMessage(stop) => {
+                            RemoteWorkerClientMessage::StopTrainingMessage(stop) => {
                                 if stop.id == training_id {
                                     return Ok(());
                                 }
                             }
+                            _ => {}
                         }
                     }
                 }

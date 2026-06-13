@@ -2,7 +2,7 @@ pub mod checkpoints;
 pub mod experiments;
 pub mod models;
 pub mod reward_validation;
-pub mod simulations;
+pub mod testing;
 pub mod training;
 
 

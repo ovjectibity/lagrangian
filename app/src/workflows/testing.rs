@@ -4,9 +4,8 @@ use rocket::tokio::sync::mpsc;
 use tch::{Device, Kind, Tensor};
 
 use crate::commondef::{
-    clientmessages::{ModelForward, SimulUpdateMessage, StopSimulationMessage},
-    testing::SimulationParams,
-    workermessages::TestingTaskMessage,
+    testing::{ModelForward, StopTestMessage, TestParams, TestUpdateMessage},
+    workermessages::TestTaskMessage,
 };
 use crate::plugin::ControlPolicyOutputMode;
 use crate::plugin::{ControlPolicyModel, Simulator};
@@ -15,7 +14,7 @@ pub struct TestingWorkflow {
     id: String,
     simulator: Arc<Mutex<dyn Simulator + Send>>,
     model: Arc<Mutex<dyn ControlPolicyModel + Send>>,
-    params: SimulationParams,
+    params: TestParams,
 }
 
 impl TestingWorkflow {
@@ -23,7 +22,7 @@ impl TestingWorkflow {
         id: String,
         simulator: Arc<Mutex<dyn Simulator + Send>>,
         model: Arc<Mutex<dyn ControlPolicyModel + Send>>,
-        params: SimulationParams,
+        params: TestParams,
     ) -> Self {
         TestingWorkflow {
             id: id,
@@ -33,30 +32,30 @@ impl TestingWorkflow {
         }
     }
 
-    fn send_stop(tx_test_t: &mpsc::Sender<TestingTaskMessage>, id: String) {
+    fn send_stop(tx_test_t: &mpsc::Sender<TestTaskMessage>, id: String) {
         let _ =
-            tx_test_t.blocking_send(TestingTaskMessage::StopSimulation(StopSimulationMessage {
+            tx_test_t.blocking_send(TestTaskMessage::StopTestMessage(StopTestMessage {
                 id: id,
             }));
     }
 
     fn send_simul_update(
-        tx_test_t: &mpsc::Sender<TestingTaskMessage>,
+        tx_test_t: &mpsc::Sender<TestTaskMessage>,
         id: String,
         xpos: Vec<f64>,
         xquat: Vec<f64>,
     ) {
         let _ =
-            tx_test_t.blocking_send(TestingTaskMessage::SimulationUpdates(SimulUpdateMessage {
+            tx_test_t.blocking_send(TestTaskMessage::TestUpdateMessage(TestUpdateMessage {
                 id: id,
-                updates: vec![ModelForward {
+                updates: vec![vec![ModelForward {
                     xpos: xpos,
                     xquat: xquat,
-                }],
+                }]],
             }));
     }
 
-    pub fn run_test(&mut self, tx_test_t: mpsc::Sender<TestingTaskMessage>) {
+    pub fn run_test(&mut self, tx_test_t: mpsc::Sender<TestTaskMessage>) {
         if let Ok(mut simulator) = self.simulator.lock()
             && let Ok(model) = self.model.lock()
         {

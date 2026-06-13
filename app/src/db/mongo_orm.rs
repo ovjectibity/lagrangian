@@ -6,7 +6,7 @@ use mongodb::bson::{self, Bson};
 use mongodb::options::ClientOptions;
 use mongodb::{Client, Collection, Database};
 
-use crate::commondef::experiments::{
+use crate::commondef::record::{
     LogStream, MetricsStream,
     TrainingGraphRecord,
 };

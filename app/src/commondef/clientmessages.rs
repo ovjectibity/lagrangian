@@ -1,20 +1,21 @@
 use serde;
 use typeshare::typeshare;
 
-use crate::commondef::testing::SimulationParams;
-use crate::commondef::training::{
-    TrainingMetrics, TrainingRunState,
+use crate::commondef::testing::{
+    ModelForward, StopTestMessage, TestUpdateMessage,
 };
-use crate::commondef::experiments::CheckpointReference;
+use crate::commondef::training::{
+    StopTrainingMessage, TrainingUpdatesMessage,
+};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ClientMessage {
-    SimulUpdateMessage(SimulUpdateMessage),
     TrainingUpdatesMessage(TrainingUpdatesMessage),
     StopTrainingMessage(StopTrainingMessage),
-    StopSimulationMessage(StopSimulationMessage),
+    TestUpdatesMessage(TestUpdateMessage),
+    StopTestMessage(StopTestMessage),
 }
 
 impl ClientMessage {
@@ -41,56 +42,4 @@ impl ClientMessage {
         }
         binary_data
     }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct SimulUpdateMessage {
-    pub id: String,
-    pub updates: Vec<ModelForward>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct ModelForward {
-    pub xpos: Vec<f64>,  //nbody x 3
-    pub xquat: Vec<f64>, //nbody x 4
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct TrainingUpdatesMessage {
-    pub id: String,
-    pub updates: Vec<TrainingUpdate>
-}
-
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-)]
-#[typeshare]
-pub struct TrainingUpdate {
-    pub training_run_state: TrainingRunState,
-    pub logs: Vec<String>,
-    pub metrics: Vec<TrainingMetrics>,
-    pub checkpoints: Vec<CheckpointReference>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct StartSimulationMessage {
-    pub simulation_params: SimulationParams,
-    pub id: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct StopSimulationMessage {
-    pub id: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct StopTrainingMessage {
-    pub id: String,
 }

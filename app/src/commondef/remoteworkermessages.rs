@@ -1,75 +1,50 @@
-use std::collections::HashMap;
-
 use serde;
 use typeshare::typeshare;
 
-use crate::commondef::training::{
-    FFNModel, TrainingGraph, TrainingMetrics, TrainingRunState,
-};
+use crate::commondef::{
+    testing::{
+        StartTestMessage,
+        StopTestMessage,
+        TestUpdateMessage
+    },
+    training::{
+        Checkpoint, TrainingMetrics,
+        TrainingRunState, StopTrainingMessage,
+        StartTrainingMessage
+    }};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content = "content")]
 #[typeshare]
-pub enum TrainingRemoteWorkerServerMessage {
-    LoadModelMessage(LoadModelMessage),
-    StartTrainingMessage(StartTrainingMessage),
-    StopTrainingMessage(StopTrainingMessage),
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct StartTrainingMessage {
+pub struct WorkerTrainingUpdatesMessage {
     pub id: String,
-    pub training_graph: TrainingGraph,
-    pub checkpoints: Vec<Checkpoint>,
-    pub simulation_models: HashMap<String, String>,
+    pub updates: Vec<WorkerTrainingUpdate>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
-pub struct StopTrainingMessage {
-    pub id: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content = "content")]
-#[typeshare]
-pub enum TrainingRemoteWorkerClientMessage {
-    TrainingUpdatesMessage(TrainingUpdatesMessage),
-    StopTrainingMessage(StopTrainingMessage),
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct LoadModelMessage {
-    pub id: String,
-    pub mjcf: String,
-    pub model_zip_base64: Option<String>,
-    pub mjcf_entrypoint: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct TrainingUpdatesMessage {
-    pub id: String,
-    pub updates: Vec<TrainingUpdate>
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct Checkpoint {
-    pub id: Option<String>,
-    pub model_zip_base64: Option<String>,
-    pub model_zip_path: Option<String>,
-    pub control_model_ffn: Option<FFNModel>,
-    pub value_model_ffn: Option<FFNModel>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct TrainingUpdate {
+pub struct WorkerTrainingUpdate {
     pub training_run_state: TrainingRunState,
     pub logs: Vec<String>,
     pub metrics: Vec<TrainingMetrics>,
     pub checkpoints: Vec<Checkpoint>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum RemoteWorkerServerMessage {
+    StartTrainingMessage(StartTrainingMessage),
+    StopTrainingMessage(StopTrainingMessage),
+    StartTestingMessage(StartTestMessage),
+    StopTestingMessage(StopTestMessage),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum RemoteWorkerClientMessage {
+    TrainingUpdatesMessage(WorkerTrainingUpdatesMessage),
+    StopTrainingMessage(StopTrainingMessage),
+    TestUpdatesMessage(TestUpdateMessage),
+    StopTestingMessage(StopTestMessage)
 }

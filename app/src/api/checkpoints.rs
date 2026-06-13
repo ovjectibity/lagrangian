@@ -2,7 +2,7 @@ use rocket::http::Status;
 use rocket::serde::json::Json;
 use serde::Serialize;
 
-use crate::commondef::experiments::CheckpointReference;
+use crate::commondef::record::CheckpointReference;
 
 // ── Response types ───────────────────────────
 
