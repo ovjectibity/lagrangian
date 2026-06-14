@@ -99,39 +99,39 @@ pub fn build_remote_worker_config()
         ::RemoteWorkerControllerConfig::default();
 
     if let Ok(region) =
-        env::var("TRAINING_WORKER_AWS_REGION")
+        env::var("REMOTE_WORKER_AWS_REGION")
     {
         if !region.is_empty() {
             cfg.aws_region = region;
         }
     }
-    cfg.ami_id = env::var("TRAINING_WORKER_AMI_ID")
+    cfg.ami_id = env::var("REMOTE_WORKER_AMI_ID")
         .map_err(|_| {
             "Missing required env var \
-             TRAINING_WORKER_AMI_ID".to_string()
+             REMOTE_WORKER_AMI_ID".to_string()
         })?;
     cfg.worker_image_uri =
-        env::var("TRAINING_WORKER_IMAGE_URI")
+        env::var("REMOTE_WORKER_IMAGE_URI")
         .map_err(|_| {
             "Missing required env var \
-             TRAINING_WORKER_IMAGE_URI".to_string()
+             REMOTE_WORKER_IMAGE_URI".to_string()
         })?;
     cfg.worker_shared_secret =
-        env::var("TRAINING_WORKER_SHARED_SECRET")
+        env::var("REMOTE_WORKER_SHARED_SECRET")
         .map_err(|_| {
             "Missing required env var \
-             TRAINING_WORKER_SHARED_SECRET".to_string()
+             REMOTE_WORKER_SHARED_SECRET".to_string()
         })?;
 
     if let Ok(v) =
-        env::var("TRAINING_WORKER_SUBNET_ID")
+        env::var("REMOTE_WORKER_SUBNET_ID")
     {
         if !v.is_empty() {
             cfg.subnet_id = Some(v);
         }
     }
     if let Ok(v) =
-        env::var("TRAINING_WORKER_SECURITY_GROUP_IDS")
+        env::var("REMOTE_WORKER_SECURITY_GROUP_IDS")
     {
         let values: Vec<String> = v
             .split(',')
@@ -144,49 +144,49 @@ pub fn build_remote_worker_config()
         }
     }
     if let Ok(v) =
-        env::var("TRAINING_WORKER_KEY_NAME")
+        env::var("REMOTE_WORKER_KEY_NAME")
     {
         if !v.is_empty() {
             cfg.key_name = Some(v);
         }
     }
     if let Ok(v) = env::var(
-        "TRAINING_WORKER_IAM_INSTANCE_PROFILE_ARN",
+        "REMOTE_WORKER_IAM_INSTANCE_PROFILE_ARN",
     ) {
         if !v.is_empty() {
             cfg.iam_instance_profile_arn = Some(v);
         }
     }
     if let Ok(v) = env::var(
-        "TRAINING_WORKER_INSTANCE_NAME_TAG",
+        "REMOTE_WORKER_INSTANCE_NAME_TAG",
     ) {
         if !v.is_empty() {
             cfg.instance_name_tag = v;
         }
     }
     if let Ok(v) =
-        env::var("TRAINING_WORKER_SPOT_MAX_PRICE_USD")
+        env::var("REMOTE_WORKER_SPOT_MAX_PRICE_USD")
     {
         if !v.is_empty() {
             cfg.spot_max_price_usd = Some(v);
         }
     }
     if let Ok(v) =
-        env::var("TRAINING_WORKER_CONTAINER_NAME")
+        env::var("REMOTE_WORKER_CONTAINER_NAME")
     {
         if !v.is_empty() {
             cfg.worker_container_name = v;
         }
     }
     if let Ok(v) =
-        env::var("TRAINING_WORKER_PORT")
+        env::var("REMOTE_WORKER_PORT")
     {
         if let Ok(port) = v.parse::<u16>() {
             cfg.worker_port = port;
         }
     }
     if let Ok(v) =
-        env::var("TRAINING_WORKER_WS_PATH")
+        env::var("REMOTE_WORKER_WS_PATH")
     {
         if !v.is_empty() {
             cfg.worker_ws_path = v;

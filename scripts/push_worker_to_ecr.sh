@@ -31,27 +31,28 @@ if [[ -f "${AWS_ENV_FILE}" ]]; then
   set +a
 fi
 
-if [[ -z "${TRAINING_WORKER_IMAGE_URI:-}" ]]; then
-  echo "error: TRAINING_WORKER_IMAGE_URI is required (set in .aws-env or env)." >&2
+if [[ -z "${REMOTE_WORKER_IMAGE_URI:-}" ]]; then
+  echo "error: REMOTE_WORKER_IMAGE_URI is required (set in .aws-env or env)." >&2
   exit 1
 fi
 
-IMAGE_URI="${TRAINING_WORKER_IMAGE_URI}"
+IMAGE_URI="${REMOTE_WORKER_IMAGE_URI}"
 if [[ "${IMAGE_URI}" != *:* ]]; then
   IMAGE_URI="${IMAGE_URI}:latest"
 fi
-LOCAL_IMAGE="${TRAINING_WORKER_LOCAL_IMAGE:-lagrangian/trainer-worker:$(date +%Y%m%d%H%M%S)}"
+LOCAL_IMAGE="${REMOTE_WORKER_LOCAL_IMAGE:-lagrangian/remote-worker:$(date +%Y%m%d%H%M%S)}"
 
 ECR_REGISTRY="${IMAGE_URI%%/*}"
 REPO_AND_TAG="${IMAGE_URI#*/}"
 REPO_NAME="${REPO_AND_TAG%%:*}"
 
-REGION="${TRAINING_WORKER_AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+REGION="${REMOTE_WORKER_AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 if [[ -z "${REGION}" ]]; then
   REGION="$(echo "${ECR_REGISTRY}" | sed -E 's#^[0-9]+\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$#\1#')"
 fi
 if [[ -z "${REGION}" || "${REGION}" == "${ECR_REGISTRY}" ]]; then
-  echo "error: could not infer AWS region. Set TRAINING_WORKER_AWS_REGION or AWS_DEFAULT_REGION." >&2
+  echo "error: could not infer AWS region. Set REMOTE_WORKER_AWS_REGION or AWS_DEFAULT_REGION." >&2
+
   exit 1
 fi
 
@@ -140,12 +141,12 @@ if [[ "${PURGE_REPO_IMAGES}" -eq 1 ]]; then
   fi
 fi
 
-echo "Building image from worker/trainer/Dockerfile as ${LOCAL_IMAGE} ..."
+echo "Building image from worker/worker-py/Dockerfile as ${LOCAL_IMAGE} ..."
 docker build \
   --platform linux/amd64 \
   --load \
-  -f "${REPO_ROOT}/worker/trainer/Dockerfile" \
-  "${REPO_ROOT}/worker/trainer" \
+  -f "${REPO_ROOT}/worker/worker-py/Dockerfile" \
+  "${REPO_ROOT}/worker/worker-py" \
   -t "${LOCAL_IMAGE}"
 
 echo "Logging into ECR registry: ${ECR_REGISTRY}"

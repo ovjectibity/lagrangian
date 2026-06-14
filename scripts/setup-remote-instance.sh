@@ -13,26 +13,26 @@ if [[ -f "${AWS_ENV_FILE}" ]]; then
 fi
 
 # ---- Validate required env vars ----
-for var in TRAINING_WORKER_AMI_ID TRAINING_WORKER_SECURITY_GROUP_IDS \
-           TRAINING_WORKER_IAM_INSTANCE_PROFILE_ARN TRAINING_WORKER_IMAGE_URI \
-           TRAINING_WORKER_CONTAINER_NAME TRAINING_WORKER_PORT \
-           TRAINING_WORKER_SHARED_SECRET; do
+for var in REMOTE_WORKER_AMI_ID REMOTE_WORKER_SECURITY_GROUP_IDS \
+           REMOTE_WORKER_IAM_INSTANCE_PROFILE_ARN REMOTE_WORKER_IMAGE_URI \
+           REMOTE_WORKER_CONTAINER_NAME REMOTE_WORKER_PORT \
+           REMOTE_WORKER_SHARED_SECRET; do
   if [[ -z "${!var:-}" ]]; then
     echo "error: ${var} is not set." >&2
     exit 1
   fi
 done
 
-REGION="${TRAINING_WORKER_AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
-AMI_ID="${TRAINING_WORKER_AMI_ID}"
-SECURITY_GROUP_IDS="${TRAINING_WORKER_SECURITY_GROUP_IDS}"
-IAM_INSTANCE_PROFILE_ARN="${TRAINING_WORKER_IAM_INSTANCE_PROFILE_ARN}"
-KEY_NAME="${TRAINING_WORKER_KEY_NAME:-}"
-INSTANCE_NAME="${TRAINING_WORKER_INSTANCE_NAME_TAG:-lagrangian-remote-worker}"
+REGION="${REMOTE_WORKER_AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
+AMI_ID="${REMOTE_WORKER_AMI_ID}"
+SECURITY_GROUP_IDS="${REMOTE_WORKER_SECURITY_GROUP_IDS}"
+IAM_INSTANCE_PROFILE_ARN="${REMOTE_WORKER_IAM_INSTANCE_PROFILE_ARN}"
+KEY_NAME="${REMOTE_WORKER_KEY_NAME:-}"
+INSTANCE_NAME="${REMOTE_WORKER_INSTANCE_NAME_TAG:-lagrangian-remote-worker}"
 INSTANCE_TYPE="c7i-flex.large"
 VOLUME_SIZE=60
 
-BOOTSTRAP_SCRIPT="${SCRIPT_DIR}/bootstrap_training_worker.sh"
+BOOTSTRAP_SCRIPT="${SCRIPT_DIR}/bootstrap_remote_worker.sh"
 if [[ ! -f "${BOOTSTRAP_SCRIPT}" ]]; then
   echo "error: bootstrap script not found at ${BOOTSTRAP_SCRIPT}" >&2
   exit 1
@@ -98,7 +98,7 @@ done
 echo "Transferring bootstrap script ..."
 scp -o StrictHostKeyChecking=no \
   "${BOOTSTRAP_SCRIPT}" \
-  "ubuntu@${PUBLIC_IP}:/tmp/bootstrap_training_worker.sh"
+  "ubuntu@${PUBLIC_IP}:/tmp/bootstrap_remote_worker.sh"
 
 # ---- Run bootstrap on instance ----
 echo "Running bootstrap on instance ..."
@@ -106,10 +106,10 @@ ssh -o StrictHostKeyChecking=no "ubuntu@${PUBLIC_IP}" bash -s <<EOF
 set -euo pipefail
 
 AWS_REGION="${REGION}"
-IMAGE_URI="${TRAINING_WORKER_IMAGE_URI}"
-CONTAINER_NAME="${TRAINING_WORKER_CONTAINER_NAME}"
-WORKER_PORT="${TRAINING_WORKER_PORT}"
-WORKER_SHARED_SECRET="${TRAINING_WORKER_SHARED_SECRET}"
+IMAGE_URI="${REMOTE_WORKER_IMAGE_URI}"
+CONTAINER_NAME="${REMOTE_WORKER_CONTAINER_NAME}"
+WORKER_PORT="${REMOTE_WORKER_PORT}"
+WORKER_SHARED_SECRET="${REMOTE_WORKER_SHARED_SECRET}"
 
 REGISTRY="\${IMAGE_URI%%/*}"
 if [[ "\${REGISTRY}" == *".dkr.ecr."* ]]; then
@@ -124,10 +124,10 @@ s#__IMAGE_URI__#\${IMAGE_URI}#g;
 s#__CONTAINER_NAME__#\${CONTAINER_NAME}#g;
 s#__WORKER_PORT__#\${WORKER_PORT}#g;
 s#__WORKER_SHARED_SECRET__#\${WORKER_SHARED_SECRET}#g;
-" /tmp/bootstrap_training_worker.sh > /tmp/bootstrap_training_worker.rendered.sh
+" /tmp/bootstrap_remote_worker.sh > /tmp/bootstrap_remote_worker.rendered.sh
 
-chmod +x /tmp/bootstrap_training_worker.rendered.sh
-sudo /tmp/bootstrap_training_worker.rendered.sh
+chmod +x /tmp/bootstrap_remote_worker.rendered.sh
+sudo /tmp/bootstrap_remote_worker.rendered.sh
 EOF
 
 echo "Done. Instance ${INSTANCE_ID} is up at ${PUBLIC_IP}"

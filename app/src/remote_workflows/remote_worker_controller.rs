@@ -78,13 +78,13 @@ fn load_mjcf_package_zip_base64(model_path: &str) -> Result<(String, String)> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or("model_path has no valid UTF-8 filename")?;
-    let entrypoint = env::var("TRAINING_WORKER_MJCF_ENTRYPOINT")
+    let entrypoint = env::var("REMOTE_WORKER_MJCF_ENTRYPOINT")
         .ok()
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| default_entrypoint.to_string());
 
-    let zip_path = match env::var("TRAINING_WORKER_MODEL_ZIP_PATH")
+    let zip_path = match env::var("REMOTE_WORKER_MODEL_ZIP_PATH")
         .ok()
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
@@ -106,7 +106,7 @@ fn load_mjcf_package_zip_base64(model_path: &str) -> Result<(String, String)> {
 
     if !zip_path.exists() {
         return Err(format!(
-            "Prebuilt zip not found at {:?}. Set TRAINING_WORKER_MODEL_ZIP_PATH or place model.zip/{:?}.zip in {:?}.",
+            "Prebuilt zip not found at {:?}. Set REMOTE_WORKER_MODEL_ZIP_PATH or place model.zip/{:?}.zip in {:?}.",
             zip_path,
             model_path
                 .file_stem()

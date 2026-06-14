@@ -27,9 +27,9 @@ RUN apt-get update \
     && ln -sf /usr/local/bin/pip3.14 /usr/local/bin/pip \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /opt/lagrangian/worker/trainer-py
+WORKDIR /opt/lagrangian/worker/worker-py
 
-COPY trainer-py/requirements.txt ./requirements.txt
+COPY worker-py/requirements.txt ./requirements.txt
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
@@ -41,7 +41,7 @@ os.makedirs('/opt/lagrangian/pi0', exist_ok=True); \
 [hf_hub_download('lerobot/pi0_libero_base', f, cache_dir='/hf-cache', local_dir='/opt/lagrangian/pi0') \
  for f in ['model.safetensors', 'config.json']]"
 
-COPY trainer-py/ ./
+COPY worker-py/ ./
 
 EXPOSE 8765
 
