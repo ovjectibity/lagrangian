@@ -141,12 +141,12 @@ if [[ "${PURGE_REPO_IMAGES}" -eq 1 ]]; then
   fi
 fi
 
-echo "Building image from worker/worker-py/Dockerfile as ${LOCAL_IMAGE} ..."
+echo "Building image from worker/Dockerfile as ${LOCAL_IMAGE} ..."
 docker build \
   --platform linux/amd64 \
   --load \
-  -f "${REPO_ROOT}/worker/worker-py/Dockerfile" \
-  "${REPO_ROOT}/worker/worker-py" \
+  -f "${REPO_ROOT}/worker/Dockerfile" \
+  "${REPO_ROOT}/worker" \
   -t "${LOCAL_IMAGE}"
 
 echo "Logging into ECR registry: ${ECR_REGISTRY}"

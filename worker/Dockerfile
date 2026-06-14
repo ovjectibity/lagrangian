@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu24.04
+FROM nvidia/cuda:13.3.0-cudnn-runtime-ubuntu24.04
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -27,7 +27,7 @@ RUN apt-get update \
     && ln -sf /usr/local/bin/pip3.14 /usr/local/bin/pip \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /opt/lagrangian/worker/worker-py
+WORKDIR /opt/lagrangian/worker
 
 COPY worker-py/requirements.txt ./requirements.txt
 RUN pip install --upgrade pip \
