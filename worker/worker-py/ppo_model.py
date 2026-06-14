@@ -6,13 +6,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ppo_trainer import ControlPolicyOutputMode, PPOTrainedModel
+from ppo_trainer import ControlPolicyOutputMode, PPOTrainedModel, TestingModel
 
 Array = jax.Array
 Params = Any
 
 
-class FFNPPOModel(PPOTrainedModel):
+class FFNPPOModel(PPOTrainedModel, TestingModel):
     def __init__(
         self,
         policy: Callable[[Params, Array], Array],
@@ -168,3 +168,13 @@ class FFNPPOModel(PPOTrainedModel):
         if self._reward_fn is None:
             raise RuntimeError("No reward function injected into FFNPPOModel")
         return self._reward_fn
+
+    # TestingModel interface
+    def get_test_action(self, state: Array) -> Array:
+        return self.get_policy_output(state)
+
+    def get_pure_test_fn(self) -> Callable[[Params, Array], Array]:
+        return self.get_pure_policy_fn()
+
+    def get_test_params(self) -> Params:
+        return self.get_policy_store()

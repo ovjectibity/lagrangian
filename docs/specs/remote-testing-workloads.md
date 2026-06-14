@@ -346,111 +346,96 @@ pub async fn get_test_params(&self, id: &str)
 
 ---
 
-## Part H — Python Worker (`worker/worker-py/main.py`)
+## Part H — Python Worker Testing Support
 
-**Current state:** Only `StartTrainingMessage` and `StopTrainingMessage` handlers exist.
-`LoadModelMessage` may still be present (from prior work — verify and remove if so).
+Testing logic is split across three files following the same pattern as training:
 
-### Add `TestingTaskState` dataclass (after `TrainingTaskState`)
+### `ppo_trainer.py` — `TestingModel` abstract class
+
+Added after `PPOTrainedModel`:
 ```python
-@dataclass
-class TestingTaskState:
-    task: asyncio.Task
-    stop_event: asyncio.Event
+class TestingModel(ABC):
+    @abstractmethod
+    def get_test_action(self, state: Array) -> Array: ...
+
+    @abstractmethod
+    def get_pure_test_fn(self) -> Callable[[Params, Array], Array]: ...
+
+    @abstractmethod
+    def get_test_params(self) -> Params: ...
 ```
 
-Add `testing_tasks: dict[str, TestingTaskState] = {}` in `handle_connection()` scope.
+`FFNPPOModel` (in `ppo_model.py`) and `Pi0Model` (in `pretrained/pi0.py`) both inherit
+`TestingModel` in addition to `PPOTrainedModel`. The three methods delegate to already-existing
+methods (`get_policy_output`, `get_pure_policy_fn`, `get_policy_store`) so no new logic.
 
-### `StartTestingMessage` handler
+### `testing.py` — `TestingWorkflow` (mirrors `training.py`)
+
+New file `worker/worker-py/testing.py` contains:
+
+- `TestingTaskSink(ABC)` — `send_test_updates(TestUpdateMessage)` + `send_stop_testing(StopTestMessage)`
+- `CallbackTestingTaskSink(TestingTaskSink)` — wraps payloads in `RemoteWorkerClientMessageTestUpdatesMessage` / `RemoteWorkerClientMessageStopTestingMessage` and calls the provided `send_message` callback
+- `TestingWorkflow` — `__init__(test_id, test_controller, simulator, model: TestingModel)` + `run_test_blocking(tx, should_stop)`
+
+`run_test_blocking` delegates to one of two private methods:
+
+**MJX batched path** (`_run_mjx_batched`) — `num_parallel_envs > 1` and `MjxSimulator`:
+Uses **chunked `jax.lax.scan`** (`UPDATE_CHUNK_SIZE = 10` steps per chunk). Each chunk runs
+fully on GPU with no Python interruption; one `TestUpdateMessage` per chunk is sent, giving
+regular streaming updates. XLA re-uses the compiled kernel after the first chunk.
 
 ```python
-elif msg_type == RemoteWorkerServerMessageTypes.START_TESTING_MESSAGE:
-    test_msg = StartTestMessage(**payload["content"])
-    test_graph = test_msg.test_graph
-    controller = test_graph.test_job_controller
-    test_params = controller.test_params
-    acceleration_mode = controller.acceleration_mode
+def scan_body(bd, _):
+    states  = jax.vmap(lambda d: jnp.concatenate([d.qpos[:nq], d.qvel[:nv]]))(bd)
+    actions = jax.vmap(lambda s: pure_fn(params, s))(states)
+    bd_next = jax.vmap(lambda d, a: mjx_sim.forward_dyn_pure(d, a)[0])(bd, actions)
+    return bd_next, (bd_next.xpos[:, :nbody], bd_next.xquat[:, :nbody])
 
-    # 1. Build simulator
-    sim_model_b64 = test_graph.test_job_controller.test_params.simulation_model
-    # extract zip from simulation_models (same logic as StartTrainingMessage)
-    if acceleration_mode == TrainingAccelerationMode.MLCPUSIMULATIONCPU:
-        simulator = MujocoSimulator(mjcf_path, ...)
-    else:
-        simulator = MjxSimulator(mjcf_path, ...)
-
-    # 2. Build control model
-    control_model_spec = test_params.control_model
-    if isinstance(control_model_spec, ControlModel_FFN):
-        model = FFNPPOModel.init_ppo_trained_model(
-            control_model_spec.content, simulator, reward_fn=None
-        )
-    elif isinstance(control_model_spec, ControlModel_VLA):
-        # Pi0 only for now; vanilla inference, no FlowNoise
-        model = Pi0Model.init_from_pretrained(control_model_spec.content)
-
-    # 3. Launch asyncio test task
-    stop_event = asyncio.Event()
-    task = asyncio.create_task(
-        _run_test_loop(test_msg.id, simulator, model, test_params,
-                       acceleration_mode, stop_event, send_queue)
+while remaining > 0 and not should_stop():
+    batched_data, (chunk_xpos, chunk_xquat) = jax.lax.scan(
+        scan_body, batched_data, None, length=chunk
     )
-    testing_tasks[test_msg.id] = TestingTaskState(task=task, stop_event=stop_event)
+    tx.send_test_updates(TestUpdateMessage(id=self.id, updates=[...]))
 ```
 
-### `_run_test_loop` coroutine
-
-**MJX path** (`acceleration_mode != MLCPUSIMULATIONCPU`):
+**Sequential path** (`_run_sequential`) — `MujocoSimulator` or single-env MJX:
 ```python
-async def _run_test_loop(test_id, simulator, model, test_params, accel, stop_event, queue):
-    num_envs = test_params.num_parallel_envs
-    # Initialize batched state
-    batched_data = jax.vmap(lambda _: simulator.reset_and_get_state())(jnp.arange(num_envs))
-
-    for step in range(test_params.num_timesteps):
-        if stop_event.is_set():
-            break
-        batched_states = jax.vmap(simulator.get_model_state_from_data)(batched_data)
-        batched_actions = jax.vmap(model.get_control_policy_output)(batched_states)
-        batched_data = jax.vmap(simulator.forward_dyn_pure)(batched_data, batched_actions)
-        # Extract per-env xpos/xquat
-        frame = []
-        for env_idx in range(num_envs):
-            xpos, xquat = simulator.get_simul_update_from_data(batched_data, env_idx)
-            frame.append(ModelForward(xpos=xpos.tolist(), xquat=xquat.tolist()))
-        update_msg = TestUpdateMessage(id=test_id, updates=[frame])
-        await queue.put(update_msg.model_dump_json())  # or json.dumps(...)
-        await asyncio.sleep(0)  # yield
-
-    stop_msg = StopTestMessage(id=test_id)
-    await queue.put(json.dumps({"type": "StopTestingMessage", "content": stop_msg.dict()}))
+for _ in range(num_timesteps):
+    action = model.get_test_action(simulator.get_model_state())
+    simulator.forward_dyn(action)
+    xpos, xquat = simulator.get_simul_update()
+    tx.send_test_updates(TestUpdateMessage(id=self.id, updates=[[ModelForward(...)]]))
 ```
 
-**MuJoCo path** (`MLCPUSIMULATIONCPU`): same structure but iterate envs sequentially
-(one `MujocoSimulator` instance per env, or single env if `num_parallel_envs == 1`).
+**Model construction** (`_build_model_for_testing` in `main.py`):
+- `ControlModelFFN` → `FFNPPOModel` (1-output dummy value head, `reward_fn=None`)
+- `ControlModelVLA` → `Pi0Model(vla_spec, noise_ffn_spec=None)` — inference-only, no FlowNoise
 
-**Pi0 inference note:** Call `model.get_control_policy_output(state)` directly — no noise
-model, no FlowNoise denoising step. The `pi0_jax` model already has a vanilla forward pass.
+### `main.py` — START/STOP TESTING handlers
 
-### `StopTestingMessage` handler
-```python
-elif msg_type == RemoteWorkerServerMessageTypes.STOP_TESTING_MESSAGE:
-    test_id = payload["content"]["id"]
-    if test_id in testing_tasks:
-        testing_tasks[test_id].stop_event.set()
-        testing_tasks[test_id].task.cancel()
-        del testing_tasks[test_id]
-    stop_resp = StopTestMessage(id=test_id)
-    await queue.put(json.dumps({"type": "StopTestingMessage", "content": stop_resp.dict()}))
-```
+`main.py` handles message dispatch only. START_TESTING_MESSAGE handler:
+1. Validates `StartTestMessage`, extracts `test_controller`
+2. Extracts sim model zip from `simulation_models`, calls `_extract_sim_model_from_zip`
+3. Builds simulator (`MjxSimulator` or `MujocoSimulator` based on `acceleration_mode`)
+4. Calls `_build_model_for_testing` → `TestingModel`
+5. Constructs `TestingWorkflow`, wraps `run_test_blocking` in `asyncio.to_thread`
+6. Stores `TestingTaskState(task, stop_event)` in `testing_tasks` dict
 
-### `commondef/remoteworkermessages.py` — add test message type constants
-Currently only has `TrainingRemoteWorkerServerMessageTypes`. Add:
-```python
-START_TESTING_MESSAGE = "StartTestingMessage"
-STOP_TESTING_MESSAGE = "StopTestingMessage"
-```
-(Or use a combined enum — follow the existing pattern in the file.)
+STOP_TESTING_MESSAGE handler sets `stop_event` for the running task.
+
+On client disconnect, stop signals are sent to all active testing tasks.
+
+### Post-regeneration type names
+
+After `gen_types.sh` is run, `commondef/remoteworkermessages.py` will contain:
+- `RemoteWorkerServerMessageTypes` enum (replaces `TrainingRemoteWorkerServerMessageTypes`)
+  with variants `START_TRAINING_MESSAGE`, `STOP_TRAINING_MESSAGE`, `START_TESTING_MESSAGE`, `STOP_TESTING_MESSAGE`
+- `RemoteWorkerClientMessageTestUpdatesMessage` wrapper for `TestUpdateMessage`
+- `RemoteWorkerClientMessageStopTestingMessage` wrapper for `StopTestMessage`
+- `TestUpdateMessage`, `StopTestMessage`, `ModelForward`, `TestGraph`, `TestJobController`, `TestParams`
+
+Note: `training.py` also imports stale names (`TrainingRemoteWorkerClientMessage*`,
+`TrainingUpdatesMessage`, `TrainingUpdate`) that will break after regeneration and need updating.
 
 ---
 

@@ -16,7 +16,7 @@ from jax import random
 
 from commondef.training import ControlPolicyOutputMode, FFNModel, VLAModel
 from ppo_model import FFNPPOModel
-from ppo_trainer import PPOTrainedModel, compute_flow_noise_log_prob
+from ppo_trainer import PPOTrainedModel, TestingModel, compute_flow_noise_log_prob
 from pretrained.pi0_jax import Pi0Jax
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ def _init_ffn(ffn_spec: FFNModel, seed: int = 42) -> tuple[Callable, Params]:
     return policy_fn, params
 
 
-class Pi0Model(PPOTrainedModel):
+class Pi0Model(PPOTrainedModel, TestingModel):
     """PPO-trainable wrapper for the Pi-0 flow-matching VLA.
 
     Policy store: trainable_params from Pi0Jax (action expert + projections).
@@ -170,6 +170,16 @@ class Pi0Model(PPOTrainedModel):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    # TestingModel interface
+    def get_test_action(self, state: Array) -> Array:
+        return self.get_policy_output(state)
+
+    def get_pure_test_fn(self) -> Callable[[Params, Array], Array]:
+        return self.get_policy()
+
+    def get_test_params(self) -> Params:
+        return self.get_policy_store()
 
     def _ensure_value_store(self, state: Array) -> None:
         if self._value_store is None:

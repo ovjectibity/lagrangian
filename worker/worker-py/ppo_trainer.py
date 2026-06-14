@@ -172,6 +172,25 @@ class PPOTrainedModel(ABC):
 PPoTrainedModel = PPOTrainedModel
 
 
+class TestingModel(ABC):
+    """Minimal interface for test-time inference, independent of PPO concepts."""
+
+    @abstractmethod
+    def get_test_action(self, state: Array) -> Array:
+        """Single-step inference: state vector → control action."""
+        ...
+
+    @abstractmethod
+    def get_pure_test_fn(self) -> Callable[[Params, Array], Array]:
+        """Pure (params, state) -> action for vmap-able MJX batched testing."""
+        ...
+
+    @abstractmethod
+    def get_test_params(self) -> Params:
+        """Params passed as first arg to get_pure_test_fn."""
+        ...
+
+
 class PPOTrainer:
     def __init__(
         self,
