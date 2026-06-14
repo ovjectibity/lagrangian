@@ -29,8 +29,8 @@ pub const PROJECT_ID: &str = "1";
 pub type RemoteWorkerSlot = Arc<
     AsyncMutex<
         Option<
-            remote_workflows::training_controller
-            ::TrainingWorkerController
+            remote_workflows::remote_worker_controller
+            ::RemoteWorkerController
         >
     >
 >;
@@ -87,16 +87,16 @@ pub fn ensure_remote_worker_shutdown_hook() {
     });
 }
 
-pub fn build_remote_training_worker_config()
+pub fn build_remote_worker_config()
 -> Result<
-    remote_workflows::training_controller
-    ::TrainingWorkerControllerConfig,
+    remote_workflows::remote_worker_controller
+    ::RemoteWorkerControllerConfig,
     String,
 >
 {
     let mut cfg =
-        remote_workflows::training_controller
-        ::TrainingWorkerControllerConfig::default();
+        remote_workflows::remote_worker_controller
+        ::RemoteWorkerControllerConfig::default();
 
     if let Ok(region) =
         env::var("TRAINING_WORKER_AWS_REGION")

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use typeshare::typeshare;
 
-use crate::commondef::{testing::TestParams, training::{
+use crate::commondef::{testing::TestGraph, training::{
     FFNModel, TrainingGraph, TrainingMetrics,
 }};
 
@@ -71,7 +71,7 @@ pub struct TrainingExperimentRun {
     pub model_refs: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[typeshare]
 pub struct LogStream {
     pub created_at: Timestamp,
@@ -95,6 +95,10 @@ pub struct TrainingGraphRecord {
     Debug, Clone, Serialize,
     Deserialize, sqlx::Type, PartialEq,
 )]
+#[sqlx(
+    type_name = "text",
+    rename_all = "snake_case"
+)]
 #[typeshare]
 pub enum TestRunStatus {
     Ongoing,
@@ -117,16 +121,16 @@ pub struct TestRun {
     pub run_status: TestRunStatus,
     pub logs_id: String,
     pub metrics_id: String,
-    pub test_params_id: String
+    pub test_graph_id: String
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[typeshare]
-pub struct TestParamsRecord {
+pub struct TestGraphRecord {
     pub created_at: Timestamp,
     pub id: String,
     pub test_run_id: String,
-    pub params: TestParams,
+    pub graph: TestGraph,
 }
 
 #[derive(
@@ -196,7 +200,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[typeshare]
 pub struct MetricsStream {
     pub created_at: Timestamp,

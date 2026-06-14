@@ -8,7 +8,7 @@ use mongodb::{Client, Collection, Database};
 
 use crate::commondef::record::{
     LogStream, MetricsStream,
-    TrainingGraphRecord,
+    TestGraphRecord, TrainingGraphRecord,
 };
 
 const DB_NAME: &str = "lagrangian";
@@ -17,6 +17,7 @@ const TRAINING_GRAPHS_COL: &str =
 const LOG_STREAMS_COL: &str = "log_streams";
 const METRICS_STREAMS_COL: &str =
     "metrics_streams";
+const TEST_GRAPHS_COL: &str = "test_graphs";
 
 /// Holds a MongoDB client and provides
 /// CRUD operations for document-oriented
@@ -48,6 +49,12 @@ impl MongoOrm {
     ) -> Collection<TrainingGraphRecord> {
         self.db
             .collection(TRAINING_GRAPHS_COL)
+    }
+
+    fn test_graphs_col(
+        &self,
+    ) -> Collection<TestGraphRecord> {
+        self.db.collection(TEST_GRAPHS_COL)
     }
 
     fn log_streams_col(
@@ -310,6 +317,33 @@ impl MongoOrm {
             )
             .await?;
         Ok(())
+    }
+
+    // ── TestGraphRecord CRUD ──
+
+    /// Insert a test graph record.
+    pub async fn create_test_graph(
+        &self,
+        record: &TestGraphRecord,
+    ) -> Result<(), mongodb::error::Error>
+    {
+        self.test_graphs_col()
+            .insert_one(record)
+            .await?;
+        Ok(())
+    }
+
+    /// Fetch a test graph record by id.
+    pub async fn get_test_graph(
+        &self,
+        id: &str,
+    ) -> Result<
+        Option<TestGraphRecord>,
+        mongodb::error::Error,
+    > {
+        self.test_graphs_col()
+            .find_one(doc! { "id": id })
+            .await
     }
 
     /// Delete a metrics stream.

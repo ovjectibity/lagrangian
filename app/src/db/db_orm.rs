@@ -9,6 +9,7 @@ use crate::commondef::record::{
     CheckpointReference, ModelReference,
     Project, TrainingExperiment,
     TrainingExperimentRun, TrainingRunStatus,
+    TestRun, TestRunStatus,
 };
 use crate::commondef::users::User;
 
@@ -696,6 +697,108 @@ impl PostgresOrm {
         .bind(checkpoint_ref_id)
         .fetch_one(&self.pool)
         .await
+    }
+
+    // ── TestRun CRUD ──
+
+    /// Insert a new test run.
+    pub async fn create_test_run(
+        &self,
+        project_id: &str,
+        id: &str,
+        run_status: &TestRunStatus,
+        logs_id: &str,
+        metrics_id: &str,
+        test_graph_id: &str,
+    ) -> Result<TestRun, sqlx::Error> {
+        sqlx::query_as::<_, TestRun>(
+            "INSERT INTO test_runs (
+                project_id, id, created_at,
+                run_start_at, run_end_at,
+                run_status, logs_id,
+                metrics_id, test_graph_id
+            )
+            VALUES (
+                $1, $2, NOW(),
+                NULL, NULL,
+                $3, $4, $5, $6
+            )
+            RETURNING *",
+        )
+        .bind(project_id)
+        .bind(id)
+        .bind(run_status)
+        .bind(logs_id)
+        .bind(metrics_id)
+        .bind(test_graph_id)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    /// Fetch a test run by id.
+    pub async fn get_test_run(
+        &self,
+        id: &str,
+    ) -> Result<Option<TestRun>, sqlx::Error> {
+        sqlx::query_as::<_, TestRun>(
+            "SELECT * FROM test_runs WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    /// Fetch all test runs for a project.
+    pub async fn get_test_runs_by_project(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<TestRun>, sqlx::Error> {
+        sqlx::query_as::<_, TestRun>(
+            "SELECT * FROM test_runs
+            WHERE project_id = $1
+            ORDER BY created_at DESC",
+        )
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Update a test run's status.
+    pub async fn update_test_run_status(
+        &self,
+        id: &str,
+        status: &TestRunStatus,
+    ) -> Result<TestRun, sqlx::Error> {
+        let query = match status {
+            TestRunStatus::Ongoing => {
+                "UPDATE test_runs
+                SET run_status = $2,
+                    run_start_at = NOW()
+                WHERE id = $1
+                RETURNING *"
+            }
+            TestRunStatus::Completed
+            | TestRunStatus::StoppedByUser => {
+                "UPDATE test_runs
+                SET run_status = $2,
+                    run_end_at = NOW()
+                WHERE id = $1
+                RETURNING *"
+            }
+            TestRunStatus::NotStarted => {
+                "UPDATE test_runs
+                SET run_status = $2,
+                    run_start_at = NULL,
+                    run_end_at = NULL
+                WHERE id = $1
+                RETURNING *"
+            }
+        };
+        sqlx::query_as::<_, TestRun>(query)
+            .bind(id)
+            .bind(status)
+            .fetch_one(&self.pool)
+            .await
     }
 
     /// Delete a checkpoint reference.

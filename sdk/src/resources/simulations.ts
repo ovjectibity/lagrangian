@@ -1,5 +1,5 @@
 import { streamSSE } from "../sse.js";
-import type { SimulUpdateMessage, SimulationParams } from "../types.js";
+import type { SimulUpdateMessage, TestGraph } from "../types.js";
 
 export class SimulationsResource {
   constructor(
@@ -10,21 +10,21 @@ export class SimulationsResource {
     ) => Promise<Response>,
   ) {}
 
-  async start(params: SimulationParams): Promise<{ id: string }> {
+  async start(graph: TestGraph): Promise<{ id: string }> {
     const res = await this.fetch(
-      `${this.baseUrl}/testing/simulations`,
+      `${this.baseUrl}/testing/start`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ simulation_params: params }),
+        body: JSON.stringify({ test_graph: graph }),
       },
     );
     return res.json() as Promise<{ id: string }>;
   }
 
-  async stop(simulationId: string): Promise<{ id: string }> {
+  async stop(testId: string): Promise<{ id: string }> {
     const res = await this.fetch(
-      `${this.baseUrl}/testing/simulations/${simulationId}/stop`,
+      `${this.baseUrl}/testing/${testId}/stop`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -34,8 +34,8 @@ export class SimulationsResource {
     return res.json() as Promise<{ id: string }>;
   }
 
-  streamUpdates(simulationId: string): AsyncIterable<SimulUpdateMessage> {
-    const url = `${this.baseUrl}/testing/simulations/${simulationId}/updates`;
+  streamUpdates(testId: string): AsyncIterable<SimulUpdateMessage> {
+    const url = `${this.baseUrl}/testing/${testId}/updates`;
     return streamSSE<SimulUpdateMessage>(url);
   }
 }

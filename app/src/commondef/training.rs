@@ -138,7 +138,7 @@ pub struct RewardSystem {
     pub reward_function_code: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum TrainingMetrics {
@@ -150,7 +150,7 @@ pub enum TrainingMetrics {
     ValueGradientNorm(MetricsData),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[typeshare]
 pub struct MetricsData {
     pub x_axis: Vec<f64>,

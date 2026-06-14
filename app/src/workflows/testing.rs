@@ -4,7 +4,7 @@ use rocket::tokio::sync::mpsc;
 use tch::{Device, Kind, Tensor};
 
 use crate::commondef::{
-    testing::{ModelForward, StopTestMessage, TestParams, TestUpdateMessage},
+    testing::{ModelForward, StopTestMessage, TestGraph, TestUpdateMessage},
     workermessages::TestTaskMessage,
 };
 use crate::plugin::ControlPolicyOutputMode;
@@ -14,7 +14,7 @@ pub struct TestingWorkflow {
     id: String,
     simulator: Arc<Mutex<dyn Simulator + Send>>,
     model: Arc<Mutex<dyn ControlPolicyModel + Send>>,
-    params: TestParams,
+    graph: TestGraph,
 }
 
 impl TestingWorkflow {
@@ -22,13 +22,13 @@ impl TestingWorkflow {
         id: String,
         simulator: Arc<Mutex<dyn Simulator + Send>>,
         model: Arc<Mutex<dyn ControlPolicyModel + Send>>,
-        params: TestParams,
+        graph: TestGraph,
     ) -> Self {
         TestingWorkflow {
-            id: id,
-            simulator: simulator,
-            model: model,
-            params: params,
+            id,
+            simulator,
+            model,
+            graph,
         }
     }
 
@@ -61,8 +61,9 @@ impl TestingWorkflow {
         {
             simulator.reset_state();
             let action_output_size = simulator.nu();
-            println!("Running test for {:?} timesteps", self.params.num_timesteps);
-            for i in 0..self.params.num_timesteps {
+            let num_timesteps = self.graph.test_job_controller.test_params.num_timesteps;
+            println!("Running test for {:?} timesteps", num_timesteps);
+            for i in 0..num_timesteps {
                 let wstate = simulator.get_model_state();
                 let action_gaussian_params = model.get_policy_output(&wstate);
                 let s_action_gaussian_params = action_gaussian_params

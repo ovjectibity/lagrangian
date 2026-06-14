@@ -1,8 +1,12 @@
+use std::collections::HashMap;
+
 use schemars::JsonSchema;
 use serde;
 use typeshare::typeshare;
 
-use crate::commondef::training::ControlModel;
+use crate::commondef::training::{
+    ComputeInstance, ControlModel, TrainingAccelerationMode,
+};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[typeshare]
@@ -15,11 +19,26 @@ pub struct TestParams {
     // pub reward_function: Option<RewardSystem>
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[typeshare]
+pub struct TestJobController {
+    pub test_params: TestParams,
+    pub compute_instance: ComputeInstance,
+    pub acceleration_mode: TrainingAccelerationMode,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[typeshare]
+pub struct TestGraph {
+    pub test_job_controller: TestJobController,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct StartTestMessage {
-    pub simulation_params: TestParams,
     pub id: String,
+    pub test_graph: TestGraph,
+    pub simulation_models: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

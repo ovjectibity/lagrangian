@@ -1,1 +1,1 @@
-pub mod training_controller;
+pub mod remote_worker_controller;

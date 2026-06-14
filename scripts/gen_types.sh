@@ -7,8 +7,9 @@
 # to avoid duplicate interface names and unnecessary noise in the SDK.
 #
 # Python targets mirror the worker's commondef package:
-#   - training.py  ← training.rs only
+#   - training.py  ← re-export shim (training types inlined into remoteworkermessages.py)
 #   - remoteworkermessages.py ← remoteworkermessages.rs + training.rs
+#   - testing.py ← testing.rs + training.rs (needed for TestGraph types)
 set -euo pipefail
 
 TS_INCLUDE_FILES=(
@@ -38,28 +39,45 @@ for target in "${TS_TARGETS[@]}"; do
 done
 
 # --- Python: training.py (re-export shim) ---
-# remoteworkermessages.py already contains all training types (inlined by typeshare
-# because it needs both files to resolve references). Making training.py a shim
-# ensures all code — regardless of which module it imports from — gets the same
-# class objects, so isinstance and Pydantic validation always agree.
 echo "# Auto-generated re-export shim — do not edit. Run scripts/gen_types.sh to regenerate.
 from commondef.remoteworkermessages import *" \
-  > "worker/trainer/trainer-py/commondef/training.py"
-echo "Generated: worker/trainer/trainer-py/commondef/training.py (re-export shim)"
+  > "worker/worker-py/commondef/training.py"
+echo "Generated: worker/worker-py/commondef/training.py (re-export shim)"
 
 # --- Python: remoteworkermessages.py (remote worker protocol + training types) ---
 py_remote_dir=$(mktemp -d)
 trap 'rm -rf "$py_remote_dir"' EXIT
 cp "app/src/commondef/remoteworkermessages.rs" "$py_remote_dir/"
 cp "app/src/commondef/training.rs" "$py_remote_dir/"
+cp "app/src/commondef/testing.rs" "$py_remote_dir/"
 typeshare "$py_remote_dir" --lang=python \
-  --output-file="worker/trainer/trainer-py/commondef/remoteworkermessages.py"
-echo "Generated: worker/trainer/trainer-py/commondef/remoteworkermessages.py"
+  --output-file="worker/worker-py/commondef/remoteworkermessages.py"
+echo "Generated: worker/worker-py/commondef/remoteworkermessages.py"
 
-# --- MongoDB JSON Schema: schemas/training_graph.json ---
+# --- Python: testing.py (testing types for remote worker) ---
+py_testing_dir=$(mktemp -d)
+trap 'rm -rf "$py_testing_dir"' EXIT
+cp "app/src/commondef/testing.rs" "$py_testing_dir/"
+cp "app/src/commondef/training.rs" "$py_testing_dir/"
+typeshare "$py_testing_dir" --lang=python \
+  --output-file="worker/worker-py/commondef/testing.py"
+echo "Generated: worker/worker-py/commondef/testing.py"
+
+# --- MongoDB JSON Schemas ---
 mkdir -p schemas
-cargo run --manifest-path scripts/gen_mongo_schema/Cargo.toml -q \
-  > schemas/training_graph.json
+
+GEN_SCHEMA="cargo run --manifest-path scripts/gen_mongo_schema/Cargo.toml -q --"
+
+$GEN_SCHEMA training_graph > schemas/training_graph.json
 echo "Generated: schemas/training_graph.json"
+
+$GEN_SCHEMA log_stream > schemas/log_stream.json
+echo "Generated: schemas/log_stream.json"
+
+$GEN_SCHEMA metrics_stream > schemas/metrics_stream.json
+echo "Generated: schemas/metrics_stream.json"
+
+$GEN_SCHEMA test_graph > schemas/test_graph.json
+echo "Generated: schemas/test_graph.json"
 
 echo "Done."

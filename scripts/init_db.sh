@@ -185,6 +185,18 @@ CREATE TABLE IF NOT EXISTS checkpoint_references (
     value_model_params     TEXT
 );
 
+CREATE TABLE IF NOT EXISTS test_runs (
+    id             TEXT        PRIMARY KEY,
+    project_id     TEXT        NOT NULL REFERENCES projects(project_id),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    run_start_at   TIMESTAMPTZ,
+    run_end_at     TIMESTAMPTZ,
+    run_status     TEXT        NOT NULL DEFAULT 'not_started',
+    logs_id        TEXT        NOT NULL,
+    metrics_id     TEXT        NOT NULL,
+    test_graph_id  TEXT        NOT NULL
+);
+
 GRANT ALL PRIVILEGES ON ALL TABLES
     IN SCHEMA public TO $POSTGRES_USER;
 
@@ -246,6 +258,7 @@ const cols = [
   'training_graphs',
   'log_streams',
   'metrics_streams',
+  'test_graphs',
 ];
 
 for (const name of cols) {

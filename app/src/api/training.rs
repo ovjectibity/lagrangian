@@ -549,7 +549,7 @@ pub async fn start_training(
     } else {
         // Remote training
         let remote_cfg =
-            match crate::build_remote_training_worker_config()
+            match crate::build_remote_worker_config()
             {
                 Ok(c) => c,
                 Err(e) => {
@@ -730,8 +730,8 @@ async fn spawn_remote_training_task(
     controller: TrainingJobController,
     model_path: String,
     remote_cfg: crate::remote_workflows
-        ::training_controller
-        ::TrainingWorkerControllerConfig,
+        ::remote_worker_controller
+        ::RemoteWorkerControllerConfig,
     worker_slot: crate::RemoteWorkerSlot,
     tx: mpsc::Sender<TrainingTaskMessage>,
     stop_flag: Arc<AtomicBool>,
@@ -751,8 +751,8 @@ async fn spawn_remote_training_task(
     let mut guard = worker_slot.lock().await;
     if guard.is_none() {
         match crate::remote_workflows
-            ::training_controller
-            ::TrainingWorkerController
+            ::remote_worker_controller
+            ::RemoteWorkerController
             ::initialize(remote_cfg)
             .await
         {
