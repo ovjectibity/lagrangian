@@ -80,45 +80,6 @@ PUBLIC_IP="$(
 )"
 echo "Instance public IP: ${PUBLIC_IP}"
 
-# ---- Update security group inbound rules for local machine's public IP ----
-LOCAL_IP="$(curl -sf https://checkip.amazonaws.com)"
-if [[ -z "${LOCAL_IP}" ]]; then
-  echo "error: could not determine local public IP." >&2
-  exit 1
-fi
-echo "Local public IP: ${LOCAL_IP}"
-
-# Use the first security group ID (the one from .envrc)
-SG_ID="${SECURITY_GROUP_IDS%%,*}"
-
-echo "Updating security group ${SG_ID} inbound rules ..."
-for PORT in 22 "${TRAINING_WORKER_PORT}"; do
-  # Revoke any existing rule for this port (ignore errors if none exists)
-  EXISTING_CIDRS="$(
-    aws ec2 describe-security-groups \
-      --region "${REGION}" \
-      --group-ids "${SG_ID}" \
-      --query "SecurityGroups[0].IpPermissions[?FromPort==\`${PORT}\` && ToPort==\`${PORT}\` && IpProtocol=='tcp'].IpRanges[].CidrIp" \
-      --output text
-  )"
-  for CIDR in ${EXISTING_CIDRS}; do
-    aws ec2 revoke-security-group-ingress \
-      --region "${REGION}" \
-      --group-id "${SG_ID}" \
-      --protocol tcp \
-      --port "${PORT}" \
-      --cidr "${CIDR}" 2>/dev/null || true
-  done
-
-  aws ec2 authorize-security-group-ingress \
-    --region "${REGION}" \
-    --group-id "${SG_ID}" \
-    --protocol tcp \
-    --port "${PORT}" \
-    --cidr "${LOCAL_IP}/32"
-  echo "  port ${PORT}: allowed ${LOCAL_IP}/32"
-done
-
 # ---- Wait for SSH to become available ----
 echo "Waiting for SSH to become available ..."
 for i in $(seq 1 30); do

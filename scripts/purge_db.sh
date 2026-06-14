@@ -53,6 +53,7 @@ require_cmd mongosh
 # ── Postgres ─────────────────────────────────────────
 
 POSTGRES_TABLES=(
+  test_runs
   training_runs
   training_experiments
   checkpoint_references
@@ -95,6 +96,7 @@ fi
 
 MONGO_COLLECTIONS=(
   training_graphs
+  test_graphs
   log_streams
   metrics_streams
 )
