@@ -174,7 +174,7 @@ def main() -> None:
     print("=== Creating experiment ===")
     exp_id = create_experiment()
 
-    print("\n=== Remote training with Python reward ===")
+    print("\n=== Remote training | FFN control model | Python reward ===")
     run_id = create_run(exp_id)
     graph = build_training_graph(model_id)
     r = requests.post(

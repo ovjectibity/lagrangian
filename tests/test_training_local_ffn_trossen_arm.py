@@ -173,7 +173,7 @@ def main() -> None:
     print("=== Creating experiment ===")
     exp_id = create_experiment()
 
-    print("\n=== Local training with Rust reward ===")
+    print("\n=== Local training | FFN control model | Rust reward ===")
     run_id = create_run(exp_id)
     graph = build_training_graph(model_id)
     r = requests.post(

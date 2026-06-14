@@ -1,0 +1,513 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrainingGraphRecord",
+  "type": "object",
+  "properties": {
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "id": {
+      "type": "string"
+    },
+    "training_experiment_id": {
+      "type": "string"
+    },
+    "training_run_id": {
+      "type": "string"
+    },
+    "graph": {
+      "$ref": "#/definitions/TrainingGraph"
+    }
+  },
+  "required": [
+    "created_at",
+    "id",
+    "training_experiment_id",
+    "training_run_id",
+    "graph"
+  ],
+  "definitions": {
+    "TrainingGraph": {
+      "type": "object",
+      "properties": {
+        "training_job_controller": {
+          "$ref": "#/definitions/TrainingJobController"
+        }
+      },
+      "required": [
+        "training_job_controller"
+      ]
+    },
+    "TrainingJobController": {
+      "type": "object",
+      "properties": {
+        "training_method": {
+          "$ref": "#/definitions/TrainingMethod"
+        },
+        "acceleration_mode": {
+          "$ref": "#/definitions/TrainingAccelerationMode"
+        },
+        "compute_instance": {
+          "$ref": "#/definitions/ComputeInstance"
+        },
+        "checkpoint_frequency": {
+          "$ref": "#/definitions/CheckpointFrequency"
+        }
+      },
+      "required": [
+        "training_method",
+        "acceleration_mode",
+        "compute_instance",
+        "checkpoint_frequency"
+      ]
+    },
+    "TrainingMethod": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "PPO"
+            },
+            "content": {
+              "$ref": "#/definitions/PPOTrainingMethod"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
+      ]
+    },
+    "PPOTrainingMethod": {
+      "type": "object",
+      "properties": {
+        "num_trajs": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "num_steps_per_traj": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "num_epochs": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "num_updates": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "epsilon": {
+          "type": "number",
+          "format": "double"
+        },
+        "gamma": {
+          "type": "number",
+          "format": "double"
+        },
+        "lambda": {
+          "type": "number",
+          "format": "double"
+        },
+        "reward_function": {
+          "$ref": "#/definitions/RewardSystem"
+        },
+        "control_model": {
+          "$ref": "#/definitions/ControlModel"
+        },
+        "value_model": {
+          "$ref": "#/definitions/ValueModel"
+        },
+        "simulation_model": {
+          "type": "string"
+        },
+        "control_output_mode": {
+          "$ref": "#/definitions/ControlOutputMode"
+        }
+      },
+      "required": [
+        "num_trajs",
+        "num_steps_per_traj",
+        "num_epochs",
+        "num_updates",
+        "epsilon",
+        "gamma",
+        "lambda",
+        "reward_function",
+        "control_model",
+        "value_model",
+        "simulation_model",
+        "control_output_mode"
+      ]
+    },
+    "RewardSystem": {
+      "type": "object",
+      "properties": {
+        "language": {
+          "$ref": "#/definitions/RewardLanguage"
+        },
+        "reward_function_code": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "language",
+        "reward_function_code"
+      ]
+    },
+    "RewardLanguage": {
+      "type": "string",
+      "enum": [
+        "Rust",
+        "Python"
+      ]
+    },
+    "ControlModel": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "FFN"
+            },
+            "content": {
+              "$ref": "#/definitions/FFNModel"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "VLA"
+            },
+            "content": {
+              "$ref": "#/definitions/VLAModel"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
+      ]
+    },
+    "FFNModel": {
+      "type": "object",
+      "properties": {
+        "model_type": {
+          "$ref": "#/definitions/ModelType"
+        },
+        "num_hidden_layers": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "hidden_layer_dim": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "output_dim": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "input_dim": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      "required": [
+        "model_type",
+        "num_hidden_layers",
+        "hidden_layer_dim",
+        "output_dim",
+        "input_dim"
+      ]
+    },
+    "ModelType": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Checkpoint"
+            },
+            "content": {
+              "$ref": "#/definitions/CheckpointType"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "New"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "CheckpointType": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Pretrained"
+            },
+            "content": {
+              "$ref": "#/definitions/Pretrained"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Checkpoint"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
+      ]
+    },
+    "Pretrained": {
+      "type": "string",
+      "enum": [
+        "Pi0"
+      ]
+    },
+    "VLAModel": {
+      "type": "object",
+      "properties": {
+        "model_type": {
+          "$ref": "#/definitions/ModelType"
+        },
+        "input": {
+          "$ref": "#/definitions/ControlModelInput"
+        },
+        "output": {
+          "$ref": "#/definitions/ControlPolicyOutputMode"
+        }
+      },
+      "required": [
+        "model_type",
+        "input",
+        "output"
+      ]
+    },
+    "ControlModelInput": {
+      "type": "object",
+      "properties": {
+        "all_cameras": {
+          "type": "boolean"
+        },
+        "qpos_state": {
+          "type": "boolean"
+        },
+        "qvel_state": {
+          "type": "boolean"
+        },
+        "xpos_state": {
+          "type": "boolean"
+        },
+        "xquat_state": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "all_cameras",
+        "qpos_state",
+        "qvel_state",
+        "xpos_state",
+        "xquat_state"
+      ]
+    },
+    "ControlPolicyOutputMode": {
+      "type": "string",
+      "enum": [
+        "TargetPositions",
+        "TargetVelocities",
+        "TargetTorques"
+      ]
+    },
+    "ValueModel": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "FFN"
+            },
+            "content": {
+              "$ref": "#/definitions/FFNModel"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
+      ]
+    },
+    "ControlOutputMode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ActionMean"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "FlowMatchingAction"
+            },
+            "content": {
+              "$ref": "#/definitions/FlowMatchingAction"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
+      ]
+    },
+    "FlowMatchingAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "FlowNoise"
+            },
+            "content": {
+              "$ref": "#/definitions/FlowNoiseConfig"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
+      ]
+    },
+    "FlowNoiseConfig": {
+      "type": "object",
+      "properties": {
+        "noise_model": {
+          "$ref": "#/definitions/FFNModel"
+        }
+      },
+      "required": [
+        "noise_model"
+      ]
+    },
+    "TrainingAccelerationMode": {
+      "type": "string",
+      "enum": [
+        "MLGPUSimulationCPU",
+        "MLGPUSimulationGPU",
+        "MLCPUSimulationCPU",
+        "AllOnServer"
+      ]
+    },
+    "ComputeInstance": {
+      "type": "string",
+      "enum": [
+        "AWSG4dn"
+      ]
+    },
+    "CheckpointFrequency": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "PostEpoch"
+            },
+            "content": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "PostUpdate"
+            },
+            "content": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "LastOnly"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    }
+  }
+}

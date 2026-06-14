@@ -12,6 +12,16 @@
 #   - testing.py ← testing.rs + training.rs (needed for TestGraph types)
 set -euo pipefail
 
+# libtorch is required by gen_mongo_schema (via the lagrangian app crate / tch-rs).
+# Source .envrc if present so LIBTORCH etc. are set, then fall back to a default.
+if [[ -f ".envrc" ]]; then
+  set -a
+  source ".envrc"
+  set +a
+fi
+export LIBTORCH="${LIBTORCH:-/Users/avi/Documents/projects/libtorch}"
+export LIBTORCH_BYPASS_VERSION_CHECK="${LIBTORCH_BYPASS_VERSION_CHECK:-1}"
+
 TS_INCLUDE_FILES=(
   "app/src/commondef/clientmessages.rs"
   "app/src/commondef/model.rs"

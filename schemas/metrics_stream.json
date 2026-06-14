@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MetricsStream",
+  "type": "object",
+  "properties": {
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "id": {
+      "type": "string"
+    },
+    "training_experiment_id": {
+      "type": "string"
+    },
+    "training_run_id": {
+      "type": "string"
+    },
+    "training_metrics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TrainingMetrics"
+      }
+    }
+  },
+  "required": [
+    "created_at",
+    "id",
+    "training_experiment_id",
+    "training_run_id",
+    "training_metrics"
+  ],
+  "definitions": {
+    "TrainingMetrics": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "MeanReward"
+            },
+            "content": {
+              "$ref": "#/definitions/MetricsData"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "MeanPolicyLoss"
+            },
+            "content": {
+              "$ref": "#/definitions/MetricsData"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ValueLoss"
+            },
+            "content": {
+              "$ref": "#/definitions/MetricsData"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "MeanEntropy"
+            },
+            "content": {
+              "$ref": "#/definitions/MetricsData"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "PolicyGradientNorm"
+            },
+            "content": {
+              "$ref": "#/definitions/MetricsData"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ValueGradientNorm"
+            },
+            "content": {
+              "$ref": "#/definitions/MetricsData"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
+      ]
+    },
+    "MetricsData": {
+      "type": "object",
+      "properties": {
+        "x_axis": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "y_axis": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "required": [
+        "x_axis",
+        "y_axis"
+      ]
+    }
+  }
+}

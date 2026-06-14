@@ -46,17 +46,13 @@ class ControlModelInput(BaseModel):
 class FlowNoiseConfig(BaseModel):
     noise_model: FFNModel
 
-class LoadModelMessage(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    id: str
-    mjcf: str
-    model_zip_base_64: Optional[str] = Field(alias="model_zip_base64", default=None)
-    mjcf_entrypoint: Optional[str] = Field(default=None)
-
 class MetricsData(BaseModel):
     x_axis: List[float]
     y_axis: List[float]
+
+class ModelForward(BaseModel):
+    xpos: List[float]
+    xquat: List[float]
 
 class RewardLanguage(str, Enum):
     RUST = "Rust"
@@ -118,6 +114,32 @@ class PPOTrainingRunState(BaseModel):
     epoch_index: int
     update_index: int
 
+class TestParams(BaseModel):
+    num_timesteps: int
+    control_model: ControlModel
+    simulation_model: str
+    num_parallel_envs: int
+
+class ComputeInstance(str, Enum):
+    AWSG4DN = "AWSG4dn"
+class TrainingAccelerationMode(str, Enum):
+    MLGPUSIMULATIONCPU = "MLGPUSimulationCPU"
+    MLGPUSIMULATIONGPU = "MLGPUSimulationGPU"
+    MLCPUSIMULATIONCPU = "MLCPUSimulationCPU"
+    ALLONSERVER = "AllOnServer"
+class TestJobController(BaseModel):
+    test_params: TestParams
+    compute_instance: ComputeInstance
+    acceleration_mode: TrainingAccelerationMode
+
+class TestGraph(BaseModel):
+    test_job_controller: TestJobController
+
+class StartTestMessage(BaseModel):
+    id: str
+    test_graph: TestGraph
+    simulation_models: Dict[str, str]
+
 class TrainingMethodTypes(str, Enum):
     PPO = "PPO"
 
@@ -126,13 +148,6 @@ class TrainingMethodPPO(BaseModel):
     content: PPOTrainingMethod
 
 TrainingMethod = TrainingMethodPPO
-class TrainingAccelerationMode(str, Enum):
-    MLGPUSIMULATIONCPU = "MLGPUSimulationCPU"
-    MLGPUSIMULATIONGPU = "MLGPUSimulationGPU"
-    MLCPUSIMULATIONCPU = "MLCPUSimulationCPU"
-    ALLONSERVER = "AllOnServer"
-class ComputeInstance(str, Enum):
-    AWSG4DN = "AWSG4dn"
 class CheckpointFrequencyTypes(str, Enum):
     POST_EPOCH = "PostEpoch"
     POST_UPDATE = "PostUpdate"
@@ -165,8 +180,15 @@ class StartTrainingMessage(BaseModel):
     checkpoints: List[Checkpoint]
     simulation_models: Dict[str, str]
 
+class StopTestMessage(BaseModel):
+    id: str
+
 class StopTrainingMessage(BaseModel):
     id: str
+
+class TestUpdateMessage(BaseModel):
+    id: str
+    updates: List[List[ModelForward]]
 
 class TrainingRunStateTypes(str, Enum):
     PPO_TRAINING_RUN_STATE = "PPOTrainingRunState"
@@ -213,7 +235,7 @@ class TrainingUpdate(BaseModel):
     training_run_state: TrainingRunState
     logs: List[str]
     metrics: List[TrainingMetrics]
-    checkpoints: List[Checkpoint]
+    checkpoints: List[CheckpointReference]
 
 class TrainingUpdatesMessage(BaseModel):
     id: str
@@ -227,6 +249,16 @@ class VLAModel(BaseModel):
     model_type: ModelType
     input: ControlModelInput
     output: ControlPolicyOutputMode
+
+class WorkerTrainingUpdate(BaseModel):
+    training_run_state: TrainingRunState
+    logs: List[str]
+    metrics: List[TrainingMetrics]
+    checkpoints: List[Checkpoint]
+
+class WorkerTrainingUpdatesMessage(BaseModel):
+    id: str
+    updates: List[WorkerTrainingUpdate]
 
 class CheckpointTypeTypes(str, Enum):
     PRETRAINED = "Pretrained"
@@ -251,34 +283,49 @@ class FlowMatchingActionFlowNoise(BaseModel):
 FlowMatchingAction = FlowMatchingActionFlowNoise
 class Pretrained(str, Enum):
     PI0 = "Pi0"
-class TrainingRemoteWorkerClientMessageTypes(str, Enum):
+class RemoteWorkerClientMessageTypes(str, Enum):
     TRAINING_UPDATES_MESSAGE = "TrainingUpdatesMessage"
     STOP_TRAINING_MESSAGE = "StopTrainingMessage"
+    TEST_UPDATES_MESSAGE = "TestUpdatesMessage"
+    STOP_TESTING_MESSAGE = "StopTestingMessage"
 
-class TrainingRemoteWorkerClientMessageTrainingUpdatesMessage(BaseModel):
-    type: Literal[TrainingRemoteWorkerClientMessageTypes.TRAINING_UPDATES_MESSAGE] = TrainingRemoteWorkerClientMessageTypes.TRAINING_UPDATES_MESSAGE
-    content: TrainingUpdatesMessage
+class RemoteWorkerClientMessageTrainingUpdatesMessage(BaseModel):
+    type: Literal[RemoteWorkerClientMessageTypes.TRAINING_UPDATES_MESSAGE] = RemoteWorkerClientMessageTypes.TRAINING_UPDATES_MESSAGE
+    content: WorkerTrainingUpdatesMessage
 
-class TrainingRemoteWorkerClientMessageStopTrainingMessage(BaseModel):
-    type: Literal[TrainingRemoteWorkerClientMessageTypes.STOP_TRAINING_MESSAGE] = TrainingRemoteWorkerClientMessageTypes.STOP_TRAINING_MESSAGE
+class RemoteWorkerClientMessageStopTrainingMessage(BaseModel):
+    type: Literal[RemoteWorkerClientMessageTypes.STOP_TRAINING_MESSAGE] = RemoteWorkerClientMessageTypes.STOP_TRAINING_MESSAGE
     content: StopTrainingMessage
 
-TrainingRemoteWorkerClientMessage = Union[TrainingRemoteWorkerClientMessageTrainingUpdatesMessage, TrainingRemoteWorkerClientMessageStopTrainingMessage]
-class TrainingRemoteWorkerServerMessageTypes(str, Enum):
-    LOAD_MODEL_MESSAGE = "LoadModelMessage"
+class RemoteWorkerClientMessageTestUpdatesMessage(BaseModel):
+    type: Literal[RemoteWorkerClientMessageTypes.TEST_UPDATES_MESSAGE] = RemoteWorkerClientMessageTypes.TEST_UPDATES_MESSAGE
+    content: TestUpdateMessage
+
+class RemoteWorkerClientMessageStopTestingMessage(BaseModel):
+    type: Literal[RemoteWorkerClientMessageTypes.STOP_TESTING_MESSAGE] = RemoteWorkerClientMessageTypes.STOP_TESTING_MESSAGE
+    content: StopTestMessage
+
+RemoteWorkerClientMessage = Union[RemoteWorkerClientMessageTrainingUpdatesMessage, RemoteWorkerClientMessageStopTrainingMessage, RemoteWorkerClientMessageTestUpdatesMessage, RemoteWorkerClientMessageStopTestingMessage]
+class RemoteWorkerServerMessageTypes(str, Enum):
     START_TRAINING_MESSAGE = "StartTrainingMessage"
     STOP_TRAINING_MESSAGE = "StopTrainingMessage"
+    START_TESTING_MESSAGE = "StartTestingMessage"
+    STOP_TESTING_MESSAGE = "StopTestingMessage"
 
-class TrainingRemoteWorkerServerMessageLoadModelMessage(BaseModel):
-    type: Literal[TrainingRemoteWorkerServerMessageTypes.LOAD_MODEL_MESSAGE] = TrainingRemoteWorkerServerMessageTypes.LOAD_MODEL_MESSAGE
-    content: LoadModelMessage
-
-class TrainingRemoteWorkerServerMessageStartTrainingMessage(BaseModel):
-    type: Literal[TrainingRemoteWorkerServerMessageTypes.START_TRAINING_MESSAGE] = TrainingRemoteWorkerServerMessageTypes.START_TRAINING_MESSAGE
+class RemoteWorkerServerMessageStartTrainingMessage(BaseModel):
+    type: Literal[RemoteWorkerServerMessageTypes.START_TRAINING_MESSAGE] = RemoteWorkerServerMessageTypes.START_TRAINING_MESSAGE
     content: StartTrainingMessage
 
-class TrainingRemoteWorkerServerMessageStopTrainingMessage(BaseModel):
-    type: Literal[TrainingRemoteWorkerServerMessageTypes.STOP_TRAINING_MESSAGE] = TrainingRemoteWorkerServerMessageTypes.STOP_TRAINING_MESSAGE
+class RemoteWorkerServerMessageStopTrainingMessage(BaseModel):
+    type: Literal[RemoteWorkerServerMessageTypes.STOP_TRAINING_MESSAGE] = RemoteWorkerServerMessageTypes.STOP_TRAINING_MESSAGE
     content: StopTrainingMessage
 
-TrainingRemoteWorkerServerMessage = Union[TrainingRemoteWorkerServerMessageLoadModelMessage, TrainingRemoteWorkerServerMessageStartTrainingMessage, TrainingRemoteWorkerServerMessageStopTrainingMessage]
+class RemoteWorkerServerMessageStartTestingMessage(BaseModel):
+    type: Literal[RemoteWorkerServerMessageTypes.START_TESTING_MESSAGE] = RemoteWorkerServerMessageTypes.START_TESTING_MESSAGE
+    content: StartTestMessage
+
+class RemoteWorkerServerMessageStopTestingMessage(BaseModel):
+    type: Literal[RemoteWorkerServerMessageTypes.STOP_TESTING_MESSAGE] = RemoteWorkerServerMessageTypes.STOP_TESTING_MESSAGE
+    content: StopTestMessage
+
+RemoteWorkerServerMessage = Union[RemoteWorkerServerMessageStartTrainingMessage, RemoteWorkerServerMessageStopTrainingMessage, RemoteWorkerServerMessageStartTestingMessage, RemoteWorkerServerMessageStopTestingMessage]

@@ -46,6 +46,14 @@ export interface FFNModel {
 	input_dim: number;
 }
 
+export interface Checkpoint {
+	id?: string;
+	model_zip_base64?: string;
+	model_zip_path?: string;
+	control_model_ffn?: FFNModel;
+	value_model_ffn?: FFNModel;
+}
+
 export interface CheckpointReference {
 	created_at: Timestamp;
 	id: string;
@@ -158,27 +166,103 @@ export interface Project {
 	created_at: Timestamp;
 }
 
-export interface SimulUpdateMessage {
-	id: string;
-	updates: ModelForward[];
-}
-
-export interface SimulationParams {
-	policy_id: string;
+export interface TestParams {
 	num_timesteps: number;
+	control_model: ControlModel;
+	simulation_model: string;
+	num_parallel_envs: number;
 }
 
-export interface StartSimulationMessage {
-	simulation_params: SimulationParams;
+export enum ComputeInstance {
+	AWSG4dn = "AWSG4dn",
+}
+
+export enum TrainingAccelerationMode {
+	MLGPUSimulationCPU = "MLGPUSimulationCPU",
+	MLGPUSimulationGPU = "MLGPUSimulationGPU",
+	MLCPUSimulationCPU = "MLCPUSimulationCPU",
+	AllOnServer = "AllOnServer",
+}
+
+export interface TestJobController {
+	test_params: TestParams;
+	compute_instance: ComputeInstance;
+	acceleration_mode: TrainingAccelerationMode;
+}
+
+export interface TestGraph {
+	test_job_controller: TestJobController;
+}
+
+export interface StartTestMessage {
 	id: string;
+	test_graph: TestGraph;
+	simulation_models: Record<string, string>;
 }
 
-export interface StopSimulationMessage {
+export type TrainingMethod = 
+	| { type: "PPO", content: PPOTrainingMethod };
+
+export type CheckpointFrequency = 
+	| { type: "PostEpoch", content: number }
+	| { type: "PostUpdate", content: number }
+	| { type: "LastOnly", content?: undefined };
+
+export interface TrainingJobController {
+	training_method: TrainingMethod;
+	acceleration_mode: TrainingAccelerationMode;
+	compute_instance: ComputeInstance;
+	checkpoint_frequency: CheckpointFrequency;
+}
+
+export interface TrainingGraph {
+	training_job_controller: TrainingJobController;
+}
+
+export interface StartTrainingMessage {
+	id: string;
+	training_graph: TrainingGraph;
+	checkpoints: Checkpoint[];
+	simulation_models: Record<string, string>;
+}
+
+export interface StopTestMessage {
 	id: string;
 }
 
 export interface StopTrainingMessage {
 	id: string;
+}
+
+export interface TestGraphRecord {
+	created_at: Timestamp;
+	id: string;
+	test_run_id: string;
+	graph: TestGraph;
+}
+
+export enum TestRunStatus {
+	Ongoing = "Ongoing",
+	Completed = "Completed",
+	StoppedByUser = "StoppedByUser",
+	NotStarted = "NotStarted",
+}
+
+export interface TestRun {
+	project_id: string;
+	id: string;
+	created_at: Timestamp;
+	run_start_at?: Timestamp;
+	run_end_at?: Timestamp;
+	run_status: TestRunStatus;
+	logs_id: string;
+	metrics_id: string;
+	test_graph_id: string;
+}
+
+export interface TestUpdateMessage {
+	id: string;
+	updates: ModelForward[][];
 }
 
 export interface TrainingExperiment {
@@ -209,36 +293,6 @@ export interface TrainingExperimentRun {
 	training_graph_id: string;
 	checkpoints_refs: string[];
 	model_refs: string[];
-}
-
-export type TrainingMethod = 
-	| { type: "PPO", content: PPOTrainingMethod };
-
-export enum TrainingAccelerationMode {
-	MLGPUSimulationCPU = "MLGPUSimulationCPU",
-	MLGPUSimulationGPU = "MLGPUSimulationGPU",
-	MLCPUSimulationCPU = "MLCPUSimulationCPU",
-	AllOnServer = "AllOnServer",
-}
-
-export enum ComputeInstance {
-	AWSG4dn = "AWSG4dn",
-}
-
-export type CheckpointFrequency = 
-	| { type: "PostEpoch", content: number }
-	| { type: "PostUpdate", content: number }
-	| { type: "LastOnly", content?: undefined };
-
-export interface TrainingJobController {
-	training_method: TrainingMethod;
-	acceleration_mode: TrainingAccelerationMode;
-	compute_instance: ComputeInstance;
-	checkpoint_frequency: CheckpointFrequency;
-}
-
-export interface TrainingGraph {
-	training_job_controller: TrainingJobController;
 }
 
 export interface TrainingGraphRecord {
@@ -285,10 +339,10 @@ export type CheckpointType =
 	| { type: "Checkpoint", content: string };
 
 export type ClientMessage = 
-	| { type: "SimulUpdateMessage", content: SimulUpdateMessage }
 	| { type: "TrainingUpdatesMessage", content: TrainingUpdatesMessage }
 	| { type: "StopTrainingMessage", content: StopTrainingMessage }
-	| { type: "StopSimulationMessage", content: StopSimulationMessage };
+	| { type: "TestUpdatesMessage", content: TestUpdateMessage }
+	| { type: "StopTestMessage", content: StopTestMessage };
 
 export type FlowMatchingAction = 
 	| { type: "FlowNoise", content: FlowNoiseConfig };
