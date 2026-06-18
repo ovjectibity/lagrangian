@@ -29,7 +29,7 @@ SECURITY_GROUP_IDS="${REMOTE_WORKER_SECURITY_GROUP_IDS}"
 IAM_INSTANCE_PROFILE_ARN="${REMOTE_WORKER_IAM_INSTANCE_PROFILE_ARN}"
 KEY_NAME="${REMOTE_WORKER_KEY_NAME:-}"
 INSTANCE_NAME="${REMOTE_WORKER_INSTANCE_NAME_TAG:-lagrangian-remote-worker}"
-INSTANCE_TYPE="c7i-flex.large"
+INSTANCE_TYPE="g4dn.xlarge"
 VOLUME_SIZE=60
 
 BOOTSTRAP_SCRIPT="${SCRIPT_DIR}/bootstrap_remote_worker.sh"
@@ -94,11 +94,15 @@ for i in $(seq 1 30); do
   sleep 10
 done
 
-# ---- Transfer bootstrap script ----
+# ---- Transfer scripts ----
 echo "Transferring bootstrap script ..."
 scp -o StrictHostKeyChecking=no \
   "${BOOTSTRAP_SCRIPT}" \
   "ubuntu@${PUBLIC_IP}:/tmp/bootstrap_remote_worker.sh"
+echo "Transferring model download script ..."
+scp -o StrictHostKeyChecking=no \
+  "${SCRIPT_DIR}/download_pi0_model.sh" \
+  "ubuntu@${PUBLIC_IP}:/tmp/download_pi0_model.sh"
 
 # ---- Run bootstrap on instance ----
 echo "Running bootstrap on instance ..."

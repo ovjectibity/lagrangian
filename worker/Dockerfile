@@ -33,14 +33,6 @@ COPY worker-py/requirements.txt ./requirements.txt
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
-RUN --mount=type=cache,target=/hf-cache \
-    python3 -c "\
-import os; \
-from huggingface_hub import hf_hub_download; \
-os.makedirs('/opt/lagrangian/pi0', exist_ok=True); \
-[hf_hub_download('lerobot/pi0_libero_base', f, cache_dir='/hf-cache', local_dir='/opt/lagrangian/pi0') \
- for f in ['model.safetensors', 'config.json']]"
-
 COPY worker-py/ ./
 
 EXPOSE 8765

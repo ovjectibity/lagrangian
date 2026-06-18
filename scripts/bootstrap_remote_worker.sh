@@ -47,6 +47,8 @@ fi
 __ECR_LOGIN__
 docker pull __IMAGE_URI__
 docker rm -f __CONTAINER_NAME__ || true
+
+bash /tmp/download_pi0_model.sh
 cat >/etc/lagrangian-worker.env <<'ENV_EOF'
 WS_HOST=0.0.0.0
 WS_PORT=__WORKER_PORT__
@@ -58,5 +60,6 @@ docker run -d --restart unless-stopped \
   --gpus all \
   --name __CONTAINER_NAME__ \
   --env-file /etc/lagrangian-worker.env \
+  -v /opt/lagrangian/pi0:/opt/lagrangian/pi0 \
   -p __WORKER_PORT__:__WORKER_PORT__ \
   __IMAGE_URI__
