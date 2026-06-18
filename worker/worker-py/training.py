@@ -13,8 +13,8 @@ import orbax.checkpoint as ocp
 from commondef.remoteworkermessages import (
     Checkpoint,
     StopTrainingMessage,
-    TrainingRemoteWorkerClientMessageStopTrainingMessage,
-    TrainingRemoteWorkerClientMessageTrainingUpdatesMessage,
+    RemoteWorkerClientMessageStopTrainingMessage,
+    RemoteWorkerClientMessageTrainingUpdatesMessage,
     TrainingUpdate,
     TrainingUpdatesMessage,
 )
@@ -60,11 +60,11 @@ class CallbackTrainingTaskSink(TrainingTaskSink):
         self._send_message = send_message
 
     def send_training_updates(self, message: TrainingUpdatesMessage) -> None:
-        wrapped = TrainingRemoteWorkerClientMessageTrainingUpdatesMessage(content=message)
+        wrapped = RemoteWorkerClientMessageTrainingUpdatesMessage(content=message)
         self._send_message(wrapped.model_dump(mode="json", by_alias=True))
 
     def send_stop_training(self, message: StopTrainingMessage) -> None:
-        wrapped = TrainingRemoteWorkerClientMessageStopTrainingMessage(content=message)
+        wrapped = RemoteWorkerClientMessageStopTrainingMessage(content=message)
         self._send_message(wrapped.model_dump(mode="json", by_alias=True))
 
 

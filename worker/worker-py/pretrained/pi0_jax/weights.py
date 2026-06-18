@@ -112,16 +112,24 @@ def _load_mm_proj(flat: dict) -> Params:
 
 
 def _load_lm(flat: dict) -> Params:
-    prefix = f"{_PG}.paligemma.model.language_model.model"
+    prefix = f"{_PG}.paligemma.model.language_model"
     out: Params = {}
-    out["embed_tokens"] = {"embedding": flat[f"{prefix}.embed_tokens.weight"]}
+
+    embed_key = f"{prefix}.embed_tokens.weight"
+    lm_head_key = f"{_PG}.paligemma.lm_head.weight"
+
+    if embed_key in flat:
+        out["embed_tokens"] = {"embedding": flat[embed_key]}
+    elif lm_head_key in flat:
+        # Weight-tied checkpoint: lm_head and embed_tokens share the same matrix
+        out["embed_tokens"] = {"embedding": flat[lm_head_key]}
+
     out["norm"] = _load_rms(flat, f"{prefix}.norm")
 
     layers_prefix = f"{prefix}.layers"
     num_layers = _count_layers(flat, layers_prefix)
     out["layers"] = [_load_gemma_layer(flat, f"{layers_prefix}.{i}") for i in range(num_layers)]
 
-    lm_head_key = f"{_PG}.paligemma.lm_head.weight"
     if lm_head_key in flat:
         out["lm_head"] = {"kernel": flat[lm_head_key].T}
     return out
@@ -220,7 +228,7 @@ def _infer_arch(flat: dict) -> dict[str, Any]:
         arch["siglip_head_dim"] = siglip_h // arch["siglip_num_heads"]
 
     # LM backbone
-    lm_prefix = f"{_PG}.paligemma.model.language_model.model.layers"
+    lm_prefix = f"{_PG}.paligemma.model.language_model.layers"
     arch["lm_num_layers"] = _count_layers(flat, lm_prefix)
     ln_key = f"{lm_prefix}.0.input_layernorm.weight"
     if ln_key in flat:

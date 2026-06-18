@@ -1,6 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ONLY_BOOTSTRAP=0
+PUBLIC_IP=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --only-bootstrap)
+      ONLY_BOOTSTRAP=1
+      shift
+      if [[ $# -gt 0 && "$1" != --* ]]; then
+        PUBLIC_IP="$1"
+        shift
+      fi
+      ;;
+    *)
+      echo "error: unknown argument '$1'" >&2
+      echo "usage: $0 [--only-bootstrap <ip>]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ "${ONLY_BOOTSTRAP}" -eq 1 && -z "${PUBLIC_IP}" ]]; then
+  echo "error: --only-bootstrap requires an IP address argument." >&2
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 AWS_ENV_FILE="${REPO_ROOT}/.envrc"
@@ -28,6 +53,12 @@ AMI_ID="${REMOTE_WORKER_AMI_ID}"
 SECURITY_GROUP_IDS="${REMOTE_WORKER_SECURITY_GROUP_IDS}"
 IAM_INSTANCE_PROFILE_ARN="${REMOTE_WORKER_IAM_INSTANCE_PROFILE_ARN}"
 KEY_NAME="${REMOTE_WORKER_KEY_NAME:-}"
+KEY_FILE="${REMOTE_WORKER_KEY_FILE:-}"
+SSH_USER="${REMOTE_WORKER_SSH_USER:-ec2-user}"
+
+if [[ -n "${KEY_FILE}" && "${KEY_FILE}" != /* ]]; then
+  KEY_FILE="${REPO_ROOT}/${KEY_FILE}"
+fi
 INSTANCE_NAME="${REMOTE_WORKER_INSTANCE_NAME_TAG:-lagrangian-remote-worker}"
 INSTANCE_TYPE="g4dn.xlarge"
 VOLUME_SIZE=60
@@ -43,47 +74,54 @@ if ! command -v aws >/dev/null 2>&1; then
   exit 1
 fi
 
-# ---- Launch instance ----
-echo "Launching ${INSTANCE_TYPE} instance in ${REGION} ..."
+if [[ "${ONLY_BOOTSTRAP}" -eq 0 ]]; then
+  # ---- Launch instance ----
+  echo "Launching ${INSTANCE_TYPE} instance in ${REGION} ..."
 
-LAUNCH_ARGS=(
-  --region "${REGION}"
-  --image-id "${AMI_ID}"
-  --instance-type "${INSTANCE_TYPE}"
-  --security-group-ids "${SECURITY_GROUP_IDS}"
-  --iam-instance-profile "Arn=${IAM_INSTANCE_PROFILE_ARN}"
-  --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":${VOLUME_SIZE},\"VolumeType\":\"gp3\"}}]"
-  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${INSTANCE_NAME}}]"
-  --count 1
-  --query 'Instances[0].InstanceId'
-  --output text
-)
+  LAUNCH_ARGS=(
+    --region "${REGION}"
+    --image-id "${AMI_ID}"
+    --instance-type "${INSTANCE_TYPE}"
+    --security-group-ids "${SECURITY_GROUP_IDS}"
+    --iam-instance-profile "Arn=${IAM_INSTANCE_PROFILE_ARN}"
+    --block-device-mappings "[{\"DeviceName\":\"/dev/xvda\",\"Ebs\":{\"VolumeSize\":${VOLUME_SIZE},\"VolumeType\":\"gp3\"}}]"
+    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${INSTANCE_NAME}}]"
+    --count 1
+    --query 'Instances[0].InstanceId'
+    --output text
+  )
 
-if [[ -n "${KEY_NAME}" ]]; then
-  LAUNCH_ARGS+=(--key-name "${KEY_NAME}")
+  if [[ -n "${KEY_NAME}" ]]; then
+    LAUNCH_ARGS+=(--key-name "${KEY_NAME}")
+  fi
+
+  INSTANCE_ID="$(aws ec2 run-instances "${LAUNCH_ARGS[@]}")"
+  echo "Launched instance: ${INSTANCE_ID}"
+
+  # ---- Wait for instance to be running ----
+  echo "Waiting for instance to enter 'running' state ..."
+  aws ec2 wait instance-running --region "${REGION}" --instance-ids "${INSTANCE_ID}"
+
+  # ---- Get public IP ----
+  PUBLIC_IP="$(
+    aws ec2 describe-instances \
+      --region "${REGION}" \
+      --instance-ids "${INSTANCE_ID}" \
+      --query 'Reservations[0].Instances[0].PublicIpAddress' \
+      --output text
+  )"
+  echo "Instance public IP: ${PUBLIC_IP}"
 fi
 
-INSTANCE_ID="$(aws ec2 run-instances "${LAUNCH_ARGS[@]}")"
-echo "Launched instance: ${INSTANCE_ID}"
-
-# ---- Wait for instance to be running ----
-echo "Waiting for instance to enter 'running' state ..."
-aws ec2 wait instance-running --region "${REGION}" --instance-ids "${INSTANCE_ID}"
-
-# ---- Get public IP ----
-PUBLIC_IP="$(
-  aws ec2 describe-instances \
-    --region "${REGION}" \
-    --instance-ids "${INSTANCE_ID}" \
-    --query 'Reservations[0].Instances[0].PublicIpAddress' \
-    --output text
-)"
-echo "Instance public IP: ${PUBLIC_IP}"
+SSH_ARGS=(-o StrictHostKeyChecking=no)
+if [[ -n "${KEY_FILE}" ]]; then
+  SSH_ARGS+=(-i "${KEY_FILE}")
+fi
 
 # ---- Wait for SSH to become available ----
 echo "Waiting for SSH to become available ..."
 for i in $(seq 1 30); do
-  if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "ubuntu@${PUBLIC_IP}" true 2>/dev/null; then
+  if nc -z -w 5 "${PUBLIC_IP}" 22 2>/dev/null; then
     break
   fi
   if [[ "${i}" -eq 30 ]]; then
@@ -96,17 +134,17 @@ done
 
 # ---- Transfer scripts ----
 echo "Transferring bootstrap script ..."
-scp -o StrictHostKeyChecking=no \
+scp "${SSH_ARGS[@]}" \
   "${BOOTSTRAP_SCRIPT}" \
-  "ubuntu@${PUBLIC_IP}:/tmp/bootstrap_remote_worker.sh"
+  "${SSH_USER}@${PUBLIC_IP}:/tmp/bootstrap_remote_worker.sh"
 echo "Transferring model download script ..."
-scp -o StrictHostKeyChecking=no \
+scp "${SSH_ARGS[@]}" \
   "${SCRIPT_DIR}/download_pi0_model.sh" \
-  "ubuntu@${PUBLIC_IP}:/tmp/download_pi0_model.sh"
+  "${SSH_USER}@${PUBLIC_IP}:/tmp/download_pi0_model.sh"
 
 # ---- Run bootstrap on instance ----
 echo "Running bootstrap on instance ..."
-ssh -o StrictHostKeyChecking=no "ubuntu@${PUBLIC_IP}" bash -s <<EOF
+ssh "${SSH_ARGS[@]}" "${SSH_USER}@${PUBLIC_IP}" bash -s <<EOF
 set -euo pipefail
 
 AWS_REGION="${REGION}"
@@ -131,7 +169,9 @@ s#__WORKER_SHARED_SECRET__#\${WORKER_SHARED_SECRET}#g;
 " /tmp/bootstrap_remote_worker.sh > /tmp/bootstrap_remote_worker.rendered.sh
 
 chmod +x /tmp/bootstrap_remote_worker.rendered.sh
-sudo /tmp/bootstrap_remote_worker.rendered.sh
+sudo nohup /tmp/bootstrap_remote_worker.rendered.sh > /tmp/bootstrap.log 2>&1 &
+echo "Bootstrap running in background (PID \$!). Tail: sudo tail -f /tmp/bootstrap.log"
+wait
 EOF
 
-echo "Done. Instance ${INSTANCE_ID} is up at ${PUBLIC_IP}"
+echo "Done. Instance is up at ${PUBLIC_IP}"
