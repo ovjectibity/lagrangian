@@ -63,3 +63,5 @@ docker run -d --restart unless-stopped \
   -v /opt/lagrangian/pi0:/opt/lagrangian/pi0 \
   -p __WORKER_PORT__:__WORKER_PORT__ \
   __IMAGE_URI__
+
+echo "### BOOTSTRAP_DONE ###"

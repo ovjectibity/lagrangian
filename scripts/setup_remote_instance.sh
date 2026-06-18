@@ -113,7 +113,7 @@ if [[ "${ONLY_BOOTSTRAP}" -eq 0 ]]; then
   echo "Instance public IP: ${PUBLIC_IP}"
 fi
 
-SSH_ARGS=(-o StrictHostKeyChecking=no)
+SSH_ARGS=(-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10)
 if [[ -n "${KEY_FILE}" ]]; then
   SSH_ARGS+=(-i "${KEY_FILE}")
 fi
@@ -174,4 +174,33 @@ echo "Bootstrap running in background (PID \$!). Tail: sudo tail -f /tmp/bootstr
 wait
 EOF
 
-echo "Done. Instance is up at ${PUBLIC_IP}"
+echo ""
+echo "=== [1/2] Bootstrap: system setup, Docker pull, Pi-0 download ==="
+echo ""
+
+ssh "${SSH_ARGS[@]}" "${SSH_USER}@${PUBLIC_IP}" "
+  until [ -f /tmp/bootstrap.log ]; do sleep 1; done
+  tail -n +1 -f /tmp/bootstrap.log | while IFS= read -r line; do
+    echo \"\$line\"
+    echo \"\$line\" | grep -qF '### BOOTSTRAP_DONE ###' && break
+  done
+" || true
+
+echo ""
+echo "=== [2/2] Container startup ==="
+echo ""
+
+ssh "${SSH_ARGS[@]}" "${SSH_USER}@${PUBLIC_IP}" "
+  for i in \$(seq 1 60); do
+    sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^${REMOTE_WORKER_CONTAINER_NAME}\$' && break
+    [ \"\$i\" -eq 60 ] && echo 'error: container did not start within 2 minutes' >&2 && exit 1
+    sleep 2
+  done
+  sudo docker logs -f '${REMOTE_WORKER_CONTAINER_NAME}' 2>&1 | while IFS= read -r line; do
+    echo \"\$line\"
+    echo \"\$line\" | grep -q 'server listening on' && break
+  done
+" || true
+
+echo ""
+echo "=== Worker ready at ws://${PUBLIC_IP}:${REMOTE_WORKER_PORT} ==="
