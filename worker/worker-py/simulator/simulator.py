@@ -12,6 +12,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from commondef.training import ModelInputSpec
+
 try:
     import mujoco
     from mujoco import mjx
@@ -53,7 +55,7 @@ class Simulator(ABC):
         pass
 
     @abstractmethod
-    def get_model_state(self, input_spec: Any | None = None) -> dict[str, Array]:
+    def get_model_state(self, input_spec: ModelInputSpec) -> dict[str, Array]:
         pass
 
     @abstractmethod
@@ -90,10 +92,11 @@ class Simulator(ABC):
     ) -> Array:
         pass
 
-    def make_state_fn(self, input_spec: Any) -> Callable[[Any], dict[str, Array]]:
+    def make_state_fn(self, input_spec: ModelInputSpec) -> Callable[[Any], dict[str, Array]]:
         """Return a pure (mjx_data → dict[str, Array]) closure for use in lax.scan / vmap.
 
         Only MjxSimulator implements this. MujocoSimulator raises NotImplementedError.
+        contact_pairs is not supported in this path (JAX requires fixed-size arrays in scan).
         """
         raise NotImplementedError("make_state_fn is only supported for MjxSimulator")
 
@@ -386,13 +389,9 @@ class MjxSimulator(Simulator):
         mujoco.mj_inverse(self._model, self._data)
         return jnp.asarray(np.asarray(self._data.qfrc_inverse[: self.nv()], dtype=np.float64))
 
-    def get_model_state(self, input_spec: Any | None = None) -> dict[str, Array]:
+    def get_model_state(self, input_spec: ModelInputSpec) -> dict[str, Array]:
         self._sync_cpu_from_mjx()
         result: dict[str, Array] = {}
-        if input_spec is None:
-            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
-            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
-            return result
         if input_spec.qdof_state:
             qpos_all = np.asarray(self._data.qpos, dtype=np.float64)
             result["qdof"] = jnp.asarray(qpos_all[self._actuated_qpos_idx])
@@ -417,12 +416,26 @@ class MjxSimulator(Simulator):
                 )
             )(jnp.arange(ncam))
             result["cameras"] = (frames.astype(jnp.float32) / 255.0).reshape(-1)
+        if input_spec.contact_pairs:
+            geom_bodyid = np.asarray(self._model.geom_bodyid)
+            pairs: list[float] = []
+            for i in range(int(self._data.ncon)):
+                contact = self._data.contact[i]
+                g1, g2 = int(contact.geom1), int(contact.geom2)
+                if g1 >= 0 and g2 >= 0:
+                    b1, b2 = int(geom_bodyid[g1]), int(geom_bodyid[g2])
+                    if b1 >= 0 and b2 >= 0:
+                        pairs.extend([float(b1), float(b2)])
+            result["contact_pairs"] = (
+                jnp.asarray(pairs, dtype=jnp.float64) if pairs
+                else jnp.zeros((0,), dtype=jnp.float64)
+            )
         if not result:
             result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
             result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
         return result
 
-    def make_state_fn(self, input_spec: Any) -> Callable[[Any], dict[str, Array]]:
+    def make_state_fn(self, input_spec: ModelInputSpec) -> Callable[[Any], dict[str, Array]]:
         actuated_idx = self._actuated_qpos_idx_jnp
         nq = self.nq()
         nv = self.nv()
@@ -774,12 +787,8 @@ class MujocoSimulator(Simulator):
     def qvel(self) -> list[float]:
         return np.asarray(self._data.qvel[:self.nv()], dtype=np.float64).tolist()
 
-    def get_model_state(self, input_spec: Any | None = None) -> dict[str, Array]:
+    def get_model_state(self, input_spec: ModelInputSpec) -> dict[str, Array]:
         result: dict[str, Array] = {}
-        if input_spec is None:
-            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
-            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
-            return result
         if input_spec.qdof_state:
             qpos_all = np.asarray(self._data.qpos, dtype=np.float64)
             result["qdof"] = jnp.asarray(qpos_all[self._actuated_qpos_idx])
@@ -805,6 +814,20 @@ class MujocoSimulator(Simulator):
             result["cameras"] = jnp.asarray(
                 np.concatenate([f.reshape(-1) for f in frames], axis=0)
                 if frames else np.zeros((_CAM_HEIGHT * _CAM_WIDTH * 3,), dtype=np.float32)
+            )
+        if input_spec.contact_pairs:
+            geom_bodyid = np.asarray(self._model.geom_bodyid)
+            pairs: list[float] = []
+            for i in range(int(self._data.ncon)):
+                contact = self._data.contact[i]
+                g1, g2 = int(contact.geom1), int(contact.geom2)
+                if g1 >= 0 and g2 >= 0:
+                    b1, b2 = int(geom_bodyid[g1]), int(geom_bodyid[g2])
+                    if b1 >= 0 and b2 >= 0:
+                        pairs.extend([float(b1), float(b2)])
+            result["contact_pairs"] = (
+                jnp.asarray(pairs, dtype=jnp.float64) if pairs
+                else jnp.zeros((0,), dtype=jnp.float64)
             )
         if not result:
             result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))

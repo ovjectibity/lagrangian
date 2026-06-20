@@ -12,8 +12,6 @@ import orbax.checkpoint as ocp
 
 from commondef.remoteworkermessages import (
     Checkpoint,
-    ControlModelVLA,
-    ControlModelInput,
     StopTrainingMessage,
     RemoteWorkerClientMessageStopTrainingMessage,
     RemoteWorkerClientMessageTrainingUpdatesMessage,
@@ -33,7 +31,6 @@ from commondef.training import (
     TrainingMetricsPolicyGradientNorm,
     TrainingMetricsValueGradientNorm,
     TrainingMetricsValueLoss,
-    TrainingRunState,
     TrainingRunStatePPOTrainingRunState,
 )
 from workflows.ppo_trainer import PPOTrainer, PPOTrainedModel
@@ -77,7 +74,6 @@ class TrainingWorkflow:
         training_controller: TrainingJobController,
         simulator: Simulator,
         model: PPOTrainedModel,
-        user_reward_fn: Callable | None = None,
     ) -> None:
         self.id = training_id
         self.simulator = simulator
@@ -92,20 +88,7 @@ class TrainingWorkflow:
             num_updates=self.params.num_updates,
             epsilon=self.params.epsilon,
             gamma_lambda=(self.params.gamma, self.params.lambda_),
-            user_reward_fn=user_reward_fn,
         )
-        control_model = training_controller.training_method.content.control_model
-        if isinstance(control_model, ControlModelVLA):
-            self._input_spec: ControlModelInput = control_model.content.input
-        else:
-            self._input_spec = ControlModelInput(
-                all_cameras=False,
-                qpos_state=True,
-                qvel_state=True,
-                xpos_state=False,
-                xquat_state=False,
-                qdof_state=False,
-            )
         self._ckpt_dir = f"/tmp/checkpoints/{training_id}"
         os.makedirs(self._ckpt_dir, exist_ok=True)
         self._checkpointer = ocp.PyTreeCheckpointer()
@@ -230,7 +213,7 @@ class TrainingWorkflow:
             if use_gpu:
                 logger.info("Getting trajectories for epoch=%s",i)
                 base_rng, epoch_rng = jax.random.split(base_rng)
-                wstates, _, model_outputs, action_samples, rewards = (
+                control_wstates, value_wstates, model_outputs, action_samples, rewards = (
                     self.trainer.gen_trajectories_gpu(
                         self.params.num_trajs,
                         base_mjx_data,
@@ -239,7 +222,7 @@ class TrainingWorkflow:
                 )
                 logger.info("Got trajectories for epoch=%s. Training the epoch now",i)
                 runtime_info = self.trainer.train_an_epoch_gpu(
-                    wstates, action_samples, rewards, model_outputs
+                    control_wstates, value_wstates, action_samples, rewards, model_outputs
                 )
                 logger.info("Trained the epoch=%s. ",i)
                 mean_entropy = 0.0  # entropy not computed in GPU path yet

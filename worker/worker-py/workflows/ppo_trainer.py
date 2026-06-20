@@ -13,7 +13,7 @@ import jax
 import jax.numpy as jnp
 from jax import random
 
-from commondef.training import ControlPolicyOutputMode
+from commondef.training import ControlPolicyOutputMode, ModelInputSpec
 from simulator.simulator import Simulator
 
 
@@ -24,7 +24,10 @@ Params = Any
 
 @dataclass
 class Trajectory:
-    world_states: list[Array]
+    # traj_depth elements — used for policy re-evaluation (control spec)
+    control_wstates: list[Array]
+    # traj_depth + 1 elements (includes terminal) — used for value estimation (value spec)
+    value_wstates: list[Array]
     model_outputs: list[Array]
     model_output_samples: list[Array]
     model_output_sample_log_probs: list[float]
@@ -107,15 +110,47 @@ class PPOTrainedModel(ABC):
     ) -> PPOTrainedModel:
         pass
 
+    # --- Input spec ownership (mirrors Rust PPOTrainedModel trait) ---
+
+    @abstractmethod
+    def get_control_input_spec(self) -> ModelInputSpec:
+        pass
+
+    @abstractmethod
+    def get_value_input_spec(self) -> ModelInputSpec:
+        pass
+
+    @abstractmethod
+    def get_reward_input_spec(self) -> ModelInputSpec:
+        pass
+
+    # --- State assembly (model owns ordering/concatenation) ---
+
+    @abstractmethod
+    def assemble_control_state(self, parts: dict[str, Array]) -> Array:
+        """Assemble labeled state parts dict into a flat tensor for the control policy."""
+        pass
+
+    @abstractmethod
+    def assemble_value_state(self, parts: dict[str, Array]) -> Array:
+        """Assemble labeled state parts dict into a flat tensor for the value function."""
+        pass
+
+    # --- Reward (pre/post state dicts, matching Rust and the C ABI reward interface) ---
+
     @abstractmethod
     def get_reward(
         self,
-        cstate: Array,
-        cstate_next: Array,
-        action: Array,
-        contact_pairs: list[tuple[int, int]] | None,
+        parts_pre: dict[str, Array],
+        parts_post: dict[str, Array],
     ) -> float:
         pass
+
+    @abstractmethod
+    def get_pure_reward_fn(self) -> Callable[[dict[str, Array], dict[str, Array]], float]:
+        pass
+
+    # --- Policy / value inference ---
 
     @abstractmethod
     def get_policy_output(self, state: Array) -> Array:
@@ -155,16 +190,6 @@ class PPOTrainedModel(ABC):
 
     @abstractmethod
     def get_pure_policy_fn(self) -> Callable[[Params, Array], Array]:
-        """Returns a pure, JAX-traceable policy function: (params, state) -> gaussian_params."""
-        pass
-
-    @abstractmethod
-    def get_pure_reward_fn(self) -> Callable[[Array, Array, Array, Array], Array]:
-        """Returns a pure, JAX-traceable reward function.
-
-        Signature: (cstate, cstate_next, action, contact_matrix) -> scalar reward
-        where contact_matrix is a float32 [nbody, nbody] array with 1.0 for active contacts.
-        """
         pass
 
 
@@ -176,8 +201,22 @@ class TestingModel(ABC):
     """Minimal interface for test-time inference, independent of PPO concepts."""
 
     @abstractmethod
+    def get_control_input_spec(self) -> ModelInputSpec:
+        """Input spec the simulator uses to build the state dict for control inference."""
+        ...
+
+    @abstractmethod
+    def assemble_control_state(self, parts: dict[str, Array]) -> Array:
+        """Assemble labeled state parts dict into a flat tensor for control inference.
+
+        parts keys: "cameras", "qdof", "qpos", "qvel", "xpos", "xquat" (only flags set).
+        Must be a pure JAX function (safe to jax.vmap over batched pytree dicts).
+        """
+        ...
+
+    @abstractmethod
     def get_test_action(self, state: Array) -> Array:
-        """Single-step inference: state vector → control action."""
+        """Single-step inference: assembled state tensor → control action."""
         ...
 
     @abstractmethod
@@ -188,15 +227,6 @@ class TestingModel(ABC):
     @abstractmethod
     def get_test_params(self) -> Params:
         """Params passed as first arg to get_pure_test_fn."""
-        ...
-
-    @abstractmethod
-    def assemble_state(self, parts: dict[str, Array]) -> Array:
-        """Assemble labeled state parts into a flat tensor for this model's input.
-
-        parts keys: "cameras", "qdof", "qpos", "qvel", "xpos", "xquat" (only flags set).
-        Must be a pure JAX function (safe to jax.vmap over batched pytree dicts).
-        """
         ...
 
 
@@ -212,7 +242,6 @@ class PPOTrainer:
         learning_rate: float = 1e-3,
         gamma_lambda: tuple[float, float] = (0.99, 0.95),
         seed: int = 0,
-        user_reward_fn: Callable | None = None,
     ) -> None:
         self.num_trajs = num_trajs
         self.traj_depth = traj_depth
@@ -227,7 +256,6 @@ class PPOTrainer:
         self.value_opt = self._init_adam_state(self.model.get_value_store())
         self._jit_gen_trajs: Any = None
         self._jit_train_epoch: Any = None
-        self._user_reward_fn = user_reward_fn
 
     @staticmethod
     def _init_adam_state(params: Params) -> dict[str, Any]:
@@ -268,121 +296,56 @@ class PPOTrainer:
     def get_action_output_size(self) -> int:
         return self.simulator.nu()
 
-    def gen_trajectory_step(
-        self,
-        mjx_data: Any,
-        wstate: Array,
-        cstate: Array,
-        rng_key: Array,
-        policy_fn: Callable[[Params, Array], Array],
-        policy_store: Params,
-        output_mode: ControlPolicyOutputMode,
-        reward_fn: Callable[[Array, Array, Array, Array], Array],
-        simulator_step_fn: Callable[[Any, Array], tuple[Any, Array, Array, Array]],
-    ) -> tuple[Any, Array, Array, Array, Array, Array, Array]:
-        """Pure functional single trajectory step.
-
-        Args:
-            mjx_data: current mjx simulation state (None for CPU simulator)
-            wstate: current world state (joint positions + velocities)
-            cstate: current cartesian state (body xpos + xquat)
-            rng_key: JAX RNG key for action sampling
-            policy_fn: callable (params, state) -> gaussian_params
-            policy_store: policy network parameters
-            output_mode: how to interpret policy output as controls
-            reward_fn: callable (cstate, cstate_next, action, contact_matrix) -> scalar
-            simulator_step_fn: callable (mjx_data, controls) -> (mjx_data_next, wstate_next, cstate_next, contact_matrix)
-
-        Returns:
-            (mjx_data_next, wstate_next, cstate_next, model_output, model_output_sample, reward, rng_key_next)
-        """
-        action_output_size = self.get_action_output_size()
-
-        logger.info("gen_trajectory_step: running policy_fn")
-        action_gaussian_params = jnp.asarray(policy_fn(policy_store, wstate))
-        action_gaussian_mean = action_gaussian_params[:action_output_size]
-        action_gaussian_stdev = jnp.exp(action_gaussian_params[action_output_size:])
-
-        rng_key_next, eps_key = random.split(rng_key)
-        eps = random.normal(eps_key, shape=(action_output_size,))
-        sampled_action = action_gaussian_mean + eps * action_gaussian_stdev
-
-        if output_mode == ControlPolicyOutputMode.TARGETTORQUES:
-            controls = sampled_action
-        elif output_mode == ControlPolicyOutputMode.TARGETPOSITIONS:
-            controls = sampled_action
-        elif output_mode == ControlPolicyOutputMode.TARGETVELOCITIES:
-            controls = sampled_action
-        else:
-            raise ValueError(f"Unsupported control mode: {output_mode}")
-
-        logger.info("gen_trajectory_step: policy_fn done, running simulator_step_fn")
-        jax.debug.print("[gen_trajectory_step] policy_fn done, running simulator_step_fn")
-        mjx_data_next, wstate_next, cstate_next, contact_matrix = simulator_step_fn(mjx_data, controls)
-
-        logger.info("gen_trajectory_step: simulator_step_fn done, running reward_fn")
-        jax.debug.print("[gen_trajectory_step] simulator_step_fn done, running reward_fn")
-        reward = reward_fn(cstate, cstate_next, sampled_action, contact_matrix)
-
-        logger.info("gen_trajectory_step: reward_fn done")
-        jax.debug.print("[gen_trajectory_step] reward_fn done")
-        return mjx_data_next, wstate_next, cstate_next, action_gaussian_params, sampled_action, reward, rng_key_next
-
     def gen_trajectory(self) -> Trajectory:
         logger.info("gen_trajectory: start (traj_depth=%s)", self.traj_depth)
         action_output_size = self.get_action_output_size()
-        wstates: list[Array] = []
+        control_input_spec = self.model.get_control_input_spec()
+        value_input_spec = self.model.get_value_input_spec()
+        reward_input_spec = self.model.get_reward_input_spec()
+        control_wstates: list[Array] = []
+        value_wstates: list[Array] = []
         model_outputs: list[Array] = []
         model_output_samples: list[Array] = []
         rewards: list[float] = []
         self.simulator.reset_state()
         logger.info("gen_trajectory: reset_state done, entering step loop")
         for step in range(self.traj_depth):
-            # if step % 10 == 0:
             logger.info("gen_trajectory: step %s/%s", step, self.traj_depth)
-            wstate = jnp.concatenate(list(self.simulator.get_model_state().values()))
-            cstate = jnp.asarray(self.simulator.get_model_cartesian_state())
-            logger.info("gen_trajectory: step %s/%s. Got the wstate & cstate")
-            action_gaussian_params = jnp.asarray(self.model.get_policy_output(wstate))
+            control_parts = self.simulator.get_model_state(control_input_spec)
+            value_parts = self.simulator.get_model_state(value_input_spec)
+            reward_parts_pre = self.simulator.get_model_state(reward_input_spec)
+            control_state = self.model.assemble_control_state(control_parts)
+            value_state = self.model.assemble_value_state(value_parts)
+            action_gaussian_params = jnp.asarray(self.model.get_policy_output(control_state))
             action_gaussian_mean = action_gaussian_params[:action_output_size]
             action_gaussian_stdev = jnp.exp(action_gaussian_params[action_output_size:])
             self._rng_key, eps_key = random.split(self._rng_key)
             eps = random.normal(eps_key, shape=(action_output_size,))
             sampled_action = action_gaussian_mean + eps * action_gaussian_stdev
-            logger.info("gen_trajectory: step %s/%s. Got the policy output")
             output_mode = self.model.get_control_policy_output_mode()
             if output_mode == ControlPolicyOutputMode.TARGETTORQUES:
                 controls = sampled_action
             elif output_mode == ControlPolicyOutputMode.TARGETPOSITIONS:
                 controls = self.simulator.modify_target_position(sampled_action)
             elif output_mode == ControlPolicyOutputMode.TARGETVELOCITIES:
-                controls = self.simulator.get_target_controls_from_target_velocities(
-                    sampled_action
-                )
+                controls = self.simulator.get_target_controls_from_target_velocities(sampled_action)
             else:
                 raise ValueError(f"Unsupported control mode: {output_mode}")
-            logger.info("gen_trajectory: step %s/%s. Got the output control. Running forward_dyn now")
             self.simulator.forward_dyn(jnp.asarray(controls))
-            logger.info("gen_trajectory: step %s/%s. Ran the forward_dyn. Getting reward now")
-            cstate_next = jnp.asarray(self.simulator.get_model_cartesian_state())
-            contact_pairs = self.simulator.get_contact_body_index_pairs()
-            reward = float(
-                self.model.get_reward(
-                    cstate,
-                    cstate_next,
-                    sampled_action,
-                    contact_pairs,
-                )
-            )
-            logger.info("gen_trajectory: step %s/%s. Got reward now")
+            reward_parts_post = self.simulator.get_model_state(reward_input_spec)
+            reward = float(self.model.get_reward(reward_parts_pre, reward_parts_post))
+            logger.info("gen_trajectory: step %s/%s reward=%.4f", step, self.traj_depth, reward)
             rewards.append(reward)
-            wstates.append(wstate)
+            control_wstates.append(control_state)
+            value_wstates.append(value_state)
             model_outputs.append(action_gaussian_params)
             model_output_samples.append(sampled_action)
-        logger.info("gen_trajectory: step loop done, computing terminal value")
-        wstate_end = jnp.concatenate(list(self.simulator.get_model_state().values()))
-        wstates.append(wstate_end)
-        v_terminal = float(self.model.get_value_output(wstates[-1]))
+        logger.info("gen_trajectory: step loop done, computing terminal states")
+        terminal_control_parts = self.simulator.get_model_state(control_input_spec)
+        terminal_value_parts = self.simulator.get_model_state(value_input_spec)
+        control_wstates.append(self.model.assemble_control_state(terminal_control_parts))
+        value_wstates.append(self.model.assemble_value_state(terminal_value_parts))
+        v_terminal = float(self.model.get_value_output(value_wstates[-1]))
         logger.info("gen_trajectory: computing rtg and log probs")
         rtgs = self.compute_rtg(rewards, v_terminal)
         action_sample_log_probs = self.compute_action_log_probs(
@@ -391,7 +354,8 @@ class PPOTrainer:
         )
         logger.info("gen_trajectory: done")
         return Trajectory(
-            world_states=wstates,
+            control_wstates=control_wstates,
+            value_wstates=value_wstates,
             model_outputs=model_outputs,
             model_output_samples=model_output_samples,
             model_output_sample_log_probs=[
@@ -413,10 +377,10 @@ class PPOTrainer:
     def compute_gae(self, traj: Trajectory) -> Array:
         advs: list[float] = []
         for i in reversed(range(self.traj_depth)):
-            wstate = traj.world_states[i]
+            wstate = traj.value_wstates[i]
             reward = traj.rewards[i]
             val = float(self.model.get_value_output(wstate))
-            wstate_next = traj.world_states[i + 1]
+            wstate_next = traj.value_wstates[i + 1]
             val_next = float(self.model.get_value_output(wstate_next))
             adv = reward + (self.gamma_lambda[0] * val_next) - val
             advs.append(adv)
@@ -463,7 +427,7 @@ class PPOTrainer:
             [jnp.asarray(traj.model_output_sample_log_probs) for traj in trajs]
         )
         wstates = jnp.stack(
-            [jnp.stack(traj.world_states[: self.traj_depth]) for traj in trajs]
+            [jnp.stack(traj.control_wstates[: self.traj_depth]) for traj in trajs]
         )
         action_samples = jnp.stack(
             [jnp.stack(traj.model_output_samples) for traj in trajs]
@@ -483,7 +447,7 @@ class PPOTrainer:
     ) -> Array:
         rtgs = jnp.stack([jnp.asarray(traj.rtgs) for traj in trajs])
         wstates = jnp.stack(
-            [jnp.stack(traj.world_states[: self.traj_depth]) for traj in trajs]
+            [jnp.stack(traj.value_wstates[: self.traj_depth]) for traj in trajs]
         )
         if value_store is None:
             value_store = self.model.get_value_store()
@@ -603,95 +567,84 @@ class PPOTrainer:
             rng_key:  JAX RNG key for action sampling
 
         Returns:
-            (wstates, cstate_seq, model_outputs, action_samples, rewards)
-            wstates:       [traj_depth+1, state_dim]  — includes terminal state
-            cstate_seq:    [traj_depth, cstate_dim]
-            model_outputs: [traj_depth, nu*2]
-            action_samples:[traj_depth, nu]
-            rewards:       [traj_depth]
+            (control_wstates, value_wstates, model_outputs, action_samples, rewards)
+            control_wstates: [traj_depth, control_state_dim]
+            value_wstates:   [traj_depth+1, value_state_dim]  — includes terminal
+            model_outputs:   [traj_depth, nu*2]
+            action_samples:  [traj_depth, nu]
+            rewards:         [traj_depth]
         """
-        logger.info(
-            "gen_trajectory_gpu: start (traj_depth=%s rng_key=%s)",
-            self.traj_depth,
-            rng_key,
-        )
-        simulator_step_fn = self.simulator.forward_dyn_pure  # type: ignore[attr-defined]
+        logger.info("gen_trajectory_gpu: start (traj_depth=%s)", self.traj_depth)
+
+        # All spec-driven closures are built at Python time — baked into the scan body
+        # as compile-time constants. No JAX conditionals needed.
+        control_state_fn = self.simulator.make_state_fn(self.model.get_control_input_spec())  # type: ignore[attr-defined]
+        value_state_fn = self.simulator.make_state_fn(self.model.get_value_input_spec())  # type: ignore[attr-defined]
+        reward_state_fn = self.simulator.make_state_fn(self.model.get_reward_input_spec())  # type: ignore[attr-defined]
+        assemble_control_fn = self.model.assemble_control_state
+        assemble_value_fn = self.model.assemble_value_state
+        reward_fn = self.model.get_pure_reward_fn()
         policy_fn = self.model.get_pure_policy_fn()
-        reward_fn = (
-            self._user_reward_fn
-            if self._user_reward_fn is not None
-            else self.model.get_pure_reward_fn()
-        )
         if policy_store is None:
             policy_store = self.model.get_policy_store()
         output_mode = self.model.get_control_policy_output_mode()
+        simulator_step_fn = self.simulator.forward_dyn_pure  # type: ignore[attr-defined]
+        action_output_size = self.get_action_output_size()
 
-        # Derive initial wstate and cstate from mjx_data directly (pure, no side effects)
-        nq = self.simulator.nq()
-        nv = self.simulator.nv()
-        nbody = self.simulator.nbody()
-        logger.info(
-            "gen_trajectory_gpu: nq=%s nv=%s nbody=%s output_mode=%s",
-            nq, nv, nbody, output_mode,
-        )
-
-        def initial_states(data: Any) -> tuple[Array, Array]:
-            wstate = jnp.concatenate([data.qpos[:nq], data.qvel[:nv]])
-            xpos = data.xpos[:nbody].reshape(-1)
-            xquat = data.xquat[:nbody].reshape(-1)
-            cstate = jnp.concatenate([xpos, xquat])
-            return wstate, cstate
-
-        wstate0, cstate0 = initial_states(mjx_data)
-        logger.info(
-            "gen_trajectory_gpu: initial wstate shape=%s cstate shape=%s",
-            wstate0.shape,
-            cstate0.shape,
-        )
+        logger.info("gen_trajectory_gpu: output_mode=%s action_output_size=%s", output_mode, action_output_size)
         logger.info("gen_trajectory_gpu: launching lax.scan over %s steps", self.traj_depth)
 
         def scan_body(
-            carry: tuple[Any, Array, Array, Array],
-            step_idx: Array,
-        ) -> tuple[tuple[Any, Array, Array, Array], tuple[Array, Array, Array, Array, Array]]:
-            jax.debug.print("[gen_trajectory_gpu] scan step {s}", s=step_idx)
-            mjx_data_c, wstate, cstate, rng = carry
-            mjx_data_next, wstate_next, cstate_next, model_output, action_sample, reward, rng_next = (
-                self.gen_trajectory_step(
-                    mjx_data_c,
-                    wstate,
-                    cstate,
-                    rng,
-                    policy_fn,
-                    policy_store,
-                    output_mode,
-                    reward_fn,
-                    simulator_step_fn,
-                )
-            )
-            jax.debug.print("[gen_trajectory_gpu] scan step {s} done, reward={r}", s=step_idx, r=reward)
-            return (mjx_data_next, wstate_next, cstate_next, rng_next), (
-                wstate,
-                cstate_next,
-                model_output,
-                action_sample,
-                reward,
-            )
+            carry: tuple[Any, Array],
+            _: None,
+        ) -> tuple[tuple[Any, Array], tuple[Array, Array, Array, Array, Array]]:
+            data, rng = carry
 
-        (_, wstate_final, _, _), (wstates_t, cstate_seq, model_outputs, action_samples, rewards) = (
-            jax.lax.scan(scan_body, (mjx_data, wstate0, cstate0, rng_key), jnp.arange(self.traj_depth))
+            control_parts = control_state_fn(data)
+            value_parts = value_state_fn(data)
+            reward_parts_pre = reward_state_fn(data)
+
+            control_state = assemble_control_fn(control_parts)
+            value_state = assemble_value_fn(value_parts)
+
+            action_gaussian_params = jnp.asarray(policy_fn(policy_store, control_state))
+            action_mean = action_gaussian_params[:action_output_size]
+            action_std = jnp.exp(action_gaussian_params[action_output_size:])
+            rng, eps_key = random.split(rng)
+            eps = random.normal(eps_key, shape=(action_output_size,))
+            sampled_action = action_mean + eps * action_std
+
+            if output_mode == ControlPolicyOutputMode.TARGETTORQUES:
+                controls = sampled_action
+            elif output_mode == ControlPolicyOutputMode.TARGETPOSITIONS:
+                controls = sampled_action
+            elif output_mode == ControlPolicyOutputMode.TARGETVELOCITIES:
+                controls = sampled_action
+            else:
+                raise ValueError(f"Unsupported control mode: {output_mode}")
+
+            data_next, _, _, _ = simulator_step_fn(data, controls)
+            reward_parts_post = reward_state_fn(data_next)
+            reward = reward_fn(reward_parts_pre, reward_parts_post)
+
+            return (data_next, rng), (control_state, value_state, action_gaussian_params, sampled_action, reward)
+
+        (data_final, _), (control_states_t, value_states_t, model_outputs, action_samples, rewards) = (
+            jax.lax.scan(scan_body, (mjx_data, rng_key), None, length=self.traj_depth)
         )
         logger.info(
-            "gen_trajectory_gpu: lax.scan complete — wstates_t shape=%s rewards shape=%s",
-            wstates_t.shape,
+            "gen_trajectory_gpu: lax.scan complete — control_states shape=%s rewards shape=%s",
+            control_states_t.shape,
             rewards.shape,
         )
 
-        # Append terminal wstate so shape is [traj_depth+1, state_dim]
-        wstates = jnp.concatenate([wstates_t, wstate_final[None]], axis=0)
-        logger.info("gen_trajectory_gpu: done (wstates shape=%s)", wstates.shape)
+        # Append terminal value state so shape is [traj_depth+1, value_state_dim]
+        terminal_value_parts = value_state_fn(data_final)
+        terminal_value_state = assemble_value_fn(terminal_value_parts)
+        value_wstates = jnp.concatenate([value_states_t, terminal_value_state[None]], axis=0)
 
-        return wstates, cstate_seq, model_outputs, action_samples, rewards
+        logger.info("gen_trajectory_gpu: done (value_wstates shape=%s)", value_wstates.shape)
+        return control_states_t, value_wstates, model_outputs, action_samples, rewards
 
     def gen_trajectories_gpu(
         self,
@@ -707,12 +660,12 @@ class PPOTrainer:
             rng_key:   base RNG key; split into num_trajs sub-keys
 
         Returns:
-            (wstates, cstate_seq, model_outputs, action_samples, rewards)
-            wstates:       [num_trajs, traj_depth+1, state_dim]
-            cstate_seq:    [num_trajs, traj_depth, cstate_dim]
-            model_outputs: [num_trajs, traj_depth, nu*2]
-            action_samples:[num_trajs, traj_depth, nu]
-            rewards:       [num_trajs, traj_depth]
+            (control_wstates, value_wstates, model_outputs, action_samples, rewards)
+            control_wstates: [num_trajs, traj_depth, control_state_dim]
+            value_wstates:   [num_trajs, traj_depth+1, value_state_dim]  — includes terminal
+            model_outputs:   [num_trajs, traj_depth, nu*2]
+            action_samples:  [num_trajs, traj_depth, nu]
+            rewards:         [num_trajs, traj_depth]
         """
         logger.info(
             "gen_trajectories_gpu: start (num_trajs=%s traj_depth=%s)",
@@ -759,7 +712,8 @@ class PPOTrainer:
 
     def train_an_epoch_gpu(
         self,
-        wstates: Array,
+        control_wstates: Array,
+        value_wstates: Array,
         action_samples: Array,
         rewards: Array,
         model_outputs: Array,
@@ -767,15 +721,16 @@ class PPOTrainer:
         """GPU training epoch using pure learning_step.
 
         Args:
-            wstates:       [num_trajs, traj_depth+1, state_dim]
-            action_samples:[num_trajs, traj_depth, nu]
-            rewards:       [num_trajs, traj_depth]
-            model_outputs: [num_trajs, traj_depth, nu*2]
+            control_wstates: [num_trajs, traj_depth, control_state_dim]
+            value_wstates:   [num_trajs, traj_depth+1, value_state_dim]  — includes terminal
+            action_samples:  [num_trajs, traj_depth, nu]
+            rewards:         [num_trajs, traj_depth]
+            model_outputs:   [num_trajs, traj_depth, nu*2]
 
         Returns:
             PPOTrainerRuntimeInfo with per-update losses and gradient norms
         """
-        num_trajs_in = wstates.shape[0]
+        num_trajs_in = control_wstates.shape[0]
         logger.info(
             "train_an_epoch_gpu: start (num_trajs=%s traj_depth=%s action_size=%s)",
             num_trajs_in,
@@ -789,19 +744,19 @@ class PPOTrainer:
 
         logger.info("train_an_epoch_gpu: computing RTGs for %s trajs", num_trajs_in)
 
-        def compute_rtg_for_traj(traj_rewards: Array, traj_wstates: Array) -> Array:
-            v_terminal = jnp.squeeze(value_fn(self.model.get_value_store(), traj_wstates[-1:]), axis=-1)[0]
+        def compute_rtg_for_traj(traj_rewards: Array, traj_value_wstates: Array) -> Array:
+            v_terminal = jnp.squeeze(value_fn(self.model.get_value_store(), traj_value_wstates[-1:]), axis=-1)[0]
             return pure_compute_rtg(traj_rewards, gamma, v_terminal)
 
-        rtgs = jax.vmap(compute_rtg_for_traj)(rewards, wstates)   # [num_trajs, traj_depth]
+        rtgs = jax.vmap(compute_rtg_for_traj)(rewards, value_wstates)   # [num_trajs, traj_depth]
         logger.info("train_an_epoch_gpu: RTGs computed (shape=%s)", rtgs.shape)
 
         logger.info("train_an_epoch_gpu: computing GAEs for %s trajs", num_trajs_in)
 
-        def compute_gae_for_traj(traj_wstates: Array, traj_rewards: Array) -> Array:
-            return pure_compute_gae(traj_wstates, traj_rewards, value_fn, self.model.get_value_store(), gamma, lam)
+        def compute_gae_for_traj(traj_value_wstates: Array, traj_rewards: Array) -> Array:
+            return pure_compute_gae(traj_value_wstates, traj_rewards, value_fn, self.model.get_value_store(), gamma, lam)
 
-        gaes_raw = jax.vmap(compute_gae_for_traj)(wstates, rewards)  # [num_trajs, traj_depth]
+        gaes_raw = jax.vmap(compute_gae_for_traj)(value_wstates, rewards)  # [num_trajs, traj_depth]
 
         gae_mean = jnp.mean(gaes_raw)
         gae_std = jnp.std(gaes_raw)
@@ -809,23 +764,23 @@ class PPOTrainer:
         logger.info("train_an_epoch_gpu: GAE mean=%.4f std=%.4f (shape=%s)", float(gae_mean), float(gae_std), gaes.shape)
 
         logger.info("train_an_epoch_gpu: computing start log probs")
-        # Compute start log probs from the model outputs collected during rollout
         start_log_probs = jax.vmap(
             lambda mo, sa: pure_action_log_probs(sa, mo, action_size)
         )(model_outputs, action_samples)   # [num_trajs, traj_depth]
         logger.info("train_an_epoch_gpu: start log probs computed (shape=%s)", start_log_probs.shape)
 
-        # wstates for learning uses only the non-terminal steps
-        wstates_t = wstates[:, :self.traj_depth, :]  # [num_trajs, traj_depth, state_dim]
+        # control_wstates is already [num_trajs, traj_depth, control_state_dim] — no terminal to strip
+        # value_wstates_t strips the terminal for per-step value loss
+        value_wstates_t = value_wstates[:, :self.traj_depth, :]  # [num_trajs, traj_depth, value_state_dim]
 
         epsilon = self.epsilon
         learning_rate = self.learning_rate
-
         num_updates = self.num_updates
 
         def update_all_steps_fn(
             carry: tuple[Params, Params, dict, dict],
-            wstates_t_a: Array,
+            control_wstates_a: Array,
+            value_wstates_a: Array,
             action_samples_a: Array,
             start_log_probs_a: Array,
             gaes_a: Array,
@@ -852,7 +807,8 @@ class PPOTrainer:
                     value_opt_c,
                     policy_fn,
                     value_fn,
-                    wstates_t_a,
+                    control_wstates_a,
+                    value_wstates_a,
                     action_samples_a,
                     start_log_probs_a,
                     gaes_a,
@@ -878,24 +834,17 @@ class PPOTrainer:
 
         if self._jit_train_epoch is None:
             ##DEBUG TRACING & COMPILE:
-            # See what JAX will actually compile before running it
-            # jaxpr = jax.make_jaxpr(update_all_steps_fn)(init_carry, wstates_t, action_samples, start_log_probs, gaes, rtgs)
-            # print(jaxpr)  # full trace as a Jaxpr (JAX's IR before HLO lowering)
-
-            # Go one step further: lower to StableHLO
-            lowered = jax.jit(update_all_steps_fn).lower(init_carry, wstates_t, action_samples, start_log_probs, gaes, rtgs)
-            # print(lowered.as_text())  # StableHLO text representation
-
-            # Then compile and inspect the compiled artifact
+            lowered = jax.jit(update_all_steps_fn).lower(
+                init_carry, control_wstates, value_wstates_t, action_samples, start_log_probs, gaes, rtgs
+            )
             compiled = lowered.compile()
             print(compiled.cost_analysis())  # FLOPs, memory estimates per op
             ##DEBUG TRACING & COMPILE complete:
-
             self._jit_train_epoch = compiled
 
         (policy_store_final, value_store_final, policy_opt_final, value_opt_final), (
             p_losses, v_losses, p_grad_norms, v_grad_norms,
-        ) = self._jit_train_epoch(init_carry, wstates_t, action_samples, start_log_probs, gaes, rtgs)
+        ) = self._jit_train_epoch(init_carry, control_wstates, value_wstates_t, action_samples, start_log_probs, gaes, rtgs)
 
         self.policy_opt = policy_opt_final
         self.value_opt = value_opt_final
@@ -1097,7 +1046,8 @@ def learning_step(
     value_opt: dict,
     policy_fn: Callable[[Params, Array], Array],
     value_fn: Callable[[Params, Array], Array],
-    wstates: Array,
+    control_wstates: Array,
+    value_wstates: Array,
     action_samples: Array,
     start_log_probs: Array,
     gaes: Array,
@@ -1116,9 +1066,10 @@ def learning_step(
         value_store:     current value parameters
         policy_opt:      Adam state for policy {"m", "v", "t"}
         value_opt:       Adam state for value  {"m", "v", "t"}
-        policy_fn:       callable (params, wstates) -> model_outputs
-        value_fn:        callable (params, wstates) -> values
-        wstates:         [num_trajs, T, state_dim]
+        policy_fn:       callable (params, control_wstates) -> model_outputs
+        value_fn:        callable (params, value_wstates) -> values
+        control_wstates: [num_trajs, T, control_state_dim]  — for policy loss
+        value_wstates:   [num_trajs, T, value_state_dim]    — for value loss
         action_samples:  [num_trajs, T, nu]
         start_log_probs: [num_trajs, T]
         gaes:            [num_trajs, T] normalised advantages
@@ -1158,13 +1109,13 @@ def learning_step(
         return new_params, {"m": m, "v": v, "t": t}
 
     policy_loss_fn = lambda p: pure_ppo_clip_loss(
-        p, policy_fn, wstates, action_samples, start_log_probs, gaes, epsilon, action_size,
+        p, policy_fn, control_wstates, action_samples, start_log_probs, gaes, epsilon, action_size,
     )
     policy_loss, policy_grads = jax.value_and_grad(policy_loss_fn)(policy_store)
     policy_grad_norm = pure_gradient_norm(policy_grads)
     policy_store_next, policy_opt_next = adam_step(policy_store, policy_grads, policy_opt)
 
-    value_loss_fn = lambda v: pure_value_loss(v, value_fn, wstates, rtgs)
+    value_loss_fn = lambda v: pure_value_loss(v, value_fn, value_wstates, rtgs)
     value_loss, value_grads = jax.value_and_grad(value_loss_fn)(value_store)
     value_grad_norm = pure_gradient_norm(value_grads)
     value_store_next, value_opt_next = adam_step(value_store, value_grads, value_opt)

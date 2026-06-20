@@ -50,30 +50,69 @@ for target in "${TS_TARGETS[@]}"; do
   echo "Generated: $target"
 done
 
-# --- Python: training.py (re-export shim) ---
-echo "# Auto-generated re-export shim — do not edit. Run scripts/gen_types.sh to regenerate.
-from commondef.remoteworkermessages import *" \
-  > "$REPO_ROOT/worker/worker-py/commondef/training.py"
-echo "Generated: worker/worker-py/commondef/training.py (re-export shim)"
+# --- Python: one generated module per Rust source file ---
+# Each module only contains its own types; cross-file references are resolved via imports.
+# typeshare uses cross-file type names as-is (no definition generated for them), so the
+# prepended imports bring those names into scope at runtime.
+#
+# Dependency chain: record.py <- training.py <- testing.py <- remoteworkermessages.py
 
-# --- Python: remoteworkermessages.py (remote worker protocol + training types) ---
-py_remote_dir=$(mktemp -d)
-trap 'rm -rf "$py_remote_dir"' EXIT
-cp "$REPO_ROOT/app/src/commondef/remoteworkermessages.rs" "$py_remote_dir/"
-cp "$REPO_ROOT/app/src/commondef/training.rs" "$py_remote_dir/"
-cp "$REPO_ROOT/app/src/commondef/testing.rs" "$py_remote_dir/"
-typeshare "$py_remote_dir" --lang=python \
-  --output-file="$REPO_ROOT/worker/worker-py/commondef/remoteworkermessages.py"
-echo "Generated: worker/worker-py/commondef/remoteworkermessages.py"
+# record.py — standalone (no cross-file deps among #[typeshare] types)
+py_record_dir=$(mktemp -d)
+trap 'rm -rf "$py_record_dir"' EXIT
+cp "$REPO_ROOT/app/src/commondef/record.rs" "$py_record_dir/"
+typeshare "$py_record_dir" --lang=python \
+  --output-file="$REPO_ROOT/worker/worker-py/commondef/record.py"
+echo "Generated: worker/worker-py/commondef/record.py"
 
-# --- Python: testing.py (testing types for remote worker) ---
+# training.py — imports CheckpointReference from record.py
+py_training_dir=$(mktemp -d)
+trap 'rm -rf "$py_training_dir"' EXIT
+cp "$REPO_ROOT/app/src/commondef/training.rs" "$py_training_dir/"
+typeshare "$py_training_dir" --lang=python \
+  --output-file="$REPO_ROOT/worker/worker-py/commondef/training.py"
+python3 -c "
+with open('$REPO_ROOT/worker/worker-py/commondef/training.py') as f:
+    content = f.read()
+marker = 'from __future__ import annotations'
+content = content.replace(marker, marker + '\n\nfrom commondef.record import *', 1)
+with open('$REPO_ROOT/worker/worker-py/commondef/training.py', 'w') as f:
+    f.write(content)
+"
+echo "Generated: worker/worker-py/commondef/training.py"
+
+# testing.py — imports training types (which transitively includes record types)
 py_testing_dir=$(mktemp -d)
 trap 'rm -rf "$py_testing_dir"' EXIT
 cp "$REPO_ROOT/app/src/commondef/testing.rs" "$py_testing_dir/"
-cp "$REPO_ROOT/app/src/commondef/training.rs" "$py_testing_dir/"
 typeshare "$py_testing_dir" --lang=python \
   --output-file="$REPO_ROOT/worker/worker-py/commondef/testing.py"
+python3 -c "
+with open('$REPO_ROOT/worker/worker-py/commondef/testing.py') as f:
+    content = f.read()
+marker = 'from __future__ import annotations'
+content = content.replace(marker, marker + '\n\nfrom commondef.training import *', 1)
+with open('$REPO_ROOT/worker/worker-py/commondef/testing.py', 'w') as f:
+    f.write(content)
+"
 echo "Generated: worker/worker-py/commondef/testing.py"
+
+# remoteworkermessages.py — imports training + testing (which cover all transitive deps)
+py_remote_dir=$(mktemp -d)
+trap 'rm -rf "$py_remote_dir"' EXIT
+cp "$REPO_ROOT/app/src/commondef/remoteworkermessages.rs" "$py_remote_dir/"
+typeshare "$py_remote_dir" --lang=python \
+  --output-file="$REPO_ROOT/worker/worker-py/commondef/remoteworkermessages.py"
+python3 -c "
+with open('$REPO_ROOT/worker/worker-py/commondef/remoteworkermessages.py') as f:
+    content = f.read()
+marker = 'from __future__ import annotations'
+imports = '\n\nfrom commondef.training import *\nfrom commondef.testing import *'
+content = content.replace(marker, marker + imports, 1)
+with open('$REPO_ROOT/worker/worker-py/commondef/remoteworkermessages.py', 'w') as f:
+    f.write(content)
+"
+echo "Generated: worker/worker-py/commondef/remoteworkermessages.py"
 
 # --- MongoDB JSON Schemas ---
 mkdir -p "$REPO_ROOT/schemas"

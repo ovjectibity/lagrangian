@@ -14,7 +14,8 @@ import jax
 import jax.numpy as jnp
 from jax import random
 
-from commondef.training import ControlPolicyOutputMode, MLPModel, VLAModel
+from commondef.training import ControlPolicyOutputMode, ModelInputSpec, VLAModel
+from commondef.training import MLPModel as MLPModelSpec
 from models.mlp import MLPModel
 from workflows.ppo_trainer import PPOTrainedModel, TestingModel, compute_flow_noise_log_prob
 from models.pi0.pi0_jax import Pi0Jax
@@ -25,7 +26,7 @@ Array = jax.Array
 Params = Any
 
 
-def _init_mlp(mlp_spec: MLPModel, seed: int = 42) -> tuple[Callable, Params]:
+def _init_mlp(mlp_spec: MLPModelSpec, seed: int = 42) -> tuple[Callable, Params]:
     policy_fn, params = MLPModel.init_policy(
         input_dimension=mlp_spec.input_dim,
         output_dimension=mlp_spec.output_dim,
@@ -50,8 +51,12 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     def __init__(
         self,
         vla_spec: VLAModel,
-        noise_mlp_spec: MLPModel,
-        value_mlp_spec: MLPModel | None = None,
+        noise_mlp_spec: MLPModelSpec,
+        control_input_spec: ModelInputSpec,
+        value_input_spec: ModelInputSpec,
+        reward_input_spec: ModelInputSpec,
+        value_mlp_spec: MLPModelSpec | None = None,
+        reward_fn: Callable[[dict[str, Array], dict[str, Array]], float] | None = None,
         seed: int = 0,
     ) -> None:
         checkpoint_dir = os.environ.get("PI0_CHECKPOINT_DIR", "/opt/lagrangian/pi0")
@@ -63,6 +68,11 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         self._policy_store: Params = self._pi0.get_policy_store()
         self._frozen_store: Params = self._pi0.get_frozen_store()
 
+        self._control_input_spec = control_input_spec
+        self._value_input_spec = value_input_spec
+        self._reward_input_spec = reward_input_spec
+        self._reward_fn = reward_fn
+
         if value_mlp_spec is not None:
             self._value_fn, self._value_store = _init_mlp(value_mlp_spec, seed + 1)
         else:
@@ -72,6 +82,29 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         self._last_log_prob: float | None = None
         self._rng_key = random.PRNGKey(seed)
         self._last_task: str = ""
+
+    # ------------------------------------------------------------------
+    # Input spec ownership
+    # ------------------------------------------------------------------
+
+    def get_control_input_spec(self) -> ModelInputSpec:
+        return self._control_input_spec
+
+    def get_value_input_spec(self) -> ModelInputSpec:
+        return self._value_input_spec
+
+    def get_reward_input_spec(self) -> ModelInputSpec:
+        return self._reward_input_spec
+
+    # ------------------------------------------------------------------
+    # State assembly
+    # ------------------------------------------------------------------
+
+    def assemble_control_state(self, parts: dict[str, Array]) -> Array:
+        return jnp.concatenate([parts[k] for k in self._STATE_KEY_ORDER if k in parts])
+
+    def assemble_value_state(self, parts: dict[str, Array]) -> Array:
+        return jnp.concatenate([parts[k] for k in self._STATE_KEY_ORDER if k in parts])
 
     # ------------------------------------------------------------------
     # PPOTrainedModel interface
@@ -91,7 +124,6 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         """
         self._rng_key, key = random.split(self._rng_key)
 
-        # Retrieve last structured observation set by the training loop
         images = getattr(self, "_last_images", None)
         task   = getattr(self, "_last_task", "")
 
@@ -110,7 +142,6 @@ class Pi0Model(PPOTrainedModel, TestingModel):
             task,
             key,
         )
-        # Return first action step as the control output
         return actions[0]
 
     def set_observation(self, images: Array, task: str) -> None:
@@ -161,19 +192,26 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
         return ControlPolicyOutputMode.TARGETPOSITIONS
 
-    def get_reward(self, cstate, cstate_next, action, contact_pairs) -> float:
-        return 0.0
+    def get_reward(
+        self,
+        parts_pre: dict[str, Array],
+        parts_post: dict[str, Array],
+    ) -> float:
+        if self._reward_fn is None:
+            raise RuntimeError("No reward function injected into Pi0Model")
+        return float(self._reward_fn(parts_pre, parts_post))
 
-    def get_pure_reward_fn(self) -> Callable:
-        def _reward(cstate, cstate_next, action, contact):
-            return jnp.zeros(())
-        return _reward
+    def get_pure_reward_fn(
+        self,
+    ) -> Callable[[dict[str, Array], dict[str, Array]], float]:
+        if self._reward_fn is None:
+            raise RuntimeError("No reward function injected into Pi0Model")
+        return self._reward_fn
 
     # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
     # TestingModel interface
+    # ------------------------------------------------------------------
+
     def get_test_action(self, state: Array) -> Array:
         return self.get_policy_output(state)
 
@@ -183,13 +221,14 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     def get_test_params(self) -> Params:
         return self.get_policy_store()
 
-    def assemble_state(self, parts: dict[str, Array]) -> Array:
-        return jnp.concatenate([parts[k] for k in self._STATE_KEY_ORDER if k in parts])
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
 
     def _ensure_value_store(self, state: Array) -> None:
         if self._value_store is None:
             obs_dim = int(state.shape[-1])
-            spec = MLPModel(
+            spec = MLPModelSpec(
                 num_hidden_layers=2,
                 hidden_layer_dim=256,
                 output_dim=1,

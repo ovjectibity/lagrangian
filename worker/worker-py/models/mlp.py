@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from commondef.training import ModelInputSpec
 from workflows.ppo_trainer import ControlPolicyOutputMode, PPOTrainedModel, TestingModel
 
 Array = jax.Array
@@ -19,15 +20,19 @@ class MLPModel(PPOTrainedModel, TestingModel):
         value: Callable[[Params, Array], Array],
         policy_store: Params,
         value_store: Params,
-        nbody: int = 0,
-        reward_fn: Callable | None = None,
+        control_input_spec: ModelInputSpec,
+        value_input_spec: ModelInputSpec,
+        reward_input_spec: ModelInputSpec,
+        reward_fn: Callable[[dict[str, Array], dict[str, Array]], float] | None = None,
     ) -> None:
         self.control_output_mode = ControlPolicyOutputMode.TARGETPOSITIONS
         self.policy = policy
         self.value = value
         self.policy_store = policy_store
         self.value_store = value_store
-        self.nbody = nbody
+        self._control_input_spec = control_input_spec
+        self._value_input_spec = value_input_spec
+        self._reward_input_spec = reward_input_spec
         self._reward_fn = reward_fn
 
     @staticmethod
@@ -101,34 +106,60 @@ class MLPModel(PPOTrainedModel, TestingModel):
         val_estimator: Callable[[Params, Array], Array],
         pol_store: Params,
         val_estimator_store: Params,
-        nbody: int = 0,
-        reward_fn: Callable | None = None,
+        control_input_spec: ModelInputSpec,
+        value_input_spec: ModelInputSpec,
+        reward_input_spec: ModelInputSpec,
+        reward_fn: Callable[[dict[str, Array], dict[str, Array]], float] | None = None,
     ) -> MLPModel:
         return cls(
             policy=policy,
             value=val_estimator,
             policy_store=pol_store,
             value_store=val_estimator_store,
-            nbody=nbody,
+            control_input_spec=control_input_spec,
+            value_input_spec=value_input_spec,
+            reward_input_spec=reward_input_spec,
             reward_fn=reward_fn,
         )
 
+    # --- Input spec ownership ---
+
+    def get_control_input_spec(self) -> ModelInputSpec:
+        return self._control_input_spec
+
+    def get_value_input_spec(self) -> ModelInputSpec:
+        return self._value_input_spec
+
+    def get_reward_input_spec(self) -> ModelInputSpec:
+        return self._reward_input_spec
+
+    # --- State assembly ---
+
+    def assemble_control_state(self, parts: dict[str, Array]) -> Array:
+        return jnp.concatenate(list(parts.values()))
+
+    def assemble_value_state(self, parts: dict[str, Array]) -> Array:
+        return jnp.concatenate(list(parts.values()))
+
+    # --- Reward ---
+
     def get_reward(
         self,
-        cstate: Array,
-        cstate_next: Array,
-        action: Array,
-        contact_pairs: list[tuple[int, int]] | None,
+        parts_pre: dict[str, Array],
+        parts_post: dict[str, Array],
     ) -> float:
         if self._reward_fn is None:
-            raise RuntimeError("No reward function injected into MLPPPOModel")
-        contact_matrix = np.zeros((self.nbody, self.nbody), dtype=np.float32)
-        if contact_pairs is not None:
-            for a, b in contact_pairs:
-                if a < self.nbody and b < self.nbody:
-                    contact_matrix[a, b] = 1.0
-                    contact_matrix[b, a] = 1.0
-        return float(self._reward_fn(cstate, cstate_next, action, jnp.asarray(contact_matrix)))
+            raise RuntimeError("No reward function injected into MLPModel")
+        return float(self._reward_fn(parts_pre, parts_post))
+
+    def get_pure_reward_fn(
+        self,
+    ) -> Callable[[dict[str, Array], dict[str, Array]], float]:
+        if self._reward_fn is None:
+            raise RuntimeError("No reward function injected into MLPModel")
+        return self._reward_fn
+
+    # --- Policy / value inference ---
 
     def get_policy_output(self, state: Array) -> Array:
         return self.policy(self.policy_store, state)
@@ -164,20 +195,13 @@ class MLPModel(PPOTrainedModel, TestingModel):
     def get_pure_policy_fn(self) -> Callable[[Params, Array], Array]:
         return self.policy
 
-    def get_pure_reward_fn(self) -> Callable[[Array, Array, Array, Array], Array]:
-        if self._reward_fn is None:
-            raise RuntimeError("No reward function injected into MLPPPOModel")
-        return self._reward_fn
+    # --- TestingModel interface ---
 
-    # TestingModel interface
     def get_test_action(self, state: Array) -> Array:
         return self.get_policy_output(state)
 
     def get_pure_test_fn(self) -> Callable[[Params, Array], Array]:
-        return self.get_pure_policy_fn()
+        return self.policy
 
     def get_test_params(self) -> Params:
-        return self.get_policy_store()
-
-    def assemble_state(self, parts: dict[str, Array]) -> Array:
-        return jnp.concatenate(list(parts.values()))
+        return self.policy_store
