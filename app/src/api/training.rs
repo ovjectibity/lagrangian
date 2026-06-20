@@ -415,27 +415,6 @@ pub async fn start_training(
         let run_id_c = run_id.clone();
         let h = rocket::tokio::task::spawn_blocking(
             move || {
-                let mut runtime =
-                    match WorkflowRuntime::for_training(
-                        model_path,
-                        &ppo_params,
-                    ) {
-                        Ok(r) => r,
-                        Err(e) => {
-                            println!(
-                                "WorkflowRuntime \
-                                 for_training failed: {:?}",
-                                e
-                            );
-                            return;
-                        }
-                    };
-                runtime.set_mode(
-                    WorkflowMode::Training,
-                );
-                let sim = runtime.simulator_handle();
-                let model =
-                    runtime.ppo_model_handle();
                 use std::sync::Arc as StdArc;
                 let reward_fn: Option<
                     Box<
@@ -472,12 +451,33 @@ pub async fn start_training(
                             + Send,
                     >
                 });
+                let mut runtime =
+                    match WorkflowRuntime::for_training(
+                        model_path,
+                        &ppo_params,
+                        reward_fn,
+                    ) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            println!(
+                                "WorkflowRuntime \
+                                 for_training failed: {:?}",
+                                e
+                            );
+                            return;
+                        }
+                    };
+                runtime.set_mode(
+                    WorkflowMode::Training,
+                );
+                let sim = runtime.simulator_handle();
+                let model =
+                    runtime.ppo_model_handle();
                 let wf = TrainingWorkflow::new(
                     run_id_c,
                     ppo_params,
                     sim,
                     model,
-                    reward_fn,
                 );
                 if let Ok(mut wf) = wf {
                     wf.run_training_blocking(

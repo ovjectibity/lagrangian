@@ -1,9 +1,7 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rocket::tokio::sync::mpsc;
-use tch::Tensor;
 
 use crate::commondef::training::{
     MetricsData, PPOTrainingMethod, PPOTrainingRunState, TrainingMetrics, TrainingRunState,
@@ -47,15 +45,6 @@ impl TrainingWorkflow {
         params: PPOTrainingMethod,
         simulator: Arc<Mutex<dyn Simulator + Send>>,
         model: Arc<Mutex<dyn PPOTrainedModel + Send>>,
-        reward_fn: Option<
-            Box<
-                dyn Fn(
-                    &HashMap<String, Tensor>,
-                    &HashMap<String, Tensor>,
-                ) -> f64
-                    + Send,
-            >,
-        >,
     ) -> Result<Self, String> {
         let trainer = PPOTrainer::new(
             simulator.clone(),
@@ -65,7 +54,6 @@ impl TrainingWorkflow {
             params.num_updates,
             params.epsilon,
             (params.gamma, params.lambda),
-            reward_fn,
         );
 
         if let Ok(t) = trainer {

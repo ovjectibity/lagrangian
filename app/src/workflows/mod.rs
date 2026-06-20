@@ -1,4 +1,7 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+use tch::Tensor;
 
 use crate::commondef::testing::TestGraph;
 use crate::commondef::training::{
@@ -30,6 +33,7 @@ impl WorkflowRuntime {
     pub fn for_training(
         model_path: String,
         params: &PPOTrainingMethod,
+        reward_fn: Option<Box<dyn Fn(&HashMap<String, Tensor>, &HashMap<String, Tensor>) -> f64 + Send>>,
     ) -> Result<Self, String> {
         if matches!(&params.control_model, ControlModel::VLA(_)) {
             return Err("VLA control model is not supported for local training".into());
@@ -74,12 +78,15 @@ impl WorkflowRuntime {
             false,
             false,
         );
-        let mut model =
-            MLPModel::init_ppo_trained_model(policy, value, policy_store, value_store);
-        model.set_input_specs(
+        let model = MLPModel::init_ppo_trained_model(
+            policy,
+            value,
+            policy_store,
+            value_store,
             control_params.input_spec.clone(),
             value_params.input_spec.clone(),
             params.reward_function.input_spec.clone(),
+            reward_fn,
         );
         Ok(WorkflowRuntime {
             simulator: Arc::new(Mutex::new(simulator)),
@@ -111,12 +118,15 @@ impl WorkflowRuntime {
             true,
         );
         let (value, value_store) = MLPModel::init_policy(1, 1, 1, 1, false, false);
-        let mut model =
-            MLPModel::init_ppo_trained_model(policy, value, policy_store, value_store);
-        model.set_input_specs(
+        let model = MLPModel::init_ppo_trained_model(
+            policy,
+            value,
+            policy_store,
+            value_store,
             control_params.input_spec.clone(),
             ModelInputSpec::default(),
             ModelInputSpec::default(),
+            None,
         );
         Ok(WorkflowRuntime {
             simulator: Arc::new(Mutex::new(simulator)),

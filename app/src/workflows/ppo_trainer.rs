@@ -76,7 +76,6 @@ pub struct PPOTrainer {
     model: Arc<Mutex<dyn PPOTrainedModel + Send>>,
     policy_opt: nn::Optimizer,
     value_opt: nn::Optimizer,
-    user_reward_fn: Option<Box<dyn Fn(&HashMap<String, Tensor>, &HashMap<String, Tensor>) -> f64 + Send>>,
 }
 
 //TODO: Optimising with aggregating all
@@ -97,7 +96,6 @@ impl PPOTrainer {
         num_updates: i32,
         epsilon: f64,
         gamma_lambda: (f64, f64),
-        user_reward_fn: Option<Box<dyn Fn(&HashMap<String, Tensor>, &HashMap<String, Tensor>) -> f64 + Send>>,
     ) -> Result<Self, tch::TchError> {
         let policy_opt = {
             let m = model.lock().expect("Model mutex poisoned");
@@ -117,7 +115,6 @@ impl PPOTrainer {
             model: model,
             policy_opt: policy_opt,
             value_opt: value_opt,
-            user_reward_fn: user_reward_fn,
         })
     }
 
@@ -203,15 +200,10 @@ impl PPOTrainer {
                     .expect("Simulator mutex poisoned")
                     .forward_dyn(&controls);
                 let reward_parts_post = self.simulator.lock().expect("Simulator mutex poisoned").get_model_state(&reward_input_spec);
-                let reward =
-                    if let Some(ref f) = self.user_reward_fn {
-                        f(&reward_parts_pre, &reward_parts_post)
-                    } else {
-                        self.model
-                            .lock()
-                            .expect("Model mutex poisoned")
-                            .get_reward(&reward_parts_pre, &reward_parts_post)
-                    };
+                let reward = self.model
+                    .lock()
+                    .expect("Model mutex poisoned")
+                    .get_reward(&reward_parts_pre, &reward_parts_post);
                 println!("Got reward during gen_traj as: {:?}", reward);
                 rewards.push(reward);
                 control_wstates.push(wstate);

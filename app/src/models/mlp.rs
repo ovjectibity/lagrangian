@@ -19,6 +19,7 @@ pub struct MLPModel {
     control_input_spec: ModelInputSpec,
     value_input_spec: ModelInputSpec,
     reward_input_spec: ModelInputSpec,
+    reward_fn: Option<Box<dyn Fn(&HashMap<String, Tensor>, &HashMap<String, Tensor>) -> f64 + Send>>,
 }
 
 impl MLPModel {
@@ -86,17 +87,6 @@ impl MLPModel {
         (y, vs)
     }
 
-    pub fn set_input_specs(
-        &mut self,
-        control: ModelInputSpec,
-        value: ModelInputSpec,
-        reward: ModelInputSpec,
-    ) {
-        self.control_input_spec = control;
-        self.value_input_spec = value;
-        self.reward_input_spec = reward;
-    }
-
     fn forward_policy_impl(&self, state: &Tensor) -> Tensor {
         let state = state
             .to_device(self.policy_store.device())
@@ -131,6 +121,10 @@ impl PPOTrainedModel for MLPModel {
         val_estimator: nn::Sequential,
         pol_store: nn::VarStore,
         val_estimator_store: nn::VarStore,
+        control_input_spec: ModelInputSpec,
+        value_input_spec: ModelInputSpec,
+        reward_input_spec: ModelInputSpec,
+        reward_fn: Option<Box<dyn Fn(&HashMap<String, Tensor>, &HashMap<String, Tensor>) -> f64 + Send>>,
     ) -> Self {
         MLPModel {
             control_output_mode: ControlPolicyOutputMode::TargetPositions,
@@ -138,18 +132,22 @@ impl PPOTrainedModel for MLPModel {
             value: val_estimator,
             policy_store: pol_store,
             value_store: val_estimator_store,
-            control_input_spec: ModelInputSpec::default(),
-            value_input_spec: ModelInputSpec::default(),
-            reward_input_spec: ModelInputSpec::default(),
+            control_input_spec,
+            value_input_spec,
+            reward_input_spec,
+            reward_fn,
         }
     }
 
     fn get_reward(
         &self,
-        _parts_pre: &HashMap<String, Tensor>,
-        _parts_post: &HashMap<String, Tensor>,
+        parts_pre: &HashMap<String, Tensor>,
+        parts_post: &HashMap<String, Tensor>,
     ) -> f64 {
-        0.0
+        self.reward_fn
+            .as_ref()
+            .expect("No reward function injected into MLPModel")
+            (parts_pre, parts_post)
     }
 
     fn get_control_input_spec(&self) -> ModelInputSpec {

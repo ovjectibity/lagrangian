@@ -25,6 +25,10 @@ pub trait PPOTrainedModel {
         val_estimator: nn::Sequential,
         pol_store: nn::VarStore,
         val_estimator_store: nn::VarStore,
+        control_input_spec: ModelInputSpec,
+        value_input_spec: ModelInputSpec,
+        reward_input_spec: ModelInputSpec,
+        reward_fn: Option<Box<dyn Fn(&HashMap<String, Tensor>, &HashMap<String, Tensor>) -> f64 + Send>>,
     ) -> Self
     where
         Self: Sized;
