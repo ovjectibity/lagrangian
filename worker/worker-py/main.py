@@ -34,7 +34,7 @@ from commondef.remoteworkermessages import (
     TrainingAccelerationMode,
 )
 from models.mlp import MLPModel
-from workflows.ppo_trainer import PPOTrainedModel, TestingModel
+from models.model import PPOTrainedModel, TestingModel
 from simulator.simulator import MjxSimulator, MujocoSimulator, Simulator
 from workflows.testing import CallbackTestingTaskSink, TestingWorkflow
 from workflows.training import CallbackTrainingTaskSink, TrainingWorkflow

@@ -16,7 +16,7 @@ from commondef.remoteworkermessages import (
     TrainingAccelerationMode,
 )
 from commondef.testing import TestJobController
-from workflows.ppo_trainer import TestingModel
+from models.model import TestingModel
 from simulator.simulator import MjxSimulator, Simulator
 
 

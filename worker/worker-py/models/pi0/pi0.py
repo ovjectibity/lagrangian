@@ -17,7 +17,7 @@ from jax import random
 from commondef.training import ControlPolicyOutputMode, ModelInputSpec, VLAModel
 from commondef.training import MLPModel as MLPModelSpec
 from models.mlp import MLPModel
-from workflows.ppo_trainer import PPOTrainedModel, TestingModel, compute_flow_noise_log_prob
+from models.model import PPOTrainedModel, TestingModel
 from models.pi0.pi0_jax import Pi0Jax
 
 logger = logging.getLogger(__name__)

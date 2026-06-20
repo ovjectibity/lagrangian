@@ -6,8 +6,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from commondef.training import ModelInputSpec
-from workflows.ppo_trainer import ControlPolicyOutputMode, PPOTrainedModel, TestingModel
+from commondef.training import ModelInputSpec, ControlPolicyOutputMode
+from models.model import PPOTrainedModel, TestingModel
 
 Array = jax.Array
 Params = Any

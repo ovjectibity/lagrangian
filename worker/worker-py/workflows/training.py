@@ -33,7 +33,8 @@ from commondef.training import (
     TrainingMetricsValueLoss,
     TrainingRunStatePPOTrainingRunState,
 )
-from workflows.ppo_trainer import PPOTrainer, PPOTrainedModel
+from workflows.ppo_trainer import PPOTrainer
+from models.model import PPOTrainedModel
 from simulator.simulator import Simulator
 
 logger = logging.getLogger(__name__)
