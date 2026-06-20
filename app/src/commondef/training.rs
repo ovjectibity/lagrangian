@@ -3,10 +3,11 @@ use std::collections::HashMap;
 use schemars::JsonSchema;
 use serde;
 use typeshare::typeshare;
+use utoipa::ToSchema;
 
 use crate::commondef::record::CheckpointReference;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub enum ControlPolicyOutputMode {
     TargetPositions,
@@ -14,7 +15,7 @@ pub enum ControlPolicyOutputMode {
     TargetTorques,
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct ModelInputSpec {
     pub all_cameras: bool,
@@ -27,13 +28,13 @@ pub struct ModelInputSpec {
     pub contact_pairs: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub enum Pretrained {
     Pi0
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum CheckpointType {
@@ -41,7 +42,7 @@ pub enum CheckpointType {
     Checkpoint(String)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ModelType {
@@ -49,7 +50,7 @@ pub enum ModelType {
     New
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct VLAModel {
     pub model_type: ModelType,
@@ -57,7 +58,7 @@ pub struct VLAModel {
     pub output: ControlPolicyOutputMode,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct MLPModel {
     pub model_type: ModelType,
@@ -68,7 +69,7 @@ pub struct MLPModel {
     pub input_dim: i32,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ControlModel {
@@ -76,34 +77,34 @@ pub enum ControlModel {
     VLA(VLAModel)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ValueModel {
     MLP(MLPModel)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum TrainingMethod {
     PPO(PPOTrainingMethod),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum FlowMatchingAction {
     FlowNoise(FlowNoiseConfig),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct FlowNoiseConfig {
     pub noise_model: MLPModel,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ControlOutputMode {
@@ -111,7 +112,7 @@ pub enum ControlOutputMode {
     FlowMatchingAction(FlowMatchingAction),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct PPOTrainingMethod {
     pub num_trajs: i32,
@@ -128,14 +129,14 @@ pub struct PPOTrainingMethod {
     pub control_output_mode: ControlOutputMode,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub enum RewardLanguage {
     Rust,
     Python,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct RewardSystem {
     pub language: RewardLanguage,
@@ -162,7 +163,7 @@ pub struct MetricsData {
     pub y_axis: Vec<f64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub enum TrainingAccelerationMode {
     MLGPUSimulationCPU,
@@ -171,13 +172,13 @@ pub enum TrainingAccelerationMode {
     AllOnServer,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub enum ComputeInstance {
     AWSG4dn,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct TrainingJobController {
     pub training_method: TrainingMethod,
@@ -186,13 +187,13 @@ pub struct TrainingJobController {
     pub checkpoint_frequency: CheckpointFrequency,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct TrainingGraph {
     pub training_job_controller: TrainingJobController,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum CheckpointFrequency {

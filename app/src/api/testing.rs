@@ -4,13 +4,14 @@ use rocket::response::stream::{Event, EventStream};
 use rocket::serde::json::Json;
 use rocket::tokio::sync::{broadcast, mpsc};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD
     as BASE64;
 
-use crate::api::ApiState;
+use crate::api::{route_doc, ApiState};
 use crate::commondef::clientmessages::ClientMessage;
 use crate::commondef::record::{
     TestGraphRecord, TestRunStatus,
@@ -25,23 +26,29 @@ use crate::workflows::testing::TestingWorkflow;
 
 // ── Request / response types ─────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct StartTestBody {
     pub test_graph: TestGraph,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct TestStartedResponse {
     pub id: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct TestStoppedResponse {
     pub id: String,
 }
 
 // ── Handlers ─────────────────────────────────
 
+#[route_doc(
+    tag = "Testing",
+    ok = TestStartedResponse,
+    body = StartTestBody,
+    errors(400),
+)]
 #[post(
     "/testing/start",
     format = "json",
@@ -243,6 +250,11 @@ pub async fn start_test(
     }))
 }
 
+#[route_doc(
+    tag = "Testing",
+    ok = TestStoppedResponse,
+    params(test_id = "Test run UUID"),
+)]
 #[post("/testing/<test_id>/stop")]
 pub async fn stop_test(
     test_id: String,
@@ -271,6 +283,11 @@ pub async fn stop_test(
     }))
 }
 
+#[route_doc(
+    tag = "Testing",
+    sse,
+    params(test_id = "Test run UUID"),
+)]
 #[get("/testing/<test_id>/updates")]
 pub async fn test_updates(
     test_id: String,

@@ -7,8 +7,10 @@ use rocket::fs::TempFile;
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use serde::Serialize;
+use utoipa::ToSchema;
 use zip::ZipArchive;
 
+use crate::api::route_doc;
 use crate::commondef::model::WorldBody;
 use crate::commondef::record::ModelReference;
 use crate::simulator::mj_simulator::MjSimulator;
@@ -16,18 +18,18 @@ use crate::simulator::Simulator as _;
 
 // ── Response types ───────────────────────────
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct DefaultModelResponse {
     pub id: String,
     pub model: WorldBody,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ModelsResponse {
     pub models: Vec<ModelReference>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct SaveModelResponse {
     pub id: String,
 }
@@ -41,6 +43,7 @@ pub struct ModelUploadForm<'r> {
 
 // ── Handlers ─────────────────────────────────
 
+#[route_doc(tag = "Models", ok = DefaultModelResponse)]
 #[get("/models/default")]
 pub async fn get_default_model()
 -> Result<Json<DefaultModelResponse>, Status>
@@ -75,6 +78,7 @@ pub async fn get_default_model()
     }))
 }
 
+#[route_doc(tag = "Models", ok = ModelsResponse)]
 #[get("/models")]
 pub async fn list_models()
 -> Result<Json<ModelsResponse>, Status>
@@ -86,6 +90,7 @@ pub async fn list_models()
     Ok(Json(ModelsResponse { models }))
 }
 
+#[route_doc(tag = "Models", ok = SaveModelResponse, multipart)]
 #[post("/models/save_model", data = "<form>")]
 pub async fn save_model(
     mut form: Form<ModelUploadForm<'_>>,

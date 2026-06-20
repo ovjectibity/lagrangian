@@ -1,23 +1,26 @@
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use serde::Serialize;
+use utoipa::ToSchema;
 
+use crate::api::route_doc;
 use crate::commondef::record::CheckpointReference;
 
 // ── Response types ───────────────────────────
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct CheckpointsResponse {
     pub checkpoints: Vec<CheckpointReference>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct CheckpointResponse {
     pub checkpoint: CheckpointReference,
 }
 
 // ── Handlers ─────────────────────────────────
 
+#[route_doc(tag = "Checkpoints", ok = CheckpointsResponse)]
 #[get("/checkpoints")]
 pub async fn list_checkpoints()
 -> Result<Json<CheckpointsResponse>, Status>
@@ -29,6 +32,12 @@ pub async fn list_checkpoints()
     Ok(Json(CheckpointsResponse { checkpoints }))
 }
 
+#[route_doc(
+    tag = "Checkpoints",
+    ok = CheckpointResponse,
+    errors(404),
+    params(checkpoint_id = "Checkpoint UUID"),
+)]
 #[get("/checkpoints/<checkpoint_id>")]
 pub async fn get_checkpoint(
     checkpoint_id: String,

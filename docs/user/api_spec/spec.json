@@ -1,0 +1,1672 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "lagrangian",
+        "description": "",
+        "license": {
+            "name": ""
+        },
+        "version": "0.1.0"
+    },
+    "paths": {
+        "/checkpoints": {
+            "get": {
+                "tags": [
+                    "Checkpoints"
+                ],
+                "operationId": "list_checkpoints",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CheckpointsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/checkpoints/{checkpoint_id}": {
+            "get": {
+                "tags": [
+                    "Checkpoints"
+                ],
+                "operationId": "get_checkpoint",
+                "parameters": [
+                    {
+                        "name": "checkpoint_id",
+                        "in": "path",
+                        "description": "Checkpoint UUID",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CheckpointResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/models": {
+            "get": {
+                "tags": [
+                    "Models"
+                ],
+                "operationId": "list_models",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ModelsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/models/default": {
+            "get": {
+                "tags": [
+                    "Models"
+                ],
+                "operationId": "get_default_model",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DefaultModelResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/models/save_model": {
+            "post": {
+                "tags": [
+                    "Models"
+                ],
+                "operationId": "save_model",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SaveModelResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/testing/start": {
+            "post": {
+                "tags": [
+                    "Testing"
+                ],
+                "operationId": "start_test",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StartTestBody"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TestStartedResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request"
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/testing/{test_id}/stop": {
+            "post": {
+                "tags": [
+                    "Testing"
+                ],
+                "operationId": "stop_test",
+                "parameters": [
+                    {
+                        "name": "test_id",
+                        "in": "path",
+                        "description": "Test run UUID",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TestStoppedResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/testing/{test_id}/updates": {
+            "get": {
+                "tags": [
+                    "Testing"
+                ],
+                "operationId": "test_updates",
+                "parameters": [
+                    {
+                        "name": "test_id",
+                        "in": "path",
+                        "description": "Test run UUID",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Server-sent event stream"
+                    }
+                }
+            }
+        },
+        "/training/experiments": {
+            "get": {
+                "tags": [
+                    "Training"
+                ],
+                "operationId": "list_experiments",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExperimentsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Training"
+                ],
+                "operationId": "create_experiment",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateExperimentBody"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExperimentResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/training/experiments/{experiment_id}/runs": {
+            "get": {
+                "tags": [
+                    "Training"
+                ],
+                "operationId": "list_runs",
+                "parameters": [
+                    {
+                        "name": "experiment_id",
+                        "in": "path",
+                        "description": "Experiment UUID",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RunsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Training"
+                ],
+                "operationId": "create_run",
+                "parameters": [
+                    {
+                        "name": "experiment_id",
+                        "in": "path",
+                        "description": "Experiment UUID",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RunResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/training/experiments/{experiment_id}/runs/{run_id}": {
+            "get": {
+                "tags": [
+                    "Training"
+                ],
+                "operationId": "get_run",
+                "parameters": [
+                    {
+                        "name": "experiment_id",
+                        "in": "path",
+                        "description": "Experiment UUID",
+                        "required": true
+                    },
+                    {
+                        "name": "run_id",
+                        "in": "path",
+                        "description": "Run UUID",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RunResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/training/experiments/{experiment_id}/runs/{run_id}/checkpoints": {
+            "get": {
+                "tags": [
+                    "Training"
+                ],
+                "operationId": "get_run_checkpoints",
+                "parameters": [
+                    {
+                        "name": "experiment_id",
+                        "in": "path",
+                        "description": "Experiment UUID",
+                        "required": true
+                    },
+                    {
+                        "name": "run_id",
+                        "in": "path",
+                        "description": "Run UUID",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CheckpointsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/training/experiments/{experiment_id}/runs/{run_id}/start": {
+            "post": {
+                "tags": [
+                    "Training"
+                ],
+                "operationId": "start_training",
+                "parameters": [
+                    {
+                        "name": "experiment_id",
+                        "in": "path",
+                        "description": "Experiment UUID",
+                        "required": true
+                    },
+                    {
+                        "name": "run_id",
+                        "in": "path",
+                        "description": "Run UUID",
+                        "required": true
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StartTrainingBody"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TrainingStartedResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request"
+                    },
+                    "422": {
+                        "description": "Unprocessable entity"
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/training/experiments/{experiment_id}/runs/{run_id}/stop": {
+            "post": {
+                "tags": [
+                    "Training"
+                ],
+                "operationId": "stop_training",
+                "parameters": [
+                    {
+                        "name": "experiment_id",
+                        "in": "path",
+                        "description": "Experiment UUID",
+                        "required": true
+                    },
+                    {
+                        "name": "run_id",
+                        "in": "path",
+                        "description": "Run UUID",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TrainingStoppedResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error"
+                    }
+                }
+            }
+        },
+        "/training/experiments/{experiment_id}/runs/{run_id}/updates": {
+            "get": {
+                "tags": [
+                    "Training"
+                ],
+                "operationId": "training_updates",
+                "parameters": [
+                    {
+                        "name": "experiment_id",
+                        "in": "path",
+                        "description": "Experiment UUID",
+                        "required": true
+                    },
+                    {
+                        "name": "run_id",
+                        "in": "path",
+                        "description": "Run UUID",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Server-sent event stream"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "Body": {
+                "type": "object",
+                "properties": {
+                    "bodies": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Body"
+                        },
+                        "nullable": true
+                    },
+                    "body_id": {
+                        "type": "integer",
+                        "format": "int32",
+                        "nullable": true
+                    },
+                    "euler": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float"
+                        },
+                        "nullable": true
+                    },
+                    "geoms": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Geom"
+                        },
+                        "nullable": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "pos": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float"
+                        },
+                        "nullable": true
+                    },
+                    "quat": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float"
+                        },
+                        "nullable": true
+                    }
+                }
+            },
+            "CheckpointFrequency": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": [
+                            "type",
+                            "content"
+                        ],
+                        "properties": {
+                            "content": {
+                                "type": "integer",
+                                "format": "int32"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "PostEpoch"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type",
+                            "content"
+                        ],
+                        "properties": {
+                            "content": {
+                                "type": "integer",
+                                "format": "int32"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "PostUpdate"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "LastOnly"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "type"
+                }
+            },
+            "CheckpointReference": {
+                "type": "object",
+                "required": [
+                    "created_at",
+                    "id",
+                    "path",
+                    "training_experiment_id",
+                    "training_run_id",
+                    "checkpoint_type"
+                ],
+                "properties": {
+                    "checkpoint_type": {
+                        "type": "string"
+                    },
+                    "control_model_params": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MLPModel"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "$ref": "#/components/schemas/Timestamp"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "training_experiment_id": {
+                        "type": "string"
+                    },
+                    "training_run_id": {
+                        "type": "string"
+                    },
+                    "value_model_params": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MLPModel"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                }
+            },
+            "CheckpointResponse": {
+                "type": "object",
+                "required": [
+                    "checkpoint"
+                ],
+                "properties": {
+                    "checkpoint": {
+                        "$ref": "#/components/schemas/CheckpointReference"
+                    }
+                }
+            },
+            "CheckpointType": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": [
+                            "type",
+                            "content"
+                        ],
+                        "properties": {
+                            "content": {
+                                "$ref": "#/components/schemas/Pretrained"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "Pretrained"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type",
+                            "content"
+                        ],
+                        "properties": {
+                            "content": {
+                                "type": "string"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "Checkpoint"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "type"
+                }
+            },
+            "CheckpointsResponse": {
+                "type": "object",
+                "required": [
+                    "checkpoints"
+                ],
+                "properties": {
+                    "checkpoints": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CheckpointReference"
+                        }
+                    }
+                }
+            },
+            "ComputeInstance": {
+                "type": "string",
+                "enum": [
+                    "AWSG4dn"
+                ]
+            },
+            "ControlModel": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": [
+                            "type",
+                            "content"
+                        ],
+                        "properties": {
+                            "content": {
+                                "$ref": "#/components/schemas/MLPModel"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "MLP"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type",
+                            "content"
+                        ],
+                        "properties": {
+                            "content": {
+                                "$ref": "#/components/schemas/VLAModel"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "VLA"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "type"
+                }
+            },
+            "ControlOutputMode": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "ActionMean"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type",
+                            "content"
+                        ],
+                        "properties": {
+                            "content": {
+                                "$ref": "#/components/schemas/FlowMatchingAction"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "FlowMatchingAction"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "type"
+                }
+            },
+            "ControlPolicyOutputMode": {
+                "type": "string",
+                "enum": [
+                    "TargetPositions",
+                    "TargetVelocities",
+                    "TargetTorques"
+                ]
+            },
+            "CreateExperimentBody": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                }
+            },
+            "DefaultModelResponse": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "model"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "model": {
+                        "$ref": "#/components/schemas/WorldBody"
+                    }
+                }
+            },
+            "ExperimentResponse": {
+                "type": "object",
+                "required": [
+                    "experiment"
+                ],
+                "properties": {
+                    "experiment": {
+                        "$ref": "#/components/schemas/TrainingExperiment"
+                    }
+                }
+            },
+            "ExperimentsResponse": {
+                "type": "object",
+                "required": [
+                    "experiments"
+                ],
+                "properties": {
+                    "experiments": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TrainingExperiment"
+                        }
+                    }
+                }
+            },
+            "FlowMatchingAction": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": [
+                            "type",
+                            "content"
+                        ],
+                        "properties": {
+                            "content": {
+                                "$ref": "#/components/schemas/FlowNoiseConfig"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "FlowNoise"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "type"
+                }
+            },
+            "FlowNoiseConfig": {
+                "type": "object",
+                "required": [
+                    "noise_model"
+                ],
+                "properties": {
+                    "noise_model": {
+                        "$ref": "#/components/schemas/MLPModel"
+                    }
+                }
+            },
+            "Geom": {
+                "type": "object",
+                "required": [
+                    "size"
+                ],
+                "properties": {
+                    "euler": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float"
+                        },
+                        "nullable": true
+                    },
+                    "geom_t": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/GeomType"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "group": {
+                        "type": "integer",
+                        "format": "int32",
+                        "nullable": true
+                    },
+                    "mesh_obj": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "pos": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float"
+                        },
+                        "nullable": true
+                    },
+                    "quat": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float"
+                        },
+                        "nullable": true
+                    },
+                    "size": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float"
+                        }
+                    }
+                }
+            },
+            "GeomType": {
+                "type": "string",
+                "enum": [
+                    "Plane",
+                    "Sphere",
+                    "Cylinder",
+                    "Capsule",
+                    "Box",
+                    "Mesh"
+                ]
+            },
+            "MLPModel": {
+                "type": "object",
+                "required": [
+                    "model_type",
+                    "num_hidden_layers",
+                    "hidden_layer_dim",
+                    "input_spec",
+                    "output_dim",
+                    "input_dim"
+                ],
+                "properties": {
+                    "hidden_layer_dim": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "input_dim": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "input_spec": {
+                        "$ref": "#/components/schemas/ModelInputSpec"
+                    },
+                    "model_type": {
+                        "$ref": "#/components/schemas/ModelType"
+                    },
+                    "num_hidden_layers": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "output_dim": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "ModelInputSpec": {
+                "type": "object",
+                "required": [
+                    "all_cameras",
+                    "qpos_state",
+                    "qvel_state",
+                    "xpos_state",
+                    "xquat_state",
+                    "qdof_state",
+                    "contact_pairs"
+                ],
+                "properties": {
+                    "all_cameras": {
+                        "type": "boolean"
+                    },
+                    "contact_pairs": {
+                        "type": "boolean",
+                        "description": "Only valid in reward_function.input_spec; forbidden in control/value model specs."
+                    },
+                    "qdof_state": {
+                        "type": "boolean"
+                    },
+                    "qpos_state": {
+                        "type": "boolean"
+                    },
+                    "qvel_state": {
+                        "type": "boolean"
+                    },
+                    "xpos_state": {
+                        "type": "boolean"
+                    },
+                    "xquat_state": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ModelReference": {
+                "type": "object",
+                "required": [
+                    "created_at",
+                    "id",
+                    "name",
+                    "path",
+                    "model_type"
+                ],
+                "properties": {
+                    "created_at": {
+                        "$ref": "#/components/schemas/Timestamp"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "model_type": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ModelType": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": [
+                            "type",
+                            "content"
+                        ],
+                        "properties": {
+                            "content": {
+                                "$ref": "#/components/schemas/CheckpointType"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "Checkpoint"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "New"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "type"
+                }
+            },
+            "ModelsResponse": {
+                "type": "object",
+                "required": [
+                    "models"
+                ],
+                "properties": {
+                    "models": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ModelReference"
+                        }
+                    }
+                }
+            },
+            "PPOTrainingMethod": {
+                "type": "object",
+                "required": [
+                    "num_trajs",
+                    "num_steps_per_traj",
+                    "num_epochs",
+                    "num_updates",
+                    "epsilon",
+                    "gamma",
+                    "lambda",
+                    "reward_function",
+                    "control_model",
+                    "value_model",
+                    "simulation_model",
+                    "control_output_mode"
+                ],
+                "properties": {
+                    "control_model": {
+                        "$ref": "#/components/schemas/ControlModel"
+                    },
+                    "control_output_mode": {
+                        "$ref": "#/components/schemas/ControlOutputMode"
+                    },
+                    "epsilon": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "gamma": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "lambda": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "num_epochs": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "num_steps_per_traj": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "num_trajs": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "num_updates": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "reward_function": {
+                        "$ref": "#/components/schemas/RewardSystem"
+                    },
+                    "simulation_model": {
+                        "type": "string"
+                    },
+                    "value_model": {
+                        "$ref": "#/components/schemas/ValueModel"
+                    }
+                }
+            },
+            "Pretrained": {
+                "type": "string",
+                "enum": [
+                    "Pi0"
+                ]
+            },
+            "RewardLanguage": {
+                "type": "string",
+                "enum": [
+                    "Rust",
+                    "Python"
+                ]
+            },
+            "RewardSystem": {
+                "type": "object",
+                "required": [
+                    "language",
+                    "reward_function_code",
+                    "input_spec"
+                ],
+                "properties": {
+                    "input_spec": {
+                        "$ref": "#/components/schemas/ModelInputSpec"
+                    },
+                    "language": {
+                        "$ref": "#/components/schemas/RewardLanguage"
+                    },
+                    "reward_function_code": {
+                        "type": "string"
+                    }
+                }
+            },
+            "RunResponse": {
+                "type": "object",
+                "required": [
+                    "run"
+                ],
+                "properties": {
+                    "run": {
+                        "$ref": "#/components/schemas/TrainingExperimentRun"
+                    }
+                }
+            },
+            "RunsResponse": {
+                "type": "object",
+                "required": [
+                    "runs"
+                ],
+                "properties": {
+                    "runs": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TrainingExperimentRun"
+                        }
+                    }
+                }
+            },
+            "SaveModelResponse": {
+                "type": "object",
+                "required": [
+                    "id"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "StartTestBody": {
+                "type": "object",
+                "required": [
+                    "test_graph"
+                ],
+                "properties": {
+                    "test_graph": {
+                        "$ref": "#/components/schemas/TestGraph"
+                    }
+                }
+            },
+            "StartTrainingBody": {
+                "type": "object",
+                "required": [
+                    "training_graph"
+                ],
+                "properties": {
+                    "training_graph": {
+                        "$ref": "#/components/schemas/TrainingGraph"
+                    }
+                }
+            },
+            "TestGraph": {
+                "type": "object",
+                "required": [
+                    "test_job_controller"
+                ],
+                "properties": {
+                    "test_job_controller": {
+                        "$ref": "#/components/schemas/TestJobController"
+                    }
+                }
+            },
+            "TestJobController": {
+                "type": "object",
+                "required": [
+                    "test_params",
+                    "compute_instance",
+                    "acceleration_mode"
+                ],
+                "properties": {
+                    "acceleration_mode": {
+                        "$ref": "#/components/schemas/TrainingAccelerationMode"
+                    },
+                    "compute_instance": {
+                        "$ref": "#/components/schemas/ComputeInstance"
+                    },
+                    "test_params": {
+                        "$ref": "#/components/schemas/TestParams"
+                    }
+                }
+            },
+            "TestParams": {
+                "type": "object",
+                "required": [
+                    "num_timesteps",
+                    "control_model",
+                    "simulation_model",
+                    "num_parallel_envs"
+                ],
+                "properties": {
+                    "control_model": {
+                        "$ref": "#/components/schemas/ControlModel"
+                    },
+                    "num_parallel_envs": {
+                        "type": "integer",
+                        "format": "int32",
+                        "minimum": 0
+                    },
+                    "num_timesteps": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "simulation_model": {
+                        "type": "string"
+                    }
+                }
+            },
+            "TestStartedResponse": {
+                "type": "object",
+                "required": [
+                    "id"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "TestStoppedResponse": {
+                "type": "object",
+                "required": [
+                    "id"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "TrainingAccelerationMode": {
+                "type": "string",
+                "enum": [
+                    "MLGPUSimulationCPU",
+                    "MLGPUSimulationGPU",
+                    "MLCPUSimulationCPU",
+                    "AllOnServer"
+                ]
+            },
+            "TrainingExperiment": {
+                "type": "object",
+                "required": [
+                    "project_id",
+                    "experiment_name",
+                    "training_experiment_id",
+                    "created_at",
+                    "training_run_ids"
+                ],
+                "properties": {
+                    "created_at": {
+                        "$ref": "#/components/schemas/Timestamp"
+                    },
+                    "experiment_name": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "training_experiment_id": {
+                        "type": "string"
+                    },
+                    "training_run_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "TrainingExperimentRun": {
+                "type": "object",
+                "required": [
+                    "project_id",
+                    "training_experiment_id",
+                    "id",
+                    "created_at",
+                    "run_status",
+                    "logs_id",
+                    "metrics_id",
+                    "training_graph_id",
+                    "checkpoints_refs",
+                    "model_refs"
+                ],
+                "properties": {
+                    "checkpoints_refs": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "created_at": {
+                        "$ref": "#/components/schemas/Timestamp"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "logs_id": {
+                        "type": "string"
+                    },
+                    "metrics_id": {
+                        "type": "string"
+                    },
+                    "model_refs": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "run_end_at": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Timestamp"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "run_start_at": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Timestamp"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "run_status": {
+                        "$ref": "#/components/schemas/TrainingRunStatus"
+                    },
+                    "training_experiment_id": {
+                        "type": "string"
+                    },
+                    "training_graph_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "TrainingGraph": {
+                "type": "object",
+                "required": [
+                    "training_job_controller"
+                ],
+                "properties": {
+                    "training_job_controller": {
+                        "$ref": "#/components/schemas/TrainingJobController"
+                    }
+                }
+            },
+            "TrainingJobController": {
+                "type": "object",
+                "required": [
+                    "training_method",
+                    "acceleration_mode",
+                    "compute_instance",
+                    "checkpoint_frequency"
+                ],
+                "properties": {
+                    "acceleration_mode": {
+                        "$ref": "#/components/schemas/TrainingAccelerationMode"
+                    },
+                    "checkpoint_frequency": {
+                        "$ref": "#/components/schemas/CheckpointFrequency"
+                    },
+                    "compute_instance": {
+                        "$ref": "#/components/schemas/ComputeInstance"
+                    },
+                    "training_method": {
+                        "$ref": "#/components/schemas/TrainingMethod"
+                    }
+                }
+            },
+            "TrainingMethod": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": [
+                            "type",
+                            "content"
+                        ],
+                        "properties": {
+                            "content": {
+                                "$ref": "#/components/schemas/PPOTrainingMethod"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "PPO"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "type"
+                }
+            },
+            "TrainingRunStatus": {
+                "type": "string",
+                "enum": [
+                    "Ongoing",
+                    "Completed",
+                    "StoppedByUser",
+                    "NotStarted"
+                ]
+            },
+            "TrainingStartedResponse": {
+                "type": "object",
+                "required": [
+                    "id"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "TrainingStoppedResponse": {
+                "type": "object",
+                "required": [
+                    "id"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "VLAModel": {
+                "type": "object",
+                "required": [
+                    "model_type",
+                    "input_spec",
+                    "output"
+                ],
+                "properties": {
+                    "input_spec": {
+                        "$ref": "#/components/schemas/ModelInputSpec"
+                    },
+                    "model_type": {
+                        "$ref": "#/components/schemas/ModelType"
+                    },
+                    "output": {
+                        "$ref": "#/components/schemas/ControlPolicyOutputMode"
+                    }
+                }
+            },
+            "ValueModel": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": [
+                            "type",
+                            "content"
+                        ],
+                        "properties": {
+                            "content": {
+                                "$ref": "#/components/schemas/MLPModel"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "MLP"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "type"
+                }
+            },
+            "WorldBody": {
+                "type": "object",
+                "required": [
+                    "bodies"
+                ],
+                "properties": {
+                    "bodies": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Body"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Models",
+            "description": "Simulation model management"
+        },
+        {
+            "name": "Checkpoints",
+            "description": "Training checkpoint management"
+        },
+        {
+            "name": "Training",
+            "description": "Training experiments and runs"
+        },
+        {
+            "name": "Testing",
+            "description": "Simulation testing workloads"
+        }
+    ]
+}

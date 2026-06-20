@@ -1,7 +1,8 @@
 use serde;
 use typeshare::typeshare;
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub enum GeomType {
     Plane,
@@ -12,7 +13,7 @@ pub enum GeomType {
     Mesh,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct Geom {
     pub name: Option<String>,
@@ -25,7 +26,7 @@ pub struct Geom {
     pub group: Option<i32>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct Body {
     pub name: Option<String>,
@@ -37,7 +38,7 @@ pub struct Body {
     pub geoms: Option<Vec<Geom>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct WorldBody {
     pub bodies: Vec<Body>,

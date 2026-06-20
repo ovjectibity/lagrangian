@@ -3,6 +3,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use typeshare::typeshare;
+use utoipa::ToSchema;
 
 use crate::commondef::{testing::TestGraph, training::{
     MLPModel, TrainingGraph, TrainingMetrics,
@@ -24,7 +25,7 @@ pub struct Project {
 
 #[derive(
     Debug, Clone, Serialize,
-    Deserialize, FromRow,
+    Deserialize, FromRow, ToSchema,
 )]
 #[typeshare]
 pub struct TrainingExperiment {
@@ -37,7 +38,7 @@ pub struct TrainingExperiment {
 
 #[derive(
     Debug, Clone, Serialize,
-    Deserialize, sqlx::Type, PartialEq,
+    Deserialize, sqlx::Type, PartialEq, ToSchema,
 )]
 #[sqlx(
     type_name = "text",
@@ -53,7 +54,7 @@ pub enum TrainingRunStatus {
 
 #[derive(
     Debug, Clone, Serialize,
-    Deserialize, FromRow,
+    Deserialize, FromRow, ToSchema,
 )]
 #[typeshare]
 pub struct TrainingExperimentRun {
@@ -135,7 +136,7 @@ pub struct TestGraphRecord {
 
 #[derive(
     Debug, Clone, Serialize,
-    Deserialize, FromRow,
+    Deserialize, FromRow, ToSchema,
 )]
 #[typeshare]
 pub struct ModelReference {
@@ -146,7 +147,7 @@ pub struct ModelReference {
     pub model_type: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[typeshare]
 pub struct CheckpointReference {
     pub created_at: Timestamp,

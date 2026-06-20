@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use schemars::JsonSchema;
 use serde;
 use typeshare::typeshare;
+use utoipa::ToSchema;
 
 use crate::commondef::training::{
     ComputeInstance, ControlModel, TrainingAccelerationMode,
 };
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct TestParams {
     pub num_timesteps: i32,
@@ -19,7 +20,7 @@ pub struct TestParams {
     // pub reward_function: Option<RewardSystem>
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct TestJobController {
     pub test_params: TestParams,
@@ -27,7 +28,7 @@ pub struct TestJobController {
     pub acceleration_mode: TrainingAccelerationMode,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct TestGraph {
     pub test_job_controller: TestJobController,

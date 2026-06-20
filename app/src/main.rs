@@ -258,6 +258,7 @@ fn rocket() -> _ {
         .manage(api::ApiState::new())
         .mount("/api", routes![
             api_hello,
+            api::openapi_json,
             api::models::get_default_model,
             api::models::list_models,
             api::models::save_model,

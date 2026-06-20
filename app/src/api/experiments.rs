@@ -1,8 +1,10 @@
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::api::route_doc;
 use crate::commondef::record::{
     CheckpointReference,
     TrainingExperiment,
@@ -12,40 +14,41 @@ use crate::commondef::record::{
 
 // ── Response types ───────────────────────────
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ExperimentsResponse {
     pub experiments: Vec<TrainingExperiment>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ExperimentResponse {
     pub experiment: TrainingExperiment,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct RunsResponse {
     pub runs: Vec<TrainingExperimentRun>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct RunResponse {
     pub run: TrainingExperimentRun,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct CheckpointsResponse {
     pub checkpoints: Vec<CheckpointReference>,
 }
 
 // ── Request types ────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct CreateExperimentBody {
     pub name: Option<String>,
 }
 
 // ── Handlers ─────────────────────────────────
 
+#[route_doc(tag = "Training", ok = ExperimentsResponse)]
 #[get("/training/experiments")]
 pub async fn list_experiments()
 -> Result<Json<ExperimentsResponse>, Status>
@@ -59,6 +62,11 @@ pub async fn list_experiments()
     Ok(Json(ExperimentsResponse { experiments }))
 }
 
+#[route_doc(
+    tag = "Training",
+    ok = ExperimentResponse,
+    body = CreateExperimentBody,
+)]
 #[post(
     "/training/experiments",
     data = "<body>",
@@ -85,6 +93,11 @@ pub async fn create_experiment(
     Ok(Json(ExperimentResponse { experiment: row }))
 }
 
+#[route_doc(
+    tag = "Training",
+    ok = RunsResponse,
+    params(experiment_id = "Experiment UUID"),
+)]
 #[get(
     "/training/experiments/<experiment_id>/runs"
 )]
@@ -102,6 +115,11 @@ pub async fn list_runs(
     Ok(Json(RunsResponse { runs }))
 }
 
+#[route_doc(
+    tag = "Training",
+    ok = RunResponse,
+    params(experiment_id = "Experiment UUID"),
+)]
 #[post(
     "/training/experiments/<experiment_id>/runs",
     format = "json"
@@ -140,6 +158,15 @@ pub async fn create_run(
     Ok(Json(RunResponse { run: row }))
 }
 
+#[route_doc(
+    tag = "Training",
+    ok = RunResponse,
+    errors(404),
+    params(
+        experiment_id = "Experiment UUID",
+        run_id = "Run UUID",
+    ),
+)]
 #[get(
     "/training/experiments\
      /<experiment_id>/runs/<run_id>"
@@ -161,6 +188,14 @@ pub async fn get_run(
     Ok(Json(RunResponse { run: row }))
 }
 
+#[route_doc(
+    tag = "Training",
+    ok = CheckpointsResponse,
+    params(
+        experiment_id = "Experiment UUID",
+        run_id = "Run UUID",
+    ),
+)]
 #[get(
     "/training/experiments/<experiment_id>\
      /runs/<run_id>/checkpoints"

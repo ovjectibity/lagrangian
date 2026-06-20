@@ -8,12 +8,13 @@ use rocket::response::stream::{Event, EventStream};
 use rocket::serde::json::Json;
 use rocket::tokio::sync::{broadcast, mpsc};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD
     as BASE64;
 
-use crate::api::ApiState;
+use crate::api::{route_doc, ApiState};
 use crate::commondef::clientmessages as cm;
 use crate::commondef::record::TrainingRunStatus;
 use tch::Tensor;
@@ -37,17 +38,17 @@ use crate::workflows::training::TrainingWorkflow;
 
 // ── Request / response types ─────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct StartTrainingBody {
     pub training_graph: TrainingGraph,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct TrainingStartedResponse {
     pub id: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct TrainingStoppedResponse {
     pub id: String,
 }
@@ -235,6 +236,16 @@ fn validate_model_types(
 
 // ── Handlers ─────────────────────────────────
 
+#[route_doc(
+    tag = "Training",
+    ok = TrainingStartedResponse,
+    body = StartTrainingBody,
+    errors(400, 422),
+    params(
+        experiment_id = "Experiment UUID",
+        run_id = "Run UUID",
+    ),
+)]
 #[post(
     "/training/experiments\
      /<experiment_id>/runs/<run_id>/start",
@@ -546,6 +557,14 @@ pub async fn start_training(
     }))
 }
 
+#[route_doc(
+    tag = "Training",
+    ok = TrainingStoppedResponse,
+    params(
+        experiment_id = "Experiment UUID",
+        run_id = "Run UUID",
+    ),
+)]
 #[post(
     "/training/experiments\
      /<experiment_id>/runs/<run_id>/stop",
@@ -579,6 +598,14 @@ pub async fn stop_training(
     }))
 }
 
+#[route_doc(
+    tag = "Training",
+    sse,
+    params(
+        experiment_id = "Experiment UUID",
+        run_id = "Run UUID",
+    ),
+)]
 #[get(
     "/training/experiments\
      /<_experiment_id>/runs/<run_id>/updates"

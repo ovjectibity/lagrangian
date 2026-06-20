@@ -24,3 +24,5 @@ zip = "2"
 syn = { version = "2", features = ["full"] }
 libloading = "0.8"
 schemars = { version = "1.2.1", features = ["derive", "chrono04"] }
+utoipa = { version = "4", features = ["chrono", "uuid"] }
+app_proc_macros = { path = "proc_macros" }
