@@ -109,6 +109,15 @@ async function testVanillaMlp(client, modelId) {
       hidden_layer_dim: 64,
       output_dim: MLP_OUTPUT_DIM,
       input_dim: MLP_INPUT_DIM,
+      input_spec: {
+        all_cameras: false,
+        qpos_state: true,
+        qvel_state: true,
+        xpos_state: false,
+        xquat_state: false,
+        qdof_state: false,
+        contact_pairs: false,
+      },
     },
   };
   await runTest(client, buildTestGraph(modelId, controlModel), "vanilla-mlp");
@@ -129,6 +138,15 @@ async function testCheckpointMlp(client, modelId) {
       model_type: {
         type: "Checkpoint",
         content: { type: "Checkpoint", content: ckpt.id },
+      },
+      input_spec: {
+        all_cameras: false,
+        qpos_state: true,
+        qvel_state: true,
+        xpos_state: false,
+        xquat_state: false,
+        qdof_state: false,
+        contact_pairs: false,
       },
     },
   };

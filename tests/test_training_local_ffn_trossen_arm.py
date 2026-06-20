@@ -15,11 +15,11 @@ BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000/api")
 MODEL_PATH = os.environ.get("MODEL_PATH", "")
 
 RUST_REWARD = '''
+use std::collections::HashMap;
+
 pub fn reward(
-    prev_cstate: &[f64],
-    curr_cstate: &[f64],
-    action: &[f64],
-    contact_pairs: &[(usize, usize)],
+    parts_pre: &HashMap<&str, &[f64]>,
+    parts_post: &HashMap<&str, &[f64]>,
 ) -> f64 {
     let target_cube: usize = 3;
     let gripper: usize = 10;
@@ -28,17 +28,22 @@ pub fn reward(
     let left_box: usize = 1;
     let right_box: usize = 2;
 
-    let get_pos = |s: &[f64], i: usize| -> (f64, f64, f64) {
-        (s[i * 3], s[i * 3 + 1], s[i * 3 + 2])
+    let empty: &[f64] = &[];
+    let prev_xpos = parts_pre.get("xpos").copied().unwrap_or(empty);
+    let curr_xpos = parts_post.get("xpos").copied().unwrap_or(empty);
+    let contact_flat = parts_post.get("contact_pairs").copied().unwrap_or(empty);
+
+    let get_pos = |xpos: &[f64], i: usize| -> (f64, f64, f64) {
+        (xpos[i * 3], xpos[i * 3 + 1], xpos[i * 3 + 2])
     };
 
     let target_xy = (0.35_f64, -0.22_f64);
     let left_box_start = (0.35_f64, 0.22_f64);
     let right_box_start = (0.35_f64, -0.22_f64);
 
-    let (nx, ny, nz) = get_pos(curr_cstate, target_cube);
-    let (px, py, _) = get_pos(prev_cstate, target_cube);
-    let (gx, gy, _) = get_pos(curr_cstate, gripper);
+    let (nx, ny, nz) = get_pos(curr_xpos, target_cube);
+    let (px, py, _) = get_pos(prev_xpos, target_cube);
+    let (gx, gy, _) = get_pos(curr_xpos, gripper);
 
     let next_dist = ((nx - target_xy.0).powi(2) + (ny - target_xy.1).powi(2)).sqrt();
     let prev_dist = ((px - target_xy.0).powi(2) + (py - target_xy.1).powi(2)).sqrt();
@@ -47,17 +52,19 @@ pub fn reward(
     let gripper_xy_dist = ((gx - nx).powi(2) + (gy - ny).powi(2)).sqrt();
     let r_gripper = -2.0 * gripper_xy_dist;
 
-    let (lx, ly, _) = get_pos(curr_cstate, left_box);
-    let (rx, ry, _) = get_pos(curr_cstate, right_box);
+    let (lx, ly, _) = get_pos(curr_xpos, left_box);
+    let (rx, ry, _) = get_pos(curr_xpos, right_box);
     let left_disp = ((lx - left_box_start.0).powi(2) + (ly - left_box_start.1).powi(2)).sqrt();
     let right_disp = ((rx - right_box_start.0).powi(2) + (ry - right_box_start.1).powi(2)).sqrt();
     let r_box = -20.0 * (left_disp + right_disp);
 
     let cube_drop = if nz < 0.10 { -20.0 } else { 0.0 };
 
-    let grip_contact: f64 = contact_pairs.iter().filter(|(a, b)| {
-        (*a == target_cube && (*b == left_finger || *b == right_finger))
-            || (*b == target_cube && (*a == left_finger || *a == right_finger))
+    let grip_contact: f64 = contact_flat.chunks(2).filter(|c| {
+        let a = c[0] as usize;
+        let b = c[1] as usize;
+        (a == target_cube && (b == left_finger || b == right_finger))
+            || (b == target_cube && (a == left_finger || a == right_finger))
     }).count() as f64 * 20.0;
 
     r_prog + r_gripper + r_box + cube_drop + grip_contact
@@ -123,23 +130,52 @@ def build_training_graph(model_id: str) -> dict:
                     "reward_function": {
                         "language": "Rust",
                         "reward_function_code": RUST_REWARD,
+                        "input_spec": {
+                            "all_cameras": False,
+                            "qpos_state": False,
+                            "qvel_state": False,
+                            "xpos_state": True,
+                            "xquat_state": False,
+                            "qdof_state": False,
+                            "contact_pairs": True,
+                        },
                     },
                     "control_model": {
                         "type": "MLP",
                         "content": {
+                            "model_type": {"type": "New"},
                             "num_hidden_layers": 2,
                             "hidden_layer_dim": 64,
                             "output_dim": 14,
                             "input_dim": 55,
+                            "input_spec": {
+                                "all_cameras": False,
+                                "qpos_state": True,
+                                "qvel_state": True,
+                                "xpos_state": False,
+                                "xquat_state": False,
+                                "qdof_state": False,
+                                "contact_pairs": False,
+                            },
                         },
                     },
                     "value_model": {
                         "type": "MLP",
                         "content": {
+                            "model_type": {"type": "New"},
                             "num_hidden_layers": 2,
                             "hidden_layer_dim": 64,
                             "output_dim": 1,
                             "input_dim": 55,
+                            "input_spec": {
+                                "all_cameras": False,
+                                "qpos_state": True,
+                                "qvel_state": True,
+                                "xpos_state": False,
+                                "xquat_state": False,
+                                "qdof_state": False,
+                                "contact_pairs": False,
+                            },
                         },
                     },
                     "simulation_model": model_id,

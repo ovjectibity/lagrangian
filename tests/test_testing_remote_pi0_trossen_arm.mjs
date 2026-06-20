@@ -60,12 +60,14 @@ function buildTestGraph(modelId) {
               type: "Checkpoint",
               content: { type: "Pretrained", content: "Pi0" },
             },
-            input: {
+            input_spec: {
               all_cameras: true,
               qpos_state: true,
               qvel_state: false,
               xpos_state: false,
               xquat_state: false,
+              qdof_state: false,
+              contact_pairs: false,
             },
             output: "TargetPositions",
           },

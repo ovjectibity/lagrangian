@@ -18,23 +18,24 @@ MODEL_PATH = os.environ.get("MODEL_PATH", "")
 PYTHON_REWARD = '''
 import jax.numpy as jnp
 
-def reward(prev_cstate, curr_cstate, action, contact_matrix):
+def reward(parts_pre, parts_post):
     target_cube = 3
     gripper = 10
-    left_finger = 12
-    right_finger = 13
     left_box = 1
     right_box = 2
     target_xy = (0.35, -0.22)
     left_box_start = (0.35, 0.22)
     right_box_start = (0.35, -0.22)
 
-    def get_pos(s, i):
-        return s[i * 3], s[i * 3 + 1], s[i * 3 + 2]
+    curr_xpos = parts_post["xpos"]
+    prev_xpos = parts_pre["xpos"]
 
-    nx, ny, nz = get_pos(curr_cstate, target_cube)
-    px, py, _ = get_pos(prev_cstate, target_cube)
-    gx, gy, _ = get_pos(curr_cstate, gripper)
+    def get_pos(xpos, i):
+        return xpos[i * 3], xpos[i * 3 + 1], xpos[i * 3 + 2]
+
+    nx, ny, nz = get_pos(curr_xpos, target_cube)
+    px, py, _ = get_pos(prev_xpos, target_cube)
+    gx, gy, _ = get_pos(curr_xpos, gripper)
 
     next_dist = jnp.sqrt((nx - target_xy[0]) ** 2 + (ny - target_xy[1]) ** 2)
     prev_dist = jnp.sqrt((px - target_xy[0]) ** 2 + (py - target_xy[1]) ** 2)
@@ -43,20 +44,15 @@ def reward(prev_cstate, curr_cstate, action, contact_matrix):
     gripper_xy_dist = jnp.sqrt((gx - nx) ** 2 + (gy - ny) ** 2)
     r_gripper = -2.0 * gripper_xy_dist
 
-    lx, ly, _ = get_pos(curr_cstate, left_box)
-    rx, ry, _ = get_pos(curr_cstate, right_box)
+    lx, ly, _ = get_pos(curr_xpos, left_box)
+    rx, ry, _ = get_pos(curr_xpos, right_box)
     left_disp = jnp.sqrt((lx - left_box_start[0]) ** 2 + (ly - left_box_start[1]) ** 2)
     right_disp = jnp.sqrt((rx - right_box_start[0]) ** 2 + (ry - right_box_start[1]) ** 2)
     r_box = -20.0 * (left_disp + right_disp)
 
     cube_drop = jnp.where(nz < 0.10, -20.0, 0.0)
 
-    grip_contact = (
-        contact_matrix[target_cube, left_finger]
-        + contact_matrix[target_cube, right_finger]
-    ) * 20.0
-
-    return r_prog + r_gripper + r_box + cube_drop + grip_contact
+    return r_prog + r_gripper + r_box + cube_drop
 '''
 
 
@@ -124,23 +120,52 @@ def build_training_graph(model_id: str) -> dict:
                     "reward_function": {
                         "language": "Python",
                         "reward_function_code": PYTHON_REWARD,
+                        "input_spec": {
+                            "all_cameras": False,
+                            "qpos_state": False,
+                            "qvel_state": False,
+                            "xpos_state": True,
+                            "xquat_state": False,
+                            "qdof_state": False,
+                            "contact_pairs": False,
+                        },
                     },
                     "control_model": {
                         "type": "MLP",
                         "content": {
+                            "model_type": {"type": "New"},
                             "num_hidden_layers": 2,
                             "hidden_layer_dim": 64,
                             "output_dim": 14,
                             "input_dim": 55,
+                            "input_spec": {
+                                "all_cameras": False,
+                                "qpos_state": True,
+                                "qvel_state": True,
+                                "xpos_state": False,
+                                "xquat_state": False,
+                                "qdof_state": False,
+                                "contact_pairs": False,
+                            },
                         },
                     },
                     "value_model": {
                         "type": "MLP",
                         "content": {
+                            "model_type": {"type": "New"},
                             "num_hidden_layers": 2,
                             "hidden_layer_dim": 64,
                             "output_dim": 1,
                             "input_dim": 55,
+                            "input_spec": {
+                                "all_cameras": False,
+                                "qpos_state": True,
+                                "qvel_state": True,
+                                "xpos_state": False,
+                                "xquat_state": False,
+                                "qdof_state": False,
+                                "contact_pairs": False,
+                            },
                         },
                     },
                     "simulation_model": model_id,
