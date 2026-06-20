@@ -190,6 +190,15 @@ class TestingModel(ABC):
         """Params passed as first arg to get_pure_test_fn."""
         ...
 
+    @abstractmethod
+    def assemble_state(self, parts: dict[str, Array]) -> Array:
+        """Assemble labeled state parts into a flat tensor for this model's input.
+
+        parts keys: "cameras", "qdof", "qpos", "qvel", "xpos", "xquat" (only flags set).
+        Must be a pure JAX function (safe to jax.vmap over batched pytree dicts).
+        """
+        ...
+
 
 class PPOTrainer:
     def __init__(
@@ -331,7 +340,7 @@ class PPOTrainer:
         for step in range(self.traj_depth):
             # if step % 10 == 0:
             logger.info("gen_trajectory: step %s/%s", step, self.traj_depth)
-            wstate = jnp.asarray(self.simulator.get_model_state())
+            wstate = jnp.concatenate(list(self.simulator.get_model_state().values()))
             cstate = jnp.asarray(self.simulator.get_model_cartesian_state())
             logger.info("gen_trajectory: step %s/%s. Got the wstate & cstate")
             action_gaussian_params = jnp.asarray(self.model.get_policy_output(wstate))
@@ -371,7 +380,7 @@ class PPOTrainer:
             model_outputs.append(action_gaussian_params)
             model_output_samples.append(sampled_action)
         logger.info("gen_trajectory: step loop done, computing terminal value")
-        wstate_end = jnp.asarray(self.simulator.get_model_state())
+        wstate_end = jnp.concatenate(list(self.simulator.get_model_state().values()))
         wstates.append(wstate_end)
         v_terminal = float(self.model.get_value_output(wstates[-1]))
         logger.info("gen_trajectory: computing rtg and log probs")

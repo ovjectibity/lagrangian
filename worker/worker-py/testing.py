@@ -8,6 +8,8 @@ import jax
 import jax.numpy as jnp
 
 from commondef.remoteworkermessages import (
+    ControlModelInput,
+    ControlModelVLA,
     ModelForward,
     RemoteWorkerClientMessageStopTestingMessage,
     RemoteWorkerClientMessageTestUpdatesMessage,
@@ -18,6 +20,17 @@ from commondef.remoteworkermessages import (
 from commondef.testing import TestJobController
 from ppo_trainer import TestingModel
 from simulator import MjxSimulator, Simulator
+
+
+def _default_input_spec() -> ControlModelInput:
+    return ControlModelInput(
+        all_cameras=False,
+        qpos_state=True,
+        qvel_state=False,
+        xpos_state=False,
+        xquat_state=False,
+        qdof_state=False,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +76,10 @@ class TestingWorkflow:
         self.model = model
         self.test_controller = test_controller
         self.params = test_controller.test_params
+        if isinstance(test_controller.test_params.control_model, ControlModelVLA):
+            self._input_spec = test_controller.test_params.control_model.content.input
+        else:
+            self._input_spec = _default_input_spec()
         logger.info(
             "TestingWorkflow initialized: id=%s num_timesteps=%s num_parallel_envs=%s acceleration=%s",
             self.id,
@@ -108,8 +125,6 @@ class TestingWorkflow:
         num_parallel_envs: int,
     ) -> None:
         mjx_sim: MjxSimulator = self.simulator  # type: ignore[assignment]
-        nq = mjx_sim.nq()
-        nv = mjx_sim.nv()
         nbody = mjx_sim.nbody()
         pure_fn = self.model.get_pure_test_fn()
         params = self.model.get_test_params()
@@ -119,8 +134,12 @@ class TestingWorkflow:
             mjx_sim._mjx_data,
         )
 
+        state_fn = mjx_sim.make_state_fn(self._input_spec)
+        assemble_fn = self.model.assemble_state
+
         def scan_body(bd: Any, _: Any) -> tuple[Any, tuple[Any, Any]]:
-            states = jax.vmap(lambda d: jnp.concatenate([d.qpos[:nq], d.qvel[:nv]]))(bd)
+            parts_batched = jax.vmap(state_fn)(bd)
+            states = jax.vmap(assemble_fn)(parts_batched)
             actions = jax.vmap(lambda s: pure_fn(params, s))(states)
             bd_next = jax.vmap(lambda d, a: mjx_sim.forward_dyn_pure(d, a)[0])(bd, actions)
             return bd_next, (bd_next.xpos[:, :nbody], bd_next.xquat[:, :nbody])
@@ -155,7 +174,8 @@ class TestingWorkflow:
             if should_stop is not None and should_stop():
                 logger.info("Test run stop requested: id=%s", self.id)
                 break
-            state = self.simulator.get_model_state()
+            parts = self.simulator.get_model_state(self._input_spec)
+            state = self.model.assemble_state(parts)
             action = self.model.get_test_action(state)
             self.simulator.forward_dyn(action)
             xpos, xquat = self.simulator.get_simul_update()

@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use tch::{Kind, Tensor};
 
+use crate::commondef::training::ModelInputSpec;
 use crate::mujoco;
 use crate::plugin::Simulator;
 use crate::simulator;
@@ -150,6 +153,32 @@ impl MjSimulator {
         }
         self.clamp_controls_to_actuator_range(&targets)
     }
+
+    fn get_qdof_values(&self) -> Vec<f64> {
+        let nu = self.nu() as usize;
+        let qpos = self.qpos();
+        let mut result: Vec<f64> = Vec::new();
+        unsafe {
+            let jnt_type_ptr = (*self.model).jnt_type;
+            let actuator_trnid_ptr = (*self.model).actuator_trnid;
+            let jnt_qposadr_ptr = (*self.model).jnt_qposadr;
+            assert!(!jnt_type_ptr.is_null() && !actuator_trnid_ptr.is_null() && !jnt_qposadr_ptr.is_null());
+            for actuator_idx in 0..nu {
+                let joint_id = actuator_trnid_ptr.add(actuator_idx * 2).read() as usize;
+                let qpos_adr = jnt_qposadr_ptr.add(joint_id).read() as usize;
+                let jnt_type = jnt_type_ptr.add(joint_id).read() as u32;
+                let n_qpos = match jnt_type {
+                    mujoco::mjtJoint__mjJNT_FREE => 7,
+                    mujoco::mjtJoint__mjJNT_BALL => 4,
+                    _ => 1, // hinge or slide
+                };
+                for j in 0..n_qpos {
+                    result.push(qpos[qpos_adr + j]);
+                }
+            }
+        }
+        result
+    }
 }
 
 impl Drop for MjSimulator {
@@ -254,10 +283,38 @@ impl Simulator for MjSimulator {
         }
     }
 
-    fn get_model_state(&self) -> Tensor {
-        let mut qposvel = self.qpos();
-        qposvel.extend(self.qvel());
-        Tensor::from_slice(&qposvel)
+    fn get_model_state(&self, input_spec: &ModelInputSpec) -> HashMap<String, Tensor> {
+        let mut result: HashMap<String, Tensor> = HashMap::new();
+        if input_spec.qdof_state {
+            result.insert("qdof".to_string(), Tensor::from_slice(&self.get_qdof_values()));
+        }
+        if input_spec.qpos_state {
+            result.insert("qpos".to_string(), Tensor::from_slice(&self.qpos()));
+        }
+        if input_spec.qvel_state {
+            result.insert("qvel".to_string(), Tensor::from_slice(&self.qvel()));
+        }
+        if input_spec.xpos_state {
+            let nbody = unsafe { (*self.model).nbody as usize };
+            let xpos = unsafe { std::slice::from_raw_parts((*self.data).xpos, nbody * 3).to_vec() };
+            result.insert("xpos".to_string(), Tensor::from_slice(&xpos));
+        }
+        if input_spec.xquat_state {
+            let nbody = unsafe { (*self.model).nbody as usize };
+            let xquat = unsafe { std::slice::from_raw_parts((*self.data).xquat, nbody * 4).to_vec() };
+            result.insert("xquat".to_string(), Tensor::from_slice(&xquat));
+        }
+        if input_spec.contact_pairs {
+            let pairs = self.get_contact_body_index_pairs();
+            let flat: Vec<f64> = pairs.iter().flat_map(|(a, b)| [*a as f64, *b as f64]).collect();
+            result.insert("contact_pairs".to_string(), Tensor::from_slice(&flat));
+        }
+        // all_cameras: Warp not available in Rust path — no "cameras" key
+        if result.is_empty() {
+            result.insert("qpos".to_string(), Tensor::from_slice(&self.qpos()));
+            result.insert("qvel".to_string(), Tensor::from_slice(&self.qvel()));
+        }
+        result
     }
 
     fn get_model_cartesian_state(&self) -> Tensor {

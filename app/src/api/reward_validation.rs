@@ -1,11 +1,75 @@
+use std::collections::HashMap;
 use std::io::Write;
 use std::process::Command;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use libloading::Library;
+use tch::Tensor;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+
+pub fn call_reward_c_abi(
+    lib: &Library,
+    parts_pre: &HashMap<String, Tensor>,
+    parts_post: &HashMap<String, Tensor>,
+) -> f64 {
+    let build_entries = |parts: &HashMap<String, Tensor>| {
+        parts
+            .iter()
+            .map(|(k, v)| {
+                (
+                    std::ffi::CString::new(k.as_str()).unwrap_or_default(),
+                    Vec::<f64>::try_from(v.shallow_clone()).unwrap_or_default(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let pre = build_entries(parts_pre);
+    let post = build_entries(parts_post);
+
+    let keys_ptrs = |entries: &[(std::ffi::CString, Vec<f64>)]| -> Vec<*const u8> {
+        entries.iter().map(|(k, _)| k.as_ptr() as *const u8).collect()
+    };
+    let val_ptrs = |entries: &[(std::ffi::CString, Vec<f64>)]| -> Vec<*const f64> {
+        entries.iter().map(|(_, v)| v.as_ptr()).collect()
+    };
+    let val_lens = |entries: &[(std::ffi::CString, Vec<f64>)]| -> Vec<usize> {
+        entries.iter().map(|(_, v)| v.len()).collect()
+    };
+
+    let pre_keys = keys_ptrs(&pre);
+    let pre_vals = val_ptrs(&pre);
+    let pre_lens = val_lens(&pre);
+    let post_keys = keys_ptrs(&post);
+    let post_vals = val_ptrs(&post);
+    let post_lens = val_lens(&post);
+
+    unsafe {
+        type RawFn = unsafe extern "C" fn(
+            *const *const u8,
+            *const *const f64,
+            *const usize,
+            usize,
+            *const *const u8,
+            *const *const f64,
+            *const usize,
+            usize,
+        ) -> f64;
+        let f: libloading::Symbol<RawFn> =
+            lib.get(b"reward_c_abi").expect("reward_c_abi");
+        f(
+            pre_keys.as_ptr(),
+            pre_vals.as_ptr(),
+            pre_lens.as_ptr(),
+            pre.len(),
+            post_keys.as_ptr(),
+            post_vals.as_ptr(),
+            post_lens.as_ptr(),
+            post.len(),
+        )
+    }
+}
 
 pub fn validate_and_compile_rust_reward(
     code: &str,
@@ -62,33 +126,44 @@ pub fn validate_and_compile_rust_reward(
     let so_path = dir.join("reward.so");
 
     // catch_unwind prevents index-out-of-bounds
-    // panics during the dummy run (empty slices)
+    // panics during the dummy run (empty maps)
     // from aborting the host process.
     let wrapper = "\n\
         #[no_mangle]\n\
         pub extern \"C\" fn reward_c_abi(\n\
-            prev: *const f64,\n\
-            prev_len: usize,\n\
-            curr: *const f64,\n\
-            curr_len: usize,\n\
-            act: *const f64,\n\
-            act_len: usize,\n\
-            contacts: *const (usize, usize),\n\
-            contacts_len: usize,\n\
+            pre_keys: *const *const u8,\n\
+            pre_vals: *const *const f64,\n\
+            pre_val_lens: *const usize,\n\
+            pre_n: usize,\n\
+            post_keys: *const *const u8,\n\
+            post_vals: *const *const f64,\n\
+            post_val_lens: *const usize,\n\
+            post_n: usize,\n\
         ) -> f64 {\n\
-            let r = std::panic::catch_unwind(|| {\n\
-                unsafe {\n\
-                    reward(\n\
-                        std::slice::from_raw_parts(\
-                            prev, prev_len),\n\
-                        std::slice::from_raw_parts(\
-                            curr, curr_len),\n\
-                        std::slice::from_raw_parts(\
-                            act, act_len),\n\
-                        std::slice::from_raw_parts(\
-                            contacts, contacts_len),\n\
-                    )\n\
-                }\n\
+            let r = std::panic::catch_unwind(|| unsafe {\n\
+                let build = |keys: *const *const u8,\n\
+                              vals: *const *const f64,\n\
+                              lens: *const usize,\n\
+                              n: usize| {\n\
+                    let mut m = std::collections::HashMap::new();\n\
+                    for i in 0..n {\n\
+                        let k = std::ffi::CStr::from_ptr(\n\
+                            *keys.add(i) as *const i8\n\
+                        ).to_str().unwrap_or(\"\");\n\
+                        let v = std::slice::from_raw_parts(\n\
+                            *vals.add(i), *lens.add(i)\n\
+                        );\n\
+                        m.insert(k, v);\n\
+                    }\n\
+                    m\n\
+                };\n\
+                let parts_pre = build(\n\
+                    pre_keys, pre_vals, pre_val_lens, pre_n\n\
+                );\n\
+                let parts_post = build(\n\
+                    post_keys, post_vals, post_val_lens, post_n\n\
+                );\n\
+                reward(&parts_pre, &parts_post)\n\
             });\n\
             r.unwrap_or(f64::NAN)\n\
         }\n";
@@ -139,13 +214,13 @@ pub fn validate_and_compile_rust_reward(
                     })?
             };
             type AbiF = unsafe extern "C" fn(
-                *const f64,
+                *const *const u8,
+                *const *const f64,
+                *const usize,
                 usize,
-                *const f64,
-                usize,
-                *const f64,
-                usize,
-                *const (usize, usize),
+                *const *const u8,
+                *const *const f64,
+                *const usize,
                 usize,
             ) -> f64;
             let f: libloading::Symbol<AbiF> = unsafe {
@@ -154,19 +229,14 @@ pub fn validate_and_compile_rust_reward(
                         format!("symbol: {e}")
                     })?
             };
-            let d: &[f64] = &[];
-            let dc: &[(usize, usize)] = &[];
+            let nk: *const *const u8 =
+                std::ptr::null();
+            let nv: *const *const f64 =
+                std::ptr::null();
+            let nl: *const usize =
+                std::ptr::null();
             Ok(unsafe {
-                f(
-                    d.as_ptr(),
-                    0,
-                    d.as_ptr(),
-                    0,
-                    d.as_ptr(),
-                    0,
-                    dc.as_ptr(),
-                    0,
-                )
+                f(nk, nv, nl, 0, nk, nv, nl, 0)
             })
         })();
         let _ = tx.send(result);
@@ -264,11 +334,9 @@ pub fn validate_python_reward(
     }
 
     let dummy_script =
-        "import sys, numpy as np\n\
+        "import sys\n\
          exec(sys.argv[1])\n\
-         result = reward(\
-             np.zeros(10), np.zeros(10), \
-             np.zeros(8), np.zeros((3, 3)))\n\
+         result = reward({}, {})\n\
          assert isinstance(float(result), float)\n"
             .to_string();
     let code_owned = code.to_string();

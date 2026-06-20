@@ -12,6 +12,8 @@ import orbax.checkpoint as ocp
 
 from commondef.remoteworkermessages import (
     Checkpoint,
+    ControlModelVLA,
+    ControlModelInput,
     StopTrainingMessage,
     RemoteWorkerClientMessageStopTrainingMessage,
     RemoteWorkerClientMessageTrainingUpdatesMessage,
@@ -92,6 +94,18 @@ class TrainingWorkflow:
             gamma_lambda=(self.params.gamma, self.params.lambda_),
             user_reward_fn=user_reward_fn,
         )
+        control_model = training_controller.training_method.content.control_model
+        if isinstance(control_model, ControlModelVLA):
+            self._input_spec: ControlModelInput = control_model.content.input
+        else:
+            self._input_spec = ControlModelInput(
+                all_cameras=False,
+                qpos_state=True,
+                qvel_state=True,
+                xpos_state=False,
+                xquat_state=False,
+                qdof_state=False,
+            )
         self._ckpt_dir = f"/tmp/checkpoints/{training_id}"
         os.makedirs(self._ckpt_dir, exist_ok=True)
         self._checkpointer = ocp.PyTreeCheckpointer()

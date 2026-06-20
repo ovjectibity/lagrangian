@@ -5,14 +5,17 @@ use tch::{
     nn::{self, Module, OptimizerConfig},
 };
 
+use std::collections::HashMap;
+
+use crate::commondef::training::ModelInputSpec;
 use crate::plugin::{ControlPolicyOutputMode, Simulator};
 
 pub struct Trajectory {
-    //Shape of indv element: [nq*2]
-    //Number of world_states: traj_depth + 1
-    world_states: Vec<Tensor>,
-    //Shape of indv element: [nu*2]
-    //Note: the std devs are logs
+    // traj_depth elements; used for policy re-evaluation under updated θ (control spec)
+    control_wstates: Vec<Tensor>,
+    // traj_depth + 1 elements (includes terminal); used for value estimation (value spec)
+    value_wstates: Vec<Tensor>,
+    //Shape of indv element: [nu*2]; note: std devs are logs
     model_outputs: Vec<Tensor>,
     //Shape of indv element: [nu]
     model_output_samples: Vec<Tensor>,
@@ -71,17 +74,7 @@ pub struct PPOTrainer {
     model: Arc<Mutex<dyn PPOTrainedModel + Send>>,
     policy_opt: nn::Optimizer,
     value_opt: nn::Optimizer,
-    user_reward_fn: Option<
-        Box<
-            dyn Fn(
-                &Tensor,
-                &Tensor,
-                &Tensor,
-                Option<&[(usize, usize)]>,
-            ) -> f64
-                + Send,
-        >,
-    >,
+    user_reward_fn: Option<Box<dyn Fn(&HashMap<String, Tensor>, &HashMap<String, Tensor>) -> f64 + Send>>,
 }
 
 pub trait PPOTrainedModel {
@@ -94,14 +87,10 @@ pub trait PPOTrainedModel {
     ) -> Self
     where
         Self: Sized;
-    // Using SpinningUp's formulation of reward function:
-    // https://spinningup.openai.com/en/latest/spinningup/rl_intro.html
     fn get_reward(
         &self,
-        cstate: &Tensor,
-        cstate_next: &Tensor,
-        action: &Tensor,
-        contact_pairs: Option<&[(usize, usize)]>,
+        parts_pre: &HashMap<String, Tensor>,
+        parts_post: &HashMap<String, Tensor>,
     ) -> f64;
     fn get_policy_output(&self, state: &Tensor) -> Tensor;
     fn get_value_output(&self, state: &Tensor) -> f64;
@@ -112,6 +101,11 @@ pub trait PPOTrainedModel {
     fn get_value_store(&self) -> &nn::VarStore;
     fn get_value_store_mut(&mut self) -> &mut nn::VarStore;
     fn get_control_policy_output_mode(&self) -> ControlPolicyOutputMode;
+    fn get_control_input_spec(&self) -> ModelInputSpec;
+    fn get_value_input_spec(&self) -> ModelInputSpec;
+    fn get_reward_input_spec(&self) -> ModelInputSpec;
+    fn assemble_control_state(&self, parts: &HashMap<String, Tensor>) -> Tensor;
+    fn assemble_value_state(&self, parts: &HashMap<String, Tensor>) -> Tensor;
 }
 
 //TODO: Optimising with aggregating all
@@ -132,17 +126,7 @@ impl PPOTrainer {
         num_updates: i32,
         epsilon: f64,
         gamma_lambda: (f64, f64),
-        user_reward_fn: Option<
-            Box<
-                dyn Fn(
-                    &Tensor,
-                    &Tensor,
-                    &Tensor,
-                    Option<&[(usize, usize)]>,
-                ) -> f64
-                    + Send,
-            >,
-        >,
+        user_reward_fn: Option<Box<dyn Fn(&HashMap<String, Tensor>, &HashMap<String, Tensor>) -> f64 + Send>>,
     ) -> Result<Self, tch::TchError> {
         let policy_opt = {
             let m = model.lock().expect("Model mutex poisoned");
@@ -168,7 +152,16 @@ impl PPOTrainer {
 
     fn gen_trajectory(&self) -> Trajectory {
         let action_output_size = self.get_action_output_size();
-        let mut wstates = Vec::new();
+        let (control_input_spec, value_input_spec, reward_input_spec) = {
+            let model = self.model.lock().expect("Model mutex poisoned");
+            (
+                model.get_control_input_spec(),
+                model.get_value_input_spec(),
+                model.get_reward_input_spec(),
+            )
+        };
+        let mut control_wstates = Vec::new();
+        let mut value_wstates = Vec::new();
         let mut model_outputs = Vec::new();
         let mut model_output_samples = Vec::new();
         let mut rewards = Vec::new();
@@ -178,11 +171,13 @@ impl PPOTrainer {
                 .expect("Simulator mutex poisoned")
                 .reset_state();
             for i in 0..self.traj_depth {
-                let (wstate, cstate): (Tensor, Tensor) = {
+                let (wstate, wstate_value, reward_parts_pre) = {
                     let simulator = self.simulator.lock().expect("Simulator mutex poisoned");
+                    let model = self.model.lock().expect("Model mutex poisoned");
                     (
-                        simulator.get_model_state(),
-                        simulator.get_model_cartesian_state(),
+                        model.assemble_control_state(&simulator.get_model_state(&control_input_spec)),
+                        model.assemble_value_state(&simulator.get_model_state(&value_input_spec)),
+                        simulator.get_model_state(&reward_input_spec),
                     )
                 };
                 let action_gaussian_params = self
@@ -236,63 +231,47 @@ impl PPOTrainer {
                     .lock()
                     .expect("Simulator mutex poisoned")
                     .forward_dyn(&controls);
-                let (cstate_next, contact_pairs) = {
-                    let simulator = self.simulator.lock().expect("Simulator mutex poisoned");
-                    (
-                        simulator.get_model_cartesian_state(),
-                        simulator.get_contact_body_index_pairs(),
-                    )
-                };
+                let reward_parts_post = self.simulator.lock().expect("Simulator mutex poisoned").get_model_state(&reward_input_spec);
                 let reward =
-                    if let Some(ref f) =
-                        self.user_reward_fn
-                    {
-                        f(
-                            &cstate,
-                            &cstate_next,
-                            &sampled_action,
-                            Some(&contact_pairs),
-                        )
+                    if let Some(ref f) = self.user_reward_fn {
+                        f(&reward_parts_pre, &reward_parts_post)
                     } else {
                         self.model
                             .lock()
                             .expect("Model mutex poisoned")
-                            .get_reward(
-                                &cstate,
-                                &cstate_next,
-                                &sampled_action,
-                                Some(&contact_pairs),
-                            )
+                            .get_reward(&reward_parts_pre, &reward_parts_post)
                     };
                 println!("Got reward during gen_traj as: {:?}", reward);
                 rewards.push(reward);
-                wstates.push(wstate);
+                control_wstates.push(wstate);
+                value_wstates.push(wstate_value);
                 model_outputs.push(action_gaussian_params);
                 model_output_samples.push(sampled_action);
             }
-            //Adding a terminal wstate given it's used for terminal val calculations
-            let wstate_end: Tensor = self
-                .simulator
-                .lock()
-                .expect("Simulator mutex poisoned")
-                .get_model_state();
-            wstates.push(wstate_end);
+            // Terminal states for both control and value
+            {
+                let simulator = self.simulator.lock().expect("Simulator mutex poisoned");
+                let model = self.model.lock().expect("Model mutex poisoned");
+                control_wstates.push(model.assemble_control_state(&simulator.get_model_state(&control_input_spec)));
+                value_wstates.push(model.assemble_value_state(&simulator.get_model_state(&value_input_spec)));
+            }
             let v_terminal = self
                 .model
                 .lock()
                 .expect("Model mutex poisoned")
-                .get_value_output(wstates.last().expect("missing terminal world state"));
+                .get_value_output(value_wstates.last().expect("missing terminal value state"));
             let rtgs = self.compute_rtg(&rewards, v_terminal);
             let action_sample_log_probs = self.compute_action_log_probs(
                 &Tensor::stack(&model_output_samples, 0),
                 &Tensor::stack(&model_outputs, 0),
             );
             Trajectory {
-                world_states: wstates,
-                model_outputs: model_outputs,
-                model_output_samples: model_output_samples,
-                rewards: rewards,
-                rtgs: rtgs,
+                control_wstates,
+                value_wstates,
+                model_outputs,
+                model_output_samples,
+                rewards,
+                rtgs,
                 model_output_sample_log_probs: Vec::<f64>::try_from(action_sample_log_probs)
                     .expect("wrong type of tensor"),
             }
@@ -313,14 +292,14 @@ impl PPOTrainer {
         //Step-1: Get all rewards for the trajectory:
         //Step-2: Compute the advantage:
         for i in (0..self.traj_depth).rev() {
-            let wstate = traj.world_states.get(i as usize).expect("");
+            let wstate = traj.value_wstates.get(i as usize).expect("");
             let reward = traj.rewards.get(i as usize).expect("");
             let val = self
                 .model
                 .lock()
                 .expect("Model mutex poisoned")
                 .get_value_output(wstate);
-            let wstate_next = traj.world_states.get((i + 1) as usize).expect("");
+            let wstate_next = traj.value_wstates.get((i + 1) as usize).expect("");
             let val_next = self
                 .model
                 .lock()
@@ -397,7 +376,7 @@ impl PPOTrainer {
             .collect();
         let wstates_v: Vec<Tensor> = trajs
             .iter()
-            .map(|traj| Tensor::stack(&traj.world_states[..self.traj_depth as usize], 0))
+            .map(|traj| Tensor::stack(&traj.control_wstates[..self.traj_depth as usize], 0))
             .collect();
         let action_samples_v: Vec<Tensor> = trajs
             .iter()
@@ -427,7 +406,7 @@ impl PPOTrainer {
             .collect();
         let wstates_v: Vec<Tensor> = trajs
             .iter()
-            .map(|traj| Tensor::stack(&traj.world_states[..self.traj_depth as usize], 0))
+            .map(|traj| Tensor::stack(&traj.value_wstates[..self.traj_depth as usize], 0))
             .collect();
         let rtgs = Tensor::stack(&rtgs_v, 0).detach();
         let (value_device, value_kind) = {

@@ -417,7 +417,7 @@ cargo check
 Standalone Python script. Reads `BASE_URL` from env (default `http://localhost:8000`).
 
 Steps:
-1. Upload `app/assets/trossen_vx300s/vx300s.xml` → get `model_id`
+1. Upload `assets/trossen_vx300s/vx300s.xml` → get `model_id`
 2. Create experiment → `exp_id`
 3. Create run → `run_id`
 4. Build Rust reward code string: standalone `fn reward(...)` adapting `get_reward_2` logic from `usr/arm.rs` with hardcoded vx300s body indices

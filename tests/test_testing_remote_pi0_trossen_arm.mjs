@@ -3,7 +3,7 @@
  * Requires a live GPU worker running and reachable by the server.
  *
  * Usage:
- *   MODEL_PATH=app/assets/trossen_vx300s/vx300s.xml node tests/test_testing_remote_pi0_trossen_arm.mjs
+ *   MODEL_PATH=assets/trossen_vx300s/vx300s.xml node tests/test_testing_remote_pi0_trossen_arm.mjs
  *   BASE_URL=http://localhost:8000/api MODEL_PATH=... NUM_ENVS=4 NUM_TIMESTEPS=50 node tests/test_testing_remote_pi0_trossen_arm.mjs
  *
  * Requires: node >= 18, sdk built (cd sdk && npm run build)
@@ -12,7 +12,7 @@
 import { execSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { LagrangianClient } from "../sdk/dist/index.js";
 
 const BASE_URL      = process.env.BASE_URL       ?? "http://localhost:8000/api";
@@ -30,12 +30,17 @@ if (!MODEL_PATH) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function uploadModel(client) {
-  const modelDir = dirname(resolve(MODEL_PATH));
+  const absModelPath = resolve(MODEL_PATH);
+  const modelDir = dirname(absModelPath);
+  const modelFile = basename(absModelPath);
   const zipPath = join(tmpdir(), `lagrangian-model-${Date.now()}.zip`);
   try {
-    execSync(`zip -r "${zipPath}" .`, { cwd: modelDir, stdio: "pipe" });
+    // Bundle all non-XML assets (meshes, textures, etc.) then add only the
+    // target XML so the worker doesn't pick the wrong XML at the zip root.
+    execSync(`zip -r "${zipPath}" . --exclude "*.xml"`, { cwd: modelDir, stdio: "pipe" });
+    execSync(`zip "${zipPath}" "${modelFile}"`, { cwd: modelDir, stdio: "pipe" });
     const blob = new Blob([readFileSync(zipPath)], { type: "application/zip" });
-    const result = await client.models.upload(blob, "vx300s.zip");
+    const result = await client.models.upload(blob, modelFile.replace(".xml", ".zip"));
     console.log(`  model_id=${result.id}`);
     return result.id;
   } finally {

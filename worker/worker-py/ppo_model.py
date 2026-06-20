@@ -178,3 +178,6 @@ class FFNPPOModel(PPOTrainedModel, TestingModel):
 
     def get_test_params(self) -> Params:
         return self.get_policy_store()
+
+    def assemble_state(self, parts: dict[str, Array]) -> Array:
+        return jnp.concatenate(list(parts.values()))

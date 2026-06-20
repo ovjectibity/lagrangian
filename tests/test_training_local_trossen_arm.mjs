@@ -3,7 +3,7 @@
  * Mirrors tests/test_training_local_trossen_arm.py using the TypeScript SDK.
  *
  * Usage:
- *   MODEL_PATH=app/assets/trossen_vx300s/vx300s.xml node tests/test_training_local_trossen_arm.mjs
+ *   MODEL_PATH=assets/trossen_vx300s/vx300s.xml node tests/test_training_local_trossen_arm.mjs
  *   BASE_URL=http://localhost:8000/api MODEL_PATH=... node tests/test_training_local_trossen_arm.mjs
  *
  * Requires: node >= 18, sdk built (cd sdk && npm run build)

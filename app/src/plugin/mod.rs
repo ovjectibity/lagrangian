@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+
 use tch::{Tensor, nn};
 
 use crate::commondef::model::WorldBody;
+use crate::commondef::training::ModelInputSpec;
 pub use crate::commondef::training::ControlPolicyOutputMode;
 
 pub mod mj_simulator;
@@ -16,7 +19,7 @@ pub trait Simulator {
     //Shape of acc: [nq]
     //Shape of output: [nv]
     fn inverse_dyn(&self, acc: &Tensor) -> Tensor;
-    fn get_model_state(&self) -> Tensor;
+    fn get_model_state(&self, input_spec: &ModelInputSpec) -> HashMap<String, Tensor>;
     fn get_model_cartesian_state(&self) -> Tensor;
     fn get_world_body(&self) -> Option<WorldBody>;
     fn get_simul_update(&self) -> (Vec<f64>, Vec<f64>);
@@ -32,12 +35,7 @@ pub trait ControlPolicyModel {
     fn get_policy_store(&self) -> &nn::VarStore;
     fn get_policy_store_mut(&mut self) -> &mut nn::VarStore;
     fn get_output_mode(&self) -> ControlPolicyOutputMode;
-    fn get_reward(
-        &self,
-        cstate: &Tensor,
-        cstate_next: &Tensor,
-        action: &Tensor,
-        contact_pairs: Option<&[(usize, usize)]>,
-    ) -> f64;
+    fn get_control_input_spec(&self) -> ModelInputSpec;
+    fn assemble_control_state(&self, parts: &HashMap<String, Tensor>) -> Tensor;
 }
 

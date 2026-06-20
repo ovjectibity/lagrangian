@@ -45,6 +45,8 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     Value store:  a small FFN initialised from value_ffn_spec.
     """
 
+    _STATE_KEY_ORDER = ("cameras", "qdof", "qpos", "qvel", "xpos", "xquat")
+
     def __init__(
         self,
         vla_spec: VLAModel,
@@ -180,6 +182,9 @@ class Pi0Model(PPOTrainedModel, TestingModel):
 
     def get_test_params(self) -> Params:
         return self.get_policy_store()
+
+    def assemble_state(self, parts: dict[str, Array]) -> Array:
+        return jnp.concatenate([parts[k] for k in self._STATE_KEY_ORDER if k in parts])
 
     def _ensure_value_store(self, state: Array) -> None:
         if self._value_store is None:

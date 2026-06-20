@@ -6,7 +6,7 @@
  *   2. Local testing | FFN from checkpoint
  *
  * Usage:
- *   MODEL_PATH=app/assets/trossen_vx300s/vx300s.xml node tests/test_testing_local_ffn_trossen_arm.mjs
+ *   MODEL_PATH=assets/trossen_vx300s/vx300s.xml node tests/test_testing_local_ffn_trossen_arm.mjs
  *   BASE_URL=http://localhost:8000/api MODEL_PATH=... CHECKPOINT_ID=<id> node tests/test_testing_local_ffn_trossen_arm.mjs
  *
  * Requires: node >= 18, sdk built (cd sdk && npm run build)

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -165,6 +166,22 @@ fn validate_model_types(
     let TrainingMethod::PPO(ref p) =
         controller.training_method;
 
+    let control_spec = match &p.control_model {
+        ControlModel::FFN(m) => &m.input_spec,
+        ControlModel::VLA(m) => &m.input_spec,
+    };
+    if control_spec.contact_pairs {
+        return Err(
+            "contact_pairs is not allowed in control model input_spec",
+        );
+    }
+    let ValueModel::FFN(ref vm) = p.value_model;
+    if vm.input_spec.contact_pairs {
+        return Err(
+            "contact_pairs is not allowed in value model input_spec",
+        );
+    }
+
     match &p.control_model {
         ControlModel::FFN(m) => {
             if matches!(
@@ -201,7 +218,6 @@ fn validate_model_types(
         }
     }
 
-    let ValueModel::FFN(ref vm) = p.value_model;
     if matches!(
         &vm.model_type,
         ModelType::Checkpoint(
@@ -399,32 +415,21 @@ pub async fn start_training(
         let run_id_c = run_id.clone();
         let h = rocket::tokio::task::spawn_blocking(
             move || {
-                let path = model_path;
                 let mut runtime =
-                    match WorkflowRuntime::load(
-                        path,
+                    match WorkflowRuntime::for_training(
+                        model_path,
+                        &ppo_params,
                     ) {
                         Ok(r) => r,
                         Err(e) => {
                             println!(
                                 "WorkflowRuntime \
-                                 load failed: {:?}",
+                                 for_training failed: {:?}",
                                 e
                             );
                             return;
                         }
                     };
-                if let Err(e) = runtime
-                    .configure_model_for_training(
-                        &ppo_params,
-                    )
-                {
-                    println!(
-                        "configure model: {:?}",
-                        e
-                    );
-                    return;
-                }
                 runtime.set_mode(
                     WorkflowMode::Training,
                 );
@@ -435,12 +440,8 @@ pub async fn start_training(
                 let reward_fn: Option<
                     Box<
                         dyn Fn(
-                            &Tensor,
-                            &Tensor,
-                            &Tensor,
-                            Option<
-                                &[(usize, usize)]
-                            >,
+                            &HashMap<String, Tensor>,
+                            &HashMap<String, Tensor>,
                         ) -> f64
                             + Send,
                     >,
@@ -448,80 +449,25 @@ pub async fn start_training(
                     let lib = StdArc::new(lib);
                     let lib_c = lib.clone();
                     Box::new(
-                        move |prev: &Tensor,
-                              curr: &Tensor,
-                              act: &Tensor,
-                              contacts: Option<
-                                  &[(usize, usize)]
-                              >| {
-                            unsafe {
-                                type RawFn =
-                                    unsafe extern "C"
-                                    fn(
-                                        *const f64,
-                                        usize,
-                                        *const f64,
-                                        usize,
-                                        *const f64,
-                                        usize,
-                                        *const (
-                                            usize,
-                                            usize,
-                                        ),
-                                        usize,
-                                    ) -> f64;
-                                let f: libloading
-                                    ::Symbol<RawFn> =
-                                    lib_c
-                                    .get(
-                                        b"reward_c_abi"
-                                    )
-                                    .expect(
-                                        "reward_c_abi"
-                                    );
-                                let pv =
-                                    Vec::<f64>
-                                    ::try_from(
-                                        prev
-                                        .shallow_clone()
-                                    )
-                                    .unwrap_or_default();
-                                let cv =
-                                    Vec::<f64>
-                                    ::try_from(
-                                        curr
-                                        .shallow_clone()
-                                    )
-                                    .unwrap_or_default();
-                                let av =
-                                    Vec::<f64>
-                                    ::try_from(
-                                        act
-                                        .shallow_clone()
-                                    )
-                                    .unwrap_or_default();
-                                let cs = contacts
-                                    .unwrap_or(&[]);
-                                f(
-                                    pv.as_ptr(),
-                                    pv.len(),
-                                    cv.as_ptr(),
-                                    cv.len(),
-                                    av.as_ptr(),
-                                    av.len(),
-                                    cs.as_ptr(),
-                                    cs.len(),
+                        move |parts_pre: &HashMap<
+                            String,
+                            Tensor,
+                        >,
+                              parts_post: &HashMap<
+                            String,
+                            Tensor,
+                        >| {
+                            crate::api::reward_validation
+                                ::call_reward_c_abi(
+                                    &lib_c,
+                                    parts_pre,
+                                    parts_post,
                                 )
-                            }
                         },
                     ) as Box<
                         dyn Fn(
-                            &Tensor,
-                            &Tensor,
-                            &Tensor,
-                            Option<
-                                &[(usize, usize)]
-                            >,
+                            &HashMap<String, Tensor>,
+                            &HashMap<String, Tensor>,
                         ) -> f64
                             + Send,
                     >

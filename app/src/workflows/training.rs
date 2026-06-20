@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -48,10 +49,8 @@ impl TrainingWorkflow {
         reward_fn: Option<
             Box<
                 dyn Fn(
-                    &Tensor,
-                    &Tensor,
-                    &Tensor,
-                    Option<&[(usize, usize)]>,
+                    &HashMap<String, Tensor>,
+                    &HashMap<String, Tensor>,
                 ) -> f64
                     + Send,
             >,

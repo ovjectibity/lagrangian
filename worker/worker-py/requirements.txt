@@ -3,6 +3,7 @@ websockets
 pydantic
 mujoco==3.9.0
 mujoco-mjx==3.9.0
+mujoco-warp
 orbax-checkpoint
 flax
 huggingface_hub

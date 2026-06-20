@@ -2,7 +2,7 @@
 Local (AllOnServer) training test with a Rust reward function.
 
 Usage:
-    MODEL_PATH=app/assets/trossen_vx300s/vx300s.xml python tests/test_training_trossen_arm.py
+    MODEL_PATH=assets/trossen_vx300s/vx300s.xml python tests/test_training_trossen_arm.py
     BASE_URL=http://localhost:8000/api MODEL_PATH=... python tests/test_training_trossen_arm.py
 """
 import io

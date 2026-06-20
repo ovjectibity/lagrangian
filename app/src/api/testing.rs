@@ -58,6 +58,14 @@ pub async fn start_test(
     let test_id = Uuid::new_v4().to_string();
     let test_graph = body.into_inner().test_graph;
 
+    let control_spec = match &test_graph.test_job_controller.test_params.control_model {
+        crate::commondef::training::ControlModel::FFN(m) => &m.input_spec,
+        crate::commondef::training::ControlModel::VLA(m) => &m.input_spec,
+    };
+    if control_spec.contact_pairs {
+        return Err(Status::BadRequest);
+    }
+
     let is_local = matches!(
         test_graph.test_job_controller.acceleration_mode,
         TrainingAccelerationMode::AllOnServer
@@ -158,14 +166,15 @@ pub async fn start_test(
         let h = rocket::tokio::task::spawn_blocking(
             move || {
                 let mut runtime =
-                    match WorkflowRuntime::load(
+                    match WorkflowRuntime::for_testing(
                         model_path,
+                        &graph_c,
                     ) {
                         Ok(r) => r,
                         Err(e) => {
                             println!(
-                                "WorkflowRuntime load \
-                                 failed: {:?}",
+                                "WorkflowRuntime \
+                                 for_testing failed: {:?}",
                                 e
                             );
                             return;

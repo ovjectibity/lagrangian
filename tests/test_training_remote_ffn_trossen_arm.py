@@ -3,7 +3,7 @@ Remote (MLGPUSimulationGPU) training test with a Python reward function.
 Requires a live GPU worker running and reachable by the server.
 
 Usage:
-    MODEL_PATH=app/assets/trossen_vx300s/vx300s.xml python tests/test_training_remote.py
+    MODEL_PATH=assets/trossen_vx300s/vx300s.xml python tests/test_training_remote.py
     BASE_URL=http://localhost:8000/api MODEL_PATH=... python tests/test_training_remote.py
 """
 import io

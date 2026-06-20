@@ -14,14 +14,17 @@ pub enum ControlPolicyOutputMode {
     TargetTorques,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[typeshare]
-pub struct ControlModelInput {
+pub struct ModelInputSpec {
     pub all_cameras: bool,
     pub qpos_state: bool,
     pub qvel_state: bool,
     pub xpos_state: bool,
     pub xquat_state: bool,
+    pub qdof_state: bool,
+    /// Only valid in reward_function.input_spec; forbidden in control/value model specs.
+    pub contact_pairs: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
@@ -50,7 +53,7 @@ pub enum ModelType {
 #[typeshare]
 pub struct VLAModel {
     pub model_type: ModelType,
-    pub input: ControlModelInput,
+    pub input_spec: ModelInputSpec,
     pub output: ControlPolicyOutputMode,
 }
 
@@ -60,6 +63,7 @@ pub struct FFNModel {
     pub model_type: ModelType,
     pub num_hidden_layers: i32,
     pub hidden_layer_dim: i32,
+    pub input_spec: ModelInputSpec,
     pub output_dim: i32,
     pub input_dim: i32,
 }
@@ -136,6 +140,7 @@ pub enum RewardLanguage {
 pub struct RewardSystem {
     pub language: RewardLanguage,
     pub reward_function_code: String,
+    pub input_spec: ModelInputSpec
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]

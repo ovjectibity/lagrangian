@@ -257,8 +257,14 @@ class Pi0Jax:
         Returns:
             actions: [n_action_steps, actual_action_dim]
         """
-        # Normalise state
-        norm_state = self._normalize(state, frozen["norm_state"])
+        # Normalise state — truncate to min(state_dim, norm_dim) to handle robot DOF mismatch
+        state_dim = state.shape[0]
+        norm_dim = frozen["norm_state"]["mean"].shape[0]
+        dim = min(state_dim, norm_dim)
+        norm_state = self._normalize(
+            state[:dim],
+            {"mean": frozen["norm_state"]["mean"][:dim], "std": frozen["norm_state"]["std"][:dim]},
+        )
         # Pad state to max_state_dim
         state_pad = _pad_to(norm_state, self._arch.get("state_dim", 32))
 
@@ -304,7 +310,13 @@ class Pi0Jax:
         rng: Array,
     ) -> Array:
         """Run Euler ODE and return full chunk [chunk_size, actual_action_dim]."""
-        norm_state = self._normalize(state, frozen["norm_state"])
+        state_dim = state.shape[0]
+        norm_dim = frozen["norm_state"]["mean"].shape[0]
+        dim = min(state_dim, norm_dim)
+        norm_state = self._normalize(
+            state[:dim],
+            {"mean": frozen["norm_state"]["mean"][:dim], "std": frozen["norm_state"]["std"][:dim]},
+        )
         state_pad  = _pad_to(norm_state, self._arch.get("state_dim", 32))
         task_tokens = self._encode_task(task)
 

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 import logging
 import time
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class Simulator(ABC):
         pass
 
     @abstractmethod
-    def get_model_state(self) -> Array:
+    def get_model_state(self, input_spec: Any | None = None) -> dict[str, Array]:
         pass
 
     @abstractmethod
@@ -90,15 +90,37 @@ class Simulator(ABC):
     ) -> Array:
         pass
 
-    @abstractmethod
-    def render_all_cameras(self) -> Array:
-        """Render all cameras attached to the model.
+    def make_state_fn(self, input_spec: Any) -> Callable[[Any], dict[str, Array]]:
+        """Return a pure (mjx_data → dict[str, Array]) closure for use in lax.scan / vmap.
 
-        Resolution is fixed at 244×244 RGB (uint8 → float32 in [0, 1]).
-        Returns a flat Array of shape [ncam * 244 * 244 * 3] suitable for
-        concatenation with state vectors.
+        Only MjxSimulator implements this. MujocoSimulator raises NotImplementedError.
         """
-        pass
+        raise NotImplementedError("make_state_fn is only supported for MjxSimulator")
+
+    def _compute_actuated_qpos_indices(self) -> list[int]:
+        """Return qpos indices belonging to each actuated joint.
+
+        For hinge/slide joints: 1 component. Ball: 4. Free: 7.
+        Used for qdof_state extraction (generalised coords of actuated joints only).
+        """
+        nu = self.nu()
+        indices: list[int] = []
+        actuator_trnid = np.asarray(self._model.actuator_trnid).reshape(nu, 2)  # type: ignore[attr-defined]
+        jnt_qposadr = np.asarray(self._model.jnt_qposadr)  # type: ignore[attr-defined]
+        jnt_type = np.asarray(self._model.jnt_type)  # type: ignore[attr-defined]
+        for actuator_idx in range(nu):
+            joint_id = int(actuator_trnid[actuator_idx, 0])
+            qpos_adr = int(jnt_qposadr[joint_id])
+            jtype = int(jnt_type[joint_id])
+            # mjtJoint: 0=free(7), 1=ball(4), 2=slide(1), 3=hinge(1)
+            if jtype == 0:
+                n = 7
+            elif jtype == 1:
+                n = 4
+            else:
+                n = 1
+            indices.extend(range(qpos_adr, qpos_adr + n))
+        return indices
 
 
 # Camera render resolution (hardcoded; to be standardised in training graph later).
@@ -163,6 +185,8 @@ class MjxSimulator(Simulator):
         t4 = time.time()
         logger.info("MjxSimulator: bench — 10 steps took %.2fs (%.4fs/step)", t4 - t3, (t4 - t3) / 10)
         self.target_position: list[float] = self._get_actuated_qpos_targets()
+        self._actuated_qpos_idx: list[int] = self._compute_actuated_qpos_indices()
+        self._actuated_qpos_idx_jnp: Array = jnp.array(self._actuated_qpos_idx, dtype=jnp.int32)
 
     def _sync_cpu_from_mjx(self) -> None:
         self._data = mjx.get_data(self._model, self._mjx_data)
@@ -362,30 +386,88 @@ class MjxSimulator(Simulator):
         mujoco.mj_inverse(self._model, self._data)
         return jnp.asarray(np.asarray(self._data.qfrc_inverse[: self.nv()], dtype=np.float64))
 
-    def get_model_state(self) -> Array:
+    def get_model_state(self, input_spec: Any | None = None) -> dict[str, Array]:
         self._sync_cpu_from_mjx()
-        qpos = np.asarray(self._data.qpos[: self.nq()], dtype=np.float64)
-        qvel = np.asarray(self._data.qvel[: self.nv()], dtype=np.float64)
-        return jnp.asarray(np.concatenate([qpos, qvel], axis=0))
+        result: dict[str, Array] = {}
+        if input_spec is None:
+            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
+            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
+            return result
+        if input_spec.qdof_state:
+            qpos_all = np.asarray(self._data.qpos, dtype=np.float64)
+            result["qdof"] = jnp.asarray(qpos_all[self._actuated_qpos_idx])
+        if input_spec.qpos_state:
+            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
+        if input_spec.qvel_state:
+            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
+        if input_spec.xpos_state:
+            result["xpos"] = jnp.asarray(
+                np.asarray(self._data.xpos[: self.nbody()], dtype=np.float64).reshape(-1)
+            )
+        if input_spec.xquat_state:
+            result["xquat"] = jnp.asarray(
+                np.asarray(self._data.xquat[: self.nbody()], dtype=np.float64).reshape(-1)
+            )
+        if input_spec.all_cameras and self._model.ncam > 0:
+            ncam = int(self._model.ncam)
+            frames = jax.vmap(
+                lambda cam_id: mjx.render(
+                    self._mjx_model, self._mjx_data,
+                    camera=cam_id, width=_CAM_WIDTH, height=_CAM_HEIGHT,
+                )
+            )(jnp.arange(ncam))
+            result["cameras"] = (frames.astype(jnp.float32) / 255.0).reshape(-1)
+        if not result:
+            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
+            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
+        return result
+
+    def make_state_fn(self, input_spec: Any) -> Callable[[Any], dict[str, Array]]:
+        actuated_idx = self._actuated_qpos_idx_jnp
+        nq = self.nq()
+        nv = self.nv()
+        nbody = self.nbody()
+        mjx_model = self._mjx_model
+        ncam = int(self._model.ncam)
+        all_cameras = bool(input_spec.all_cameras)
+        qdof_state = bool(input_spec.qdof_state)
+        qpos_state = bool(input_spec.qpos_state)
+        qvel_state = bool(input_spec.qvel_state)
+        xpos_state = bool(input_spec.xpos_state)
+        xquat_state = bool(input_spec.xquat_state)
+
+        def state_fn(data: Any) -> dict[str, Array]:
+            result: dict[str, Array] = {}
+            if qdof_state:
+                result["qdof"] = data.qpos[actuated_idx]
+            if qpos_state:
+                result["qpos"] = data.qpos[:nq]
+            if qvel_state:
+                result["qvel"] = data.qvel[:nv]
+            if xpos_state:
+                result["xpos"] = data.xpos[:nbody].reshape(-1)
+            if xquat_state:
+                result["xquat"] = data.xquat[:nbody].reshape(-1)
+            if all_cameras and ncam > 0:
+                frames = jax.vmap(
+                    lambda cam_id: mjx.render(
+                        mjx_model, data,
+                        camera=cam_id, width=_CAM_WIDTH, height=_CAM_HEIGHT,
+                    )
+                )(jnp.arange(ncam))
+                result["cameras"] = (frames.astype(jnp.float32) / 255.0).reshape(-1)
+            if not result:
+                result["qpos"] = data.qpos[:nq]
+                result["qvel"] = data.qvel[:nv]
+            return result
+
+        return state_fn
 
     def get_model_cartesian_state(self) -> Array:
         self._sync_cpu_from_mjx()
         xpos = np.asarray(self._data.xpos[: self._model.nbody], dtype=np.float64).reshape(-1)
         xquat = np.asarray(self._data.xquat[: self._model.nbody], dtype=np.float64).reshape(-1)
         return jnp.asarray(np.concatenate([xpos, xquat], axis=0))
-
-    def render_all_cameras(self) -> Array:
-        self._sync_cpu_from_mjx()
-        ncam = int(self._model.ncam)
-        frames: list[np.ndarray] = []
-        with mujoco.Renderer(self._model, height=_CAM_HEIGHT, width=_CAM_WIDTH) as renderer:
-            for cam_id in range(ncam):
-                renderer.update_scene(self._data, camera=cam_id)
-                frame = renderer.render()  # (H, W, 3) uint8
-                frames.append(frame.astype(np.float32) / 255.0)
-        if not frames:
-            return jnp.zeros((_CAM_HEIGHT * _CAM_WIDTH * 3,), dtype=jnp.float32)
-        return jnp.asarray(np.concatenate([f.reshape(-1) for f in frames], axis=0))
 
     def get_world_body(self) -> Any | None:
         self._sync_cpu_from_mjx()
@@ -537,6 +619,7 @@ class MujocoSimulator(Simulator):
         mujoco.mj_forward(self._model, self._data)
         logger.info("MujocoSimulator: init complete")
         self.target_position: list[float] = self._get_actuated_qpos_targets()
+        self._actuated_qpos_idx: list[int] = self._compute_actuated_qpos_indices()
 
     def _is_torque_actuator(self) -> bool:
         nu = self.nu()
@@ -691,27 +774,47 @@ class MujocoSimulator(Simulator):
     def qvel(self) -> list[float]:
         return np.asarray(self._data.qvel[:self.nv()], dtype=np.float64).tolist()
 
-    def get_model_state(self) -> Array:
-        qpos = np.asarray(self._data.qpos[:self.nq()], dtype=np.float64)
-        qvel = np.asarray(self._data.qvel[:self.nv()], dtype=np.float64)
-        return jnp.asarray(np.concatenate([qpos, qvel], axis=0))
+    def get_model_state(self, input_spec: Any | None = None) -> dict[str, Array]:
+        result: dict[str, Array] = {}
+        if input_spec is None:
+            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
+            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
+            return result
+        if input_spec.qdof_state:
+            qpos_all = np.asarray(self._data.qpos, dtype=np.float64)
+            result["qdof"] = jnp.asarray(qpos_all[self._actuated_qpos_idx])
+        if input_spec.qpos_state:
+            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
+        if input_spec.qvel_state:
+            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
+        if input_spec.xpos_state:
+            result["xpos"] = jnp.asarray(
+                np.asarray(self._data.xpos[: self.nbody()], dtype=np.float64).reshape(-1)
+            )
+        if input_spec.xquat_state:
+            result["xquat"] = jnp.asarray(
+                np.asarray(self._data.xquat[: self.nbody()], dtype=np.float64).reshape(-1)
+            )
+        if input_spec.all_cameras and self._model.ncam > 0:
+            ncam = int(self._model.ncam)
+            frames: list[np.ndarray] = []
+            with mujoco.Renderer(self._model, height=_CAM_HEIGHT, width=_CAM_WIDTH) as renderer:
+                for cam_id in range(ncam):
+                    renderer.update_scene(self._data, camera=cam_id)
+                    frames.append(renderer.render().astype(np.float32) / 255.0)
+            result["cameras"] = jnp.asarray(
+                np.concatenate([f.reshape(-1) for f in frames], axis=0)
+                if frames else np.zeros((_CAM_HEIGHT * _CAM_WIDTH * 3,), dtype=np.float32)
+            )
+        if not result:
+            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
+            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
+        return result
 
     def get_model_cartesian_state(self) -> Array:
         xpos = np.asarray(self._data.xpos[:self._model.nbody], dtype=np.float64).reshape(-1)
         xquat = np.asarray(self._data.xquat[:self._model.nbody], dtype=np.float64).reshape(-1)
         return jnp.asarray(np.concatenate([xpos, xquat], axis=0))
-
-    def render_all_cameras(self) -> Array:
-        ncam = int(self._model.ncam)
-        frames: list[np.ndarray] = []
-        with mujoco.Renderer(self._model, height=_CAM_HEIGHT, width=_CAM_WIDTH) as renderer:
-            for cam_id in range(ncam):
-                renderer.update_scene(self._data, camera=cam_id)
-                frame = renderer.render()  # (H, W, 3) uint8
-                frames.append(frame.astype(np.float32) / 255.0)
-        if not frames:
-            return jnp.zeros((_CAM_HEIGHT * _CAM_WIDTH * 3,), dtype=jnp.float32)
-        return jnp.asarray(np.concatenate([f.reshape(-1) for f in frames], axis=0))
 
     def get_world_body(self) -> Any | None:
         geoms_by_body: dict[int, list[dict[str, Any]]] = defaultdict(list)

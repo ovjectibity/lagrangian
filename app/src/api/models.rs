@@ -9,9 +9,10 @@ use rocket::serde::json::Json;
 use serde::Serialize;
 use zip::ZipArchive;
 
-use crate::commondef::record::ModelReference;
 use crate::commondef::model::WorldBody;
-use crate::workflows::WorkflowRuntime;
+use crate::commondef::record::ModelReference;
+use crate::plugin::mj_simulator::MjSimulator;
+use crate::plugin::Simulator as _;
 
 // ── Response types ───────────────────────────
 
@@ -50,20 +51,18 @@ pub async fn get_default_model()
 
     let world_body =
         rocket::tokio::task::spawn_blocking(
-            move || {
-                let runtime =
-                    WorkflowRuntime::load(model_path)
+            move || -> Result<WorldBody, ()> {
+                let sim = MjSimulator::new(model_path)
                     .map_err(|e| {
                         println!(
-                            "WorkflowRuntime load \
+                            "MjSimulator::new \
                              failed: {:?}", e
                         );
                     })?;
-                runtime.world_body().map_err(|e| {
-                    println!(
-                        "world_body failed: {:?}", e
-                    );
-                })
+                sim.get_world_body()
+                    .ok_or_else(|| {
+                        println!("world_body failed");
+                    })
             },
         )
         .await

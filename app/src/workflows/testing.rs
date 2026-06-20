@@ -5,6 +5,7 @@ use tch::{Device, Kind, Tensor};
 
 use crate::commondef::{
     testing::{ModelForward, StopTestMessage, TestGraph, TestUpdateMessage},
+    training::ControlModel,
     workermessages::TestTaskMessage,
 };
 use crate::plugin::ControlPolicyOutputMode;
@@ -62,9 +63,14 @@ impl TestingWorkflow {
             simulator.reset_state();
             let action_output_size = simulator.nu();
             let num_timesteps = self.graph.test_job_controller.test_params.num_timesteps;
+            let control_input_spec = match &self.graph.test_job_controller.test_params.control_model {
+                ControlModel::VLA(vla) => vla.input_spec.clone(),
+                ControlModel::FFN(ffn) => ffn.input_spec.clone(),
+            };
             println!("Running test for {:?} timesteps", num_timesteps);
             for i in 0..num_timesteps {
-                let wstate = simulator.get_model_state();
+                let parts = simulator.get_model_state(&control_input_spec);
+                let wstate = model.assemble_control_state(&parts);
                 let action_gaussian_params = model.get_policy_output(&wstate);
                 let s_action_gaussian_params = action_gaussian_params
                     .split_with_sizes([action_output_size, action_output_size], 0);
@@ -92,13 +98,7 @@ impl TestingWorkflow {
                         simulator.get_target_controls_from_target_velocities(&sampled_action)
                     }
                 };
-                let cstate = simulator.get_model_cartesian_state();
                 simulator.forward_dyn(&controls);
-                let cstate_next = simulator.get_model_cartesian_state();
-                let contact_pairs = simulator.get_contact_body_index_pairs();
-                let reward =
-                    model.get_reward(&cstate, &cstate_next, &sampled_action, Some(&contact_pairs));
-                println!("Got reward at run_test {:?} {:?}", i, reward);
                 let (xpos, xquat) = simulator.get_simul_update();
                 Self::send_simul_update(&tx_test_t, self.id.clone(), xpos, xquat);
             }

@@ -10,16 +10,16 @@ Usage:
 
 Examples:
     # Preview what would happen (no files modified):
-    python scripts/decimate_stls.py app/assets/trossen_vx300s/assets --dry-run
+    python scripts/decimate_stls.py assets/trossen_vx300s/assets --dry-run
 
     # Replace meshes with their convex hulls (recommended for MJX collision):
-    python scripts/decimate_stls.py app/assets/trossen_vx300s/assets --convex-hull
+    python scripts/decimate_stls.py assets/trossen_vx300s/assets --convex-hull
 
     # Decimate all STLs in-place, targeting 200 faces per mesh:
-    python scripts/decimate_stls.py app/assets/trossen_vx300s/assets --target-faces 200
+    python scripts/decimate_stls.py assets/trossen_vx300s/assets --target-faces 200
 
     # Both: convex hull first, then decimate to 200 faces:
-    python scripts/decimate_stls.py app/assets/trossen_vx300s/assets --convex-hull --target-faces 200
+    python scripts/decimate_stls.py assets/trossen_vx300s/assets --convex-hull --target-faces 200
 """
 
 import argparse

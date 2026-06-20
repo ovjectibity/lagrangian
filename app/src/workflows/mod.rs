@@ -1,10 +1,13 @@
 use std::sync::{Arc, Mutex};
 
-use crate::commondef::training::{ControlModel, ModelType, PPOTrainingMethod, ValueModel};
+use crate::commondef::testing::TestGraph;
+use crate::commondef::training::{
+    ControlModel, ModelInputSpec, ModelType, PPOTrainingMethod, ValueModel,
+};
 use crate::plugin::mj_simulator::MjSimulator;
 use crate::plugin::ppo_trainer::PPOTrainedModel;
 use crate::plugin::{ControlPolicyModel, Simulator};
-use crate::usr::arm::ArmModel;
+use crate::usr::arm::FFNModel;
 
 pub mod testing;
 pub mod training;
@@ -18,54 +21,25 @@ pub enum WorkflowMode {
 
 pub struct WorkflowRuntime {
     simulator: Arc<Mutex<MjSimulator>>,
-    model: Arc<Mutex<ArmModel>>,
+    model: Arc<Mutex<FFNModel>>,
     mode: WorkflowMode,
 }
 
 impl WorkflowRuntime {
-    pub fn load(model_path: String) -> Result<Self, String> {
-        let simulator = MjSimulator::new(model_path)?;
-        let nu = simulator.nu();
-        let nv = simulator.nv();
-        let nq = simulator.nq();
-        let model = Self::build_default_model(nq, nv, nu);
-        Ok(WorkflowRuntime {
-            simulator: Arc::new(Mutex::new(simulator)),
-            model: Arc::new(Mutex::new(model)),
-            mode: WorkflowMode::Idle,
-        })
-    }
-
-    fn build_default_model(nq: i64, nv: i64, nu: i64) -> ArmModel {
-        let input_dim = nq + nv;
-        let policy_output_dim = nu * 2;
-        let hidden_dim = 256;
-        let num_hidden_layers = 3;
-        let (policy, policy_store) = ArmModel::init_policy(
-            input_dim,
-            policy_output_dim,
-            hidden_dim,
-            num_hidden_layers,
-            false,
-            true,
-        );
-        let (value, value_store) =
-            ArmModel::init_policy(input_dim, 1, hidden_dim, num_hidden_layers, false, false);
-        ArmModel::init_ppo_trained_model(policy, value, policy_store, value_store)
-    }
-
-    pub fn configure_model_for_training(&self, params: &PPOTrainingMethod) -> Result<(), String> {
+    pub fn for_training(
+        model_path: String,
+        params: &PPOTrainingMethod,
+    ) -> Result<Self, String> {
         if matches!(&params.control_model, ControlModel::VLA(_)) {
-            let msg = "VLA control model is not supported for local training";
-            println!("{}", msg);
-            return Err(msg.into());
+            return Err("VLA control model is not supported for local training".into());
         }
         let control_params = match &params.control_model {
             ControlModel::FFN(m) => {
                 if matches!(&m.model_type, ModelType::Checkpoint(_)) {
-                    let msg = "Checkpoint-based FFN control model is not supported for local training";
-                    println!("{}", msg);
-                    return Err(msg.into());
+                    return Err(
+                        "Checkpoint-based FFN control model is not supported for local training"
+                            .into(),
+                    );
                 }
                 m
             }
@@ -74,14 +48,16 @@ impl WorkflowRuntime {
         let value_params = match &params.value_model {
             ValueModel::FFN(m) => {
                 if matches!(&m.model_type, ModelType::Checkpoint(_)) {
-                    let msg = "Checkpoint-based FFN value model is not supported for local training";
-                    println!("{}", msg);
-                    return Err(msg.into());
+                    return Err(
+                        "Checkpoint-based FFN value model is not supported for local training"
+                            .into(),
+                    );
                 }
                 m
             }
         };
-        let (policy, policy_store) = ArmModel::init_policy(
+        let simulator = MjSimulator::new(model_path)?;
+        let (policy, policy_store) = FFNModel::init_policy(
             control_params.input_dim as i64,
             control_params.output_dim as i64,
             control_params.hidden_layer_dim as i64,
@@ -89,7 +65,7 @@ impl WorkflowRuntime {
             false,
             true,
         );
-        let (value, value_store) = ArmModel::init_policy(
+        let (value, value_store) = FFNModel::init_policy(
             value_params.input_dim as i64,
             value_params.output_dim as i64,
             value_params.hidden_layer_dim as i64,
@@ -97,13 +73,55 @@ impl WorkflowRuntime {
             false,
             false,
         );
-        let next_model = ArmModel::init_ppo_trained_model(policy, value, policy_store, value_store);
-        let mut model = self
-            .model
-            .lock()
-            .map_err(|_| "Model mutex poisoned".to_string())?;
-        *model = next_model;
-        Ok(())
+        let mut model =
+            FFNModel::init_ppo_trained_model(policy, value, policy_store, value_store);
+        model.set_input_specs(
+            control_params.input_spec.clone(),
+            value_params.input_spec.clone(),
+            params.reward_function.input_spec.clone(),
+        );
+        Ok(WorkflowRuntime {
+            simulator: Arc::new(Mutex::new(simulator)),
+            model: Arc::new(Mutex::new(model)),
+            mode: WorkflowMode::Idle,
+        })
+    }
+
+    pub fn for_testing(
+        model_path: String,
+        test_graph: &TestGraph,
+    ) -> Result<Self, String> {
+        let control_params =
+            match &test_graph.test_job_controller.test_params.control_model {
+                ControlModel::FFN(m) => m,
+                ControlModel::VLA(_) => {
+                    return Err(
+                        "VLA control model is not supported for local testing".into(),
+                    );
+                }
+            };
+        let simulator = MjSimulator::new(model_path)?;
+        let (policy, policy_store) = FFNModel::init_policy(
+            control_params.input_dim as i64,
+            control_params.output_dim as i64,
+            control_params.hidden_layer_dim as i64,
+            control_params.num_hidden_layers as i64,
+            false,
+            true,
+        );
+        let (value, value_store) = FFNModel::init_policy(1, 1, 1, 1, false, false);
+        let mut model =
+            FFNModel::init_ppo_trained_model(policy, value, policy_store, value_store);
+        model.set_input_specs(
+            control_params.input_spec.clone(),
+            ModelInputSpec::default(),
+            ModelInputSpec::default(),
+        );
+        Ok(WorkflowRuntime {
+            simulator: Arc::new(Mutex::new(simulator)),
+            model: Arc::new(Mutex::new(model)),
+            mode: WorkflowMode::Idle,
+        })
     }
 
     pub fn simulator_handle(&self) -> Arc<Mutex<dyn Simulator + Send>> {
