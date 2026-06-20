@@ -38,10 +38,22 @@ export type ModelType =
 	| { type: "Checkpoint", content: CheckpointType }
 	| { type: "New", content?: undefined };
 
+export interface ModelInputSpec {
+	all_cameras: boolean;
+	qpos_state: boolean;
+	qvel_state: boolean;
+	xpos_state: boolean;
+	xquat_state: boolean;
+	qdof_state: boolean;
+	/** Only valid in reward_function.input_spec; forbidden in control/value model specs. */
+	contact_pairs: boolean;
+}
+
 export interface MLPModel {
 	model_type: ModelType;
 	num_hidden_layers: number;
 	hidden_layer_dim: number;
+	input_spec: ModelInputSpec;
 	output_dim: number;
 	input_dim: number;
 }
@@ -63,14 +75,6 @@ export interface CheckpointReference {
 	checkpoint_type: string;
 	control_model_params?: MLPModel;
 	value_model_params?: MLPModel;
-}
-
-export interface ControlModelInput {
-	all_cameras: boolean;
-	qpos_state: boolean;
-	qvel_state: boolean;
-	xpos_state: boolean;
-	xquat_state: boolean;
 }
 
 export interface FlowNoiseConfig {
@@ -127,6 +131,7 @@ export enum RewardLanguage {
 export interface RewardSystem {
 	language: RewardLanguage;
 	reward_function_code: string;
+	input_spec: ModelInputSpec;
 }
 
 export type ControlModel = 
@@ -326,7 +331,7 @@ export enum ControlPolicyOutputMode {
 
 export interface VLAModel {
 	model_type: ModelType;
-	input: ControlModelInput;
+	input_spec: ModelInputSpec;
 	output: ControlPolicyOutputMode;
 }
 

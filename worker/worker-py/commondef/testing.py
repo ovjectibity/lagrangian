@@ -20,10 +20,23 @@ class ModelTypeNew(BaseModel):
     type: Literal[ModelTypeTypes.NEW] = ModelTypeTypes.NEW
 
 ModelType = Union[ModelTypeCheckpoint, ModelTypeNew]
+class ModelInputSpec(BaseModel):
+    all_cameras: bool
+    qpos_state: bool
+    qvel_state: bool
+    xpos_state: bool
+    xquat_state: bool
+    qdof_state: bool
+    contact_pairs: bool
+    """
+    Only valid in reward_function.input_spec; forbidden in control/value model specs.
+    """
+
 class MLPModel(BaseModel):
     model_type: ModelType
     num_hidden_layers: int
     hidden_layer_dim: int
+    input_spec: ModelInputSpec
     output_dim: int
     input_dim: int
 
@@ -35,13 +48,6 @@ class Checkpoint(BaseModel):
     model_zip_path: Optional[str] = Field(default=None)
     control_model_mlp: Optional[MLPModel] = Field(default=None)
     value_model_mlp: Optional[MLPModel] = Field(default=None)
-
-class ControlModelInput(BaseModel):
-    all_cameras: bool
-    qpos_state: bool
-    qvel_state: bool
-    xpos_state: bool
-    xquat_state: bool
 
 class FlowNoiseConfig(BaseModel):
     noise_model: MLPModel
@@ -60,6 +66,7 @@ class RewardLanguage(str, Enum):
 class RewardSystem(BaseModel):
     language: RewardLanguage
     reward_function_code: str
+    input_spec: ModelInputSpec
 
 class ControlModelTypes(str, Enum):
     MLP = "MLP"
@@ -247,7 +254,7 @@ class ControlPolicyOutputMode(str, Enum):
     TARGETTORQUES = "TargetTorques"
 class VLAModel(BaseModel):
     model_type: ModelType
-    input: ControlModelInput
+    input_spec: ModelInputSpec
     output: ControlPolicyOutputMode
 
 class CheckpointTypeTypes(str, Enum):

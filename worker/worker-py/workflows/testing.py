@@ -18,8 +18,8 @@ from commondef.remoteworkermessages import (
     TrainingAccelerationMode,
 )
 from commondef.testing import TestJobController
-from ppo_trainer import TestingModel
-from simulator import MjxSimulator, Simulator
+from workflows.ppo_trainer import TestingModel
+from simulator.simulator import MjxSimulator, Simulator
 
 
 def _default_input_spec() -> ControlModelInput:

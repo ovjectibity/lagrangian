@@ -15,9 +15,9 @@ import jax.numpy as jnp
 from jax import random
 
 from commondef.training import ControlPolicyOutputMode, MLPModel, VLAModel
-from ppo_model import MLPPPOModel
-from ppo_trainer import PPOTrainedModel, TestingModel, compute_flow_noise_log_prob
-from pretrained.pi0_jax import Pi0Jax
+from models.mlp import MLPModel
+from workflows.ppo_trainer import PPOTrainedModel, TestingModel, compute_flow_noise_log_prob
+from models.pi0.pi0_jax import Pi0Jax
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ Params = Any
 
 
 def _init_mlp(mlp_spec: MLPModel, seed: int = 42) -> tuple[Callable, Params]:
-    policy_fn, params = MLPPPOModel.init_policy(
+    policy_fn, params = MLPModel.init_policy(
         input_dimension=mlp_spec.input_dim,
         output_dimension=mlp_spec.output_dim,
         hidden_layer_dimension=mlp_spec.hidden_layer_dim,

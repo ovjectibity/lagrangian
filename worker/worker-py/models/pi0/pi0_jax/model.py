@@ -17,9 +17,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from pretrained.pi0_jax import weights as wt
-from pretrained.pi0_jax.siglip import siglip_forward, _rename_params as _siglip_rename
-from pretrained.pi0_jax.gemma import (
+from . import weights as wt
+from .siglip import siglip_forward, _rename_params as _siglip_rename
+from .gemma import (
     RMSNorm,
     GemmaLayer,
     _rope_freqs,

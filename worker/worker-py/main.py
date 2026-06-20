@@ -23,7 +23,6 @@ from pydantic import ValidationError
 from websockets.exceptions import ConnectionClosed
 
 from commondef.remoteworkermessages import (
-    ControlModelMLP,
     ControlModelVLA,
     ControlOutputModeFlowMatchingAction,
     PPOTrainingMethod,
@@ -34,11 +33,11 @@ from commondef.remoteworkermessages import (
     StopTrainingMessage,
     TrainingAccelerationMode,
 )
-from ppo_model import MLPPPOModel
-from ppo_trainer import PPOTrainedModel, TestingModel
-from simulator import MjxSimulator, MujocoSimulator, Simulator
-from testing import CallbackTestingTaskSink, TestingWorkflow
-from training import CallbackTrainingTaskSink, TrainingWorkflow
+from models.mlp import MLPModel
+from workflows.ppo_trainer import PPOTrainedModel, TestingModel
+from simulator.simulator import MjxSimulator, MujocoSimulator, Simulator
+from workflows.testing import CallbackTestingTaskSink, TestingWorkflow
+from workflows.training import CallbackTrainingTaskSink, TrainingWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +111,7 @@ def _build_model_for_training(
 
     control_mlp = params.control_model.content
     value_mlp = params.value_model.content
-    policy, policy_store = MLPPPOModel.init_policy(
+    policy, policy_store = MLPModel.init_policy(
         input_dimension=int(control_mlp.input_dim),
         output_dimension=int(control_mlp.output_dim),
         hidden_layer_dimension=int(control_mlp.hidden_layer_dim),
@@ -120,7 +119,7 @@ def _build_model_for_training(
         add_softmax=False,
         control_policy=True,
     )
-    value, value_store = MLPPPOModel.init_policy(
+    value, value_store = MLPModel.init_policy(
         input_dimension=int(value_mlp.input_dim),
         output_dimension=int(value_mlp.output_dim),
         hidden_layer_dimension=int(value_mlp.hidden_layer_dim),
@@ -128,7 +127,7 @@ def _build_model_for_training(
         add_softmax=False,
         control_policy=False,
     )
-    return MLPPPOModel.init_ppo_trained_model(
+    return MLPModel.init_ppo_trained_model(
         policy=policy,
         val_estimator=value,
         pol_store=policy_store,
@@ -147,7 +146,7 @@ def _build_model_for_testing(
         return Pi0Model(control_model.content, noise_mlp_spec=None)
 
     control_mlp = control_model.content
-    policy, policy_store = MLPPPOModel.init_policy(
+    policy, policy_store = MLPModel.init_policy(
         input_dimension=int(control_mlp.input_dim),
         output_dimension=int(control_mlp.output_dim),
         hidden_layer_dimension=int(control_mlp.hidden_layer_dim),
@@ -155,7 +154,7 @@ def _build_model_for_testing(
         add_softmax=False,
         control_policy=True,
     )
-    value, value_store = MLPPPOModel.init_policy(
+    value, value_store = MLPModel.init_policy(
         input_dimension=int(control_mlp.input_dim),
         output_dimension=1,
         hidden_layer_dimension=int(control_mlp.hidden_layer_dim),
@@ -163,7 +162,7 @@ def _build_model_for_testing(
         add_softmax=False,
         control_policy=False,
     )
-    return MLPPPOModel.init_ppo_trained_model(
+    return MLPModel.init_ppo_trained_model(
         policy=policy,
         val_estimator=value,
         pol_store=policy_store,

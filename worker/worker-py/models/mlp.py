@@ -6,13 +6,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ppo_trainer import ControlPolicyOutputMode, PPOTrainedModel, TestingModel
+from workflows.ppo_trainer import ControlPolicyOutputMode, PPOTrainedModel, TestingModel
 
 Array = jax.Array
 Params = Any
 
 
-class MLPPPOModel(PPOTrainedModel, TestingModel):
+class MLPModel(PPOTrainedModel, TestingModel):
     def __init__(
         self,
         policy: Callable[[Params, Array], Array],
@@ -103,7 +103,7 @@ class MLPPPOModel(PPOTrainedModel, TestingModel):
         val_estimator_store: Params,
         nbody: int = 0,
         reward_fn: Callable | None = None,
-    ) -> MLPPPOModel:
+    ) -> MLPModel:
         return cls(
             policy=policy,
             value=val_estimator,

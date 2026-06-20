@@ -130,6 +130,9 @@
           "type": "integer",
           "format": "int32"
         },
+        "input_spec": {
+          "$ref": "#/definitions/ModelInputSpec"
+        },
         "output_dim": {
           "type": "integer",
           "format": "int32"
@@ -143,6 +146,7 @@
         "model_type",
         "num_hidden_layers",
         "hidden_layer_dim",
+        "input_spec",
         "output_dim",
         "input_dim"
       ]
@@ -221,26 +225,7 @@
         "Pi0"
       ]
     },
-    "VLAModel": {
-      "type": "object",
-      "properties": {
-        "model_type": {
-          "$ref": "#/definitions/ModelType"
-        },
-        "input": {
-          "$ref": "#/definitions/ControlModelInput"
-        },
-        "output": {
-          "$ref": "#/definitions/ControlPolicyOutputMode"
-        }
-      },
-      "required": [
-        "model_type",
-        "input",
-        "output"
-      ]
-    },
-    "ControlModelInput": {
+    "ModelInputSpec": {
       "type": "object",
       "properties": {
         "all_cameras": {
@@ -257,6 +242,13 @@
         },
         "xquat_state": {
           "type": "boolean"
+        },
+        "qdof_state": {
+          "type": "boolean"
+        },
+        "contact_pairs": {
+          "description": "Only valid in reward_function.input_spec; forbidden in control/value model specs.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -264,7 +256,28 @@
         "qpos_state",
         "qvel_state",
         "xpos_state",
-        "xquat_state"
+        "xquat_state",
+        "qdof_state",
+        "contact_pairs"
+      ]
+    },
+    "VLAModel": {
+      "type": "object",
+      "properties": {
+        "model_type": {
+          "$ref": "#/definitions/ModelType"
+        },
+        "input_spec": {
+          "$ref": "#/definitions/ModelInputSpec"
+        },
+        "output": {
+          "$ref": "#/definitions/ControlPolicyOutputMode"
+        }
+      },
+      "required": [
+        "model_type",
+        "input_spec",
+        "output"
       ]
     },
     "ControlPolicyOutputMode": {

@@ -14,7 +14,7 @@ import jax.numpy as jnp
 from jax import random
 
 from commondef.training import ControlPolicyOutputMode
-from simulator import Simulator
+from simulator.simulator import Simulator
 
 
 Array = jax.Array
