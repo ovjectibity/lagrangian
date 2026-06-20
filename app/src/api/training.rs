@@ -130,10 +130,10 @@ async fn run_training_relay(
 
 // ── Checkpoint helpers ────────────────────────
 
-/// Resolves the serialised FFN JSON for a model
+/// Resolves the serialised MLP JSON for a model
 /// parameter (used when creating checkpoint DB
 /// records on the remote training path).
-async fn resolve_ffn_json<M: serde::Serialize>(
+async fn resolve_mlp_json<M: serde::Serialize>(
     model: Option<M>,
     src_id: Option<&str>,
 ) -> Option<String>
@@ -167,7 +167,7 @@ fn validate_model_types(
         controller.training_method;
 
     let control_spec = match &p.control_model {
-        ControlModel::FFN(m) => &m.input_spec,
+        ControlModel::MLP(m) => &m.input_spec,
         ControlModel::VLA(m) => &m.input_spec,
     };
     if control_spec.contact_pairs {
@@ -175,7 +175,7 @@ fn validate_model_types(
             "contact_pairs is not allowed in control model input_spec",
         );
     }
-    let ValueModel::FFN(ref vm) = p.value_model;
+    let ValueModel::MLP(ref vm) = p.value_model;
     if vm.input_spec.contact_pairs {
         return Err(
             "contact_pairs is not allowed in value model input_spec",
@@ -183,7 +183,7 @@ fn validate_model_types(
     }
 
     match &p.control_model {
-        ControlModel::FFN(m) => {
+        ControlModel::MLP(m) => {
             if matches!(
                 &m.model_type,
                 ModelType::Checkpoint(
@@ -192,7 +192,7 @@ fn validate_model_types(
             ) {
                 return Err(
                     "Pretrained model type is not \
-                     allowed for FFN control models",
+                     allowed for MLP control models",
                 );
             }
         }
@@ -626,7 +626,7 @@ async fn build_ctrl_val_json(
         controller.training_method;
 
     let ctrl = match &p.control_model {
-        ControlModel::FFN(m) => match &m.model_type {
+        ControlModel::MLP(m) => match &m.model_type {
             ModelType::Checkpoint(
                 CheckpointType::Checkpoint(id),
             ) => crate::postgres_orm()
@@ -647,7 +647,7 @@ async fn build_ctrl_val_json(
     };
 
     let val = {
-        let ValueModel::FFN(ref m) = p.value_model;
+        let ValueModel::MLP(ref m) = p.value_model;
         match &m.model_type {
             ModelType::Checkpoint(
                 CheckpointType::Checkpoint(id),
@@ -733,7 +733,7 @@ async fn spawn_remote_training_task(
         let TM::PPO(ref ppo) =
             controller.training_method;
 
-        if let CM::FFN(ref m) = ppo.control_model {
+        if let CM::MLP(ref m) = ppo.control_model {
             if let MT::Checkpoint(
                 CT::Checkpoint(ref src_id),
             ) = m.model_type
@@ -758,10 +758,10 @@ async fn spawn_remote_training_task(
                                     Some(BASE64
                                         .encode(&bytes)),
                                 model_zip_path: None,
-                                control_model_ffn:
+                                control_model_mlp:
                                     r.control_model_params
                                     .clone(),
-                                value_model_ffn:
+                                value_model_mlp:
                                     r.value_model_params
                                     .clone(),
                             },
@@ -771,7 +771,7 @@ async fn spawn_remote_training_task(
             }
         }
 
-        let VM::FFN(ref vm) = ppo.value_model;
+        let VM::MLP(ref vm) = ppo.value_model;
         if let MT::Checkpoint(
             CT::Checkpoint(ref src_id),
         ) = vm.model_type
@@ -797,10 +797,10 @@ async fn spawn_remote_training_task(
                                     Some(BASE64
                                         .encode(&bytes)),
                                 model_zip_path: None,
-                                control_model_ffn:
+                                control_model_mlp:
                                     r.control_model_params
                                     .clone(),
-                                value_model_ffn:
+                                value_model_mlp:
                                     r.value_model_params
                                     .clone(),
                             },

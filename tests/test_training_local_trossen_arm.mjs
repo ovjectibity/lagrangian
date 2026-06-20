@@ -91,7 +91,7 @@ function buildTrainingGraph(modelId) {
             reward_function_code: RUST_REWARD,
           },
           control_model: {
-            type: "FFN",
+            type: "MLP",
             content: {
               num_hidden_layers: 2,
               hidden_layer_dim: 64,
@@ -100,7 +100,7 @@ function buildTrainingGraph(modelId) {
             },
           },
           value_model: {
-            type: "FFN",
+            type: "MLP",
             content: {
               num_hidden_layers: 2,
               hidden_layer_dim: 64,

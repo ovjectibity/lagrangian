@@ -2,7 +2,7 @@
 
 ## Context
 
-Adding RL-based fine-tuning support for pre-trained VLAs (Pi-0 initially) to the Lagrangian platform. The user defines a training graph that points at a pre-trained VLA checkpoint instead of a fresh FFN policy. The remote worker loads the Pi-0 model from a bundled HuggingFace checkpoint, renders camera inputs, runs PPO using the FlowNoise log-prob method (Pi-RL paper §5), and updates only the action head and noise model — the VLM backbone stays frozen.
+Adding RL-based fine-tuning support for pre-trained VLAs (Pi-0 initially) to the Lagrangian platform. The user defines a training graph that points at a pre-trained VLA checkpoint instead of a fresh MLP policy. The remote worker loads the Pi-0 model from a bundled HuggingFace checkpoint, renders camera inputs, runs PPO using the FlowNoise log-prob method (Pi-RL paper §5), and updates only the action head and noise model — the VLM backbone stays frozen.
 
 ---
 
@@ -57,11 +57,11 @@ PretrainedVLA::Pi0(VLAModel)
 ```
 
 ### 1e. Extend `ControlModel` enum
-Add `PretrainedVLA(PretrainedVLA)` variant alongside existing `FFN` and `Checkpoint`.
+Add `PretrainedVLA(PretrainedVLA)` variant alongside existing `MLP` and `Checkpoint`.
 
 ### 1f. Add `FlowMatchingAction` enum
 ```
-FlowMatchingAction::FlowNoise { noise_model: FFNModel }
+FlowMatchingAction::FlowNoise { noise_model: MLPModel }
 ```
 
 ### 1g. Add `ControlOutputMode` enum
@@ -112,7 +112,7 @@ Each step from A_τ → A_{τ+δ} is modelled as:
 A_{τ+δ} | A_τ, obs  ~  N( Euler_update(A_τ, τ),  diag(σ_φ(A_τ, obs)²) )
 ```
 - `Euler_update` is the deterministic ODE step from Pi-0's pretrained flow head (fixed).
-- `σ_φ` is the **noise model** (our learnable FFN) outputting per-dimension standard deviations.
+- `σ_φ` is the **noise model** (our learnable MLP) outputting per-dimension standard deviations.
 
 Formula 5 sums these over all K steps:
 ```
@@ -130,7 +130,7 @@ The existing ABC already has `get_control_policy_output_mode` and `get_pure_poli
 
 Create a new directory `worker/trainer/trainer-py/pretrained/` with `__init__.py` and `pi0.py`. Add `Pi0Model` class implementing `PPOTrainedModel`:
 
-- **Constructor**: reads checkpoint path from `os.environ.get("PI0_CHECKPOINT_DIR", "/opt/lagrangian/pi0")`, loads Pi-0 weights, initialises the noise model (FFN with architecture from `FFNModel` spec), sets up optimisers for action head + noise model only (backbone parameters excluded from optimiser).
+- **Constructor**: reads checkpoint path from `os.environ.get("PI0_CHECKPOINT_DIR", "/opt/lagrangian/pi0")`, loads Pi-0 weights, initialises the noise model (MLP with architecture from `MLPModel` spec), sets up optimisers for action head + noise model only (backbone parameters excluded from optimiser).
 - **`get_policy_output(state)`**: runs Pi-0 flow matching inference + FlowNoise denoising to produce the action.
 - **`get_control_policy_output_mode()`**: returns `ControlPolicyOutputMode.TargetPositions`.
 - **`get_pure_policy_fn()`**: returns a JAX-traceable function over action-head + noise-model params only (backbone params are constants, not traced).
@@ -162,9 +162,9 @@ After typeshare regeneration, the Python commondef will expose `ControlModelPret
 elif isinstance(params.control_model, ControlModelPretrainedVLA):
     # pi0 is the only variant; construct Pi0Model
     vla_spec = params.control_model.content  # Pi0(VLAModel)
-    noise_ffn = params.control_output_mode.content.noise_model  # FlowMatchingAction(FlowNoise)
+    noise_mlp = params.control_output_mode.content.noise_model  # FlowMatchingAction(FlowNoise)
     from pretrained.pi0 import Pi0Model
-    return Pi0Model(vla_spec, noise_ffn)
+    return Pi0Model(vla_spec, noise_mlp)
 ```
 
 ### 7b. Skip checkpointing for Pi-0 workloads

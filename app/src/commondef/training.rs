@@ -59,7 +59,7 @@ pub struct VLAModel {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[typeshare]
-pub struct FFNModel {
+pub struct MLPModel {
     pub model_type: ModelType,
     pub num_hidden_layers: i32,
     pub hidden_layer_dim: i32,
@@ -72,7 +72,7 @@ pub struct FFNModel {
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ControlModel {
-    FFN(FFNModel),
+    MLP(MLPModel),
     VLA(VLAModel)
 }
 
@@ -80,7 +80,7 @@ pub enum ControlModel {
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ValueModel {
-    FFN(FFNModel)
+    MLP(MLPModel)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
@@ -100,7 +100,7 @@ pub enum FlowMatchingAction {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[typeshare]
 pub struct FlowNoiseConfig {
-    pub noise_model: FFNModel,
+    pub noise_model: MLPModel,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
@@ -255,6 +255,6 @@ pub struct Checkpoint {
     pub id: Option<String>,
     pub model_zip_base64: Option<String>,
     pub model_zip_path: Option<String>,
-    pub control_model_ffn: Option<FFNModel>,
-    pub value_model_ffn: Option<FFNModel>,
+    pub control_model_mlp: Option<MLPModel>,
+    pub value_model_mlp: Option<MLPModel>,
 }

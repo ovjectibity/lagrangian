@@ -7,7 +7,7 @@ use crate::commondef::training::{
 use crate::plugin::mj_simulator::MjSimulator;
 use crate::plugin::ppo_trainer::PPOTrainedModel;
 use crate::plugin::{ControlPolicyModel, Simulator};
-use crate::usr::arm::FFNModel;
+use crate::usr::arm::MLPModel;
 
 pub mod testing;
 pub mod training;
@@ -21,7 +21,7 @@ pub enum WorkflowMode {
 
 pub struct WorkflowRuntime {
     simulator: Arc<Mutex<MjSimulator>>,
-    model: Arc<Mutex<FFNModel>>,
+    model: Arc<Mutex<MLPModel>>,
     mode: WorkflowMode,
 }
 
@@ -34,10 +34,10 @@ impl WorkflowRuntime {
             return Err("VLA control model is not supported for local training".into());
         }
         let control_params = match &params.control_model {
-            ControlModel::FFN(m) => {
+            ControlModel::MLP(m) => {
                 if matches!(&m.model_type, ModelType::Checkpoint(_)) {
                     return Err(
-                        "Checkpoint-based FFN control model is not supported for local training"
+                        "Checkpoint-based MLP control model is not supported for local training"
                             .into(),
                     );
                 }
@@ -46,10 +46,10 @@ impl WorkflowRuntime {
             _ => unreachable!(),
         };
         let value_params = match &params.value_model {
-            ValueModel::FFN(m) => {
+            ValueModel::MLP(m) => {
                 if matches!(&m.model_type, ModelType::Checkpoint(_)) {
                     return Err(
-                        "Checkpoint-based FFN value model is not supported for local training"
+                        "Checkpoint-based MLP value model is not supported for local training"
                             .into(),
                     );
                 }
@@ -57,7 +57,7 @@ impl WorkflowRuntime {
             }
         };
         let simulator = MjSimulator::new(model_path)?;
-        let (policy, policy_store) = FFNModel::init_policy(
+        let (policy, policy_store) = MLPModel::init_policy(
             control_params.input_dim as i64,
             control_params.output_dim as i64,
             control_params.hidden_layer_dim as i64,
@@ -65,7 +65,7 @@ impl WorkflowRuntime {
             false,
             true,
         );
-        let (value, value_store) = FFNModel::init_policy(
+        let (value, value_store) = MLPModel::init_policy(
             value_params.input_dim as i64,
             value_params.output_dim as i64,
             value_params.hidden_layer_dim as i64,
@@ -74,7 +74,7 @@ impl WorkflowRuntime {
             false,
         );
         let mut model =
-            FFNModel::init_ppo_trained_model(policy, value, policy_store, value_store);
+            MLPModel::init_ppo_trained_model(policy, value, policy_store, value_store);
         model.set_input_specs(
             control_params.input_spec.clone(),
             value_params.input_spec.clone(),
@@ -93,7 +93,7 @@ impl WorkflowRuntime {
     ) -> Result<Self, String> {
         let control_params =
             match &test_graph.test_job_controller.test_params.control_model {
-                ControlModel::FFN(m) => m,
+                ControlModel::MLP(m) => m,
                 ControlModel::VLA(_) => {
                     return Err(
                         "VLA control model is not supported for local testing".into(),
@@ -101,7 +101,7 @@ impl WorkflowRuntime {
                 }
             };
         let simulator = MjSimulator::new(model_path)?;
-        let (policy, policy_store) = FFNModel::init_policy(
+        let (policy, policy_store) = MLPModel::init_policy(
             control_params.input_dim as i64,
             control_params.output_dim as i64,
             control_params.hidden_layer_dim as i64,
@@ -109,9 +109,9 @@ impl WorkflowRuntime {
             false,
             true,
         );
-        let (value, value_store) = FFNModel::init_policy(1, 1, 1, 1, false, false);
+        let (value, value_store) = MLPModel::init_policy(1, 1, 1, 1, false, false);
         let mut model =
-            FFNModel::init_ppo_trained_model(policy, value, policy_store, value_store);
+            MLPModel::init_ppo_trained_model(policy, value, policy_store, value_store);
         model.set_input_specs(
             control_params.input_spec.clone(),
             ModelInputSpec::default(),

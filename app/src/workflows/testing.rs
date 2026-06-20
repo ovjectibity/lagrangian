@@ -65,7 +65,7 @@ impl TestingWorkflow {
             let num_timesteps = self.graph.test_job_controller.test_params.num_timesteps;
             let control_input_spec = match &self.graph.test_job_controller.test_params.control_model {
                 ControlModel::VLA(vla) => vla.input_spec.clone(),
-                ControlModel::FFN(ffn) => ffn.input_spec.clone(),
+                ControlModel::MLP(mlp) => mlp.input_spec.clone(),
             };
             println!("Running test for {:?} timesteps", num_timesteps);
             for i in 0..num_timesteps {

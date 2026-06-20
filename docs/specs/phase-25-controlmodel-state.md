@@ -39,7 +39,7 @@ For vx300s this gives 7 dims; for Franka 8 dims. VLA models expect generalised c
 not Cartesian — `qdof_state` is the right flag for Pi-0.
 
 **Model-owned assembly.** Each model class implements `assemble_state(parts)` with its own
-canonical key order. Pi-0 uses `cameras → qdof → qpos → qvel → xpos → xquat`; FFN models
+canonical key order. Pi-0 uses `cameras → qdof → qpos → qvel → xpos → xquat`; MLP models
 concatenate in dict-insertion order.
 
 **Warp camera rendering.** `mujoco-warp` (NVIDIA Warp backend for MuJoCo) enables `mjx.render()`
@@ -172,7 +172,7 @@ Add `assemble_state` abstract method:
 def assemble_state(self, parts: dict[str, Array]) -> Array: ...
 ```
 
-`FFNPPOModel` (`ppo_model.py`):
+`MLPPPOModel` (`ppo_model.py`):
 ```python
 def assemble_state(self, parts):
     return jnp.concatenate(list(parts.values()))

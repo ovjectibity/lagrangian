@@ -59,7 +59,7 @@ pub async fn start_test(
     let test_graph = body.into_inner().test_graph;
 
     let control_spec = match &test_graph.test_job_controller.test_params.control_model {
-        crate::commondef::training::ControlModel::FFN(m) => &m.input_spec,
+        crate::commondef::training::ControlModel::MLP(m) => &m.input_spec,
         crate::commondef::training::ControlModel::VLA(m) => &m.input_spec,
     };
     if control_spec.contact_pairs {

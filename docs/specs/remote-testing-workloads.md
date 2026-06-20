@@ -365,7 +365,7 @@ class TestingModel(ABC):
     def get_test_params(self) -> Params: ...
 ```
 
-`FFNPPOModel` (in `ppo_model.py`) and `Pi0Model` (in `pretrained/pi0.py`) both inherit
+`MLPPPOModel` (in `ppo_model.py`) and `Pi0Model` (in `pretrained/pi0.py`) both inherit
 `TestingModel` in addition to `PPOTrainedModel`. The three methods delegate to already-existing
 methods (`get_policy_output`, `get_pure_policy_fn`, `get_policy_store`) so no new logic.
 
@@ -408,8 +408,8 @@ for _ in range(num_timesteps):
 ```
 
 **Model construction** (`_build_model_for_testing` in `main.py`):
-- `ControlModelFFN` → `FFNPPOModel` (1-output dummy value head, `reward_fn=None`)
-- `ControlModelVLA` → `Pi0Model(vla_spec, noise_ffn_spec=None)` — inference-only, no FlowNoise
+- `ControlModelMLP` → `MLPPPOModel` (1-output dummy value head, `reward_fn=None`)
+- `ControlModelVLA` → `Pi0Model(vla_spec, noise_mlp_spec=None)` — inference-only, no FlowNoise
 
 ### `main.py` — START/STOP TESTING handlers
 
@@ -477,14 +477,14 @@ Update `start()` method signature to accept `TestGraph` instead of `SimulationPa
 Uses the SDK (follow pattern of `tests/test_training_remote_trossen_arm.py`):
 
 ```python
-# Construct TestGraph with RemoteEC2 compute instance and FFN control model
+# Construct TestGraph with RemoteEC2 compute instance and MLP control model
 # Call client.simulations.start(test_graph)  → returns { id }
 # Stream updates via client.simulations.stream_updates(id)
 # Assert at least N frames received with non-empty xpos/xquat
 # Call client.simulations.stop(id)
 ```
 
-Use an FFN control model for the initial test (not VLA — VLA not yet supported for remote
+Use an MLP control model for the initial test (not VLA — VLA not yet supported for remote
 test). The simulation model should reference an already-saved model from `/models`.
 
 ---

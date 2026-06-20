@@ -2,15 +2,15 @@
  * Local (AllOnServer) testing workload tests using the TypeScript SDK.
  *
  * Runs two back-to-back test cases:
- *   1. Local testing | Vanilla FFN (random weights)
- *   2. Local testing | FFN from checkpoint
+ *   1. Local testing | Vanilla MLP (random weights)
+ *   2. Local testing | MLP from checkpoint
  *
  * Usage:
- *   MODEL_PATH=assets/trossen_vx300s/vx300s.xml node tests/test_testing_local_ffn_trossen_arm.mjs
- *   BASE_URL=http://localhost:8000/api MODEL_PATH=... CHECKPOINT_ID=<id> node tests/test_testing_local_ffn_trossen_arm.mjs
+ *   MODEL_PATH=assets/trossen_vx300s/vx300s.xml node tests/test_testing_local_mlp_trossen_arm.mjs
+ *   BASE_URL=http://localhost:8000/api MODEL_PATH=... CHECKPOINT_ID=<id> node tests/test_testing_local_mlp_trossen_arm.mjs
  *
  * Requires: node >= 18, sdk built (cd sdk && npm run build)
- * Set CHECKPOINT_ID to use a specific checkpoint; otherwise the latest FFN checkpoint is fetched.
+ * Set CHECKPOINT_ID to use a specific checkpoint; otherwise the latest MLP checkpoint is fetched.
  */
 
 import { execSync } from "node:child_process";
@@ -23,8 +23,8 @@ const BASE_URL      = process.env.BASE_URL      ?? "http://localhost:8000/api";
 const MODEL_PATH    = process.env.MODEL_PATH     ?? "";
 const CHECKPOINT_ID = process.env.CHECKPOINT_ID  ?? "";
 
-const FFN_INPUT_DIM  = 55;
-const FFN_OUTPUT_DIM = 14;
+const MLP_INPUT_DIM  = 55;
+const MLP_OUTPUT_DIM = 14;
 const NUM_TIMESTEPS  = 50;
 const MAX_FRAMES     = 5;
 
@@ -49,16 +49,16 @@ async function uploadModel(client) {
   }
 }
 
-async function fetchFfnCheckpoint(client) {
+async function fetchMlpCheckpoint(client) {
   if (CHECKPOINT_ID) {
     const ckpt = await client.checkpoints.get(CHECKPOINT_ID);
     console.log(`  checkpoint_id=${ckpt.id}  run=${ckpt.training_run_id}`);
     return ckpt;
   }
   const all = await client.checkpoints.list();
-  const ffn = all.filter((c) => c.control_model_params);
-  if (!ffn.length) throw new Error("No FFN checkpoints found — run a training job first or set CHECKPOINT_ID");
-  const ckpt = ffn[ffn.length - 1];
+  const mlp = all.filter((c) => c.control_model_params);
+  if (!mlp.length) throw new Error("No MLP checkpoints found — run a training job first or set CHECKPOINT_ID");
+  const ckpt = mlp[mlp.length - 1];
   console.log(`  checkpoint_id=${ckpt.id}  run=${ckpt.training_run_id}`);
   return ckpt;
 }
@@ -100,30 +100,30 @@ async function runTest(client, testGraph, label) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-async function testVanillaFfn(client, modelId) {
+async function testVanillaMlp(client, modelId) {
   const controlModel = {
-    type: "FFN",
+    type: "MLP",
     content: {
       model_type: { type: "New" },
       num_hidden_layers: 2,
       hidden_layer_dim: 64,
-      output_dim: FFN_OUTPUT_DIM,
-      input_dim: FFN_INPUT_DIM,
+      output_dim: MLP_OUTPUT_DIM,
+      input_dim: MLP_INPUT_DIM,
     },
   };
-  await runTest(client, buildTestGraph(modelId, controlModel), "vanilla-ffn");
+  await runTest(client, buildTestGraph(modelId, controlModel), "vanilla-mlp");
 }
 
-async function testCheckpointFfn(client, modelId) {
-  const ckpt = await fetchFfnCheckpoint(client);
+async function testCheckpointMlp(client, modelId) {
+  const ckpt = await fetchMlpCheckpoint(client);
   const params = ckpt.control_model_params ?? {
     num_hidden_layers: 2,
     hidden_layer_dim: 64,
-    output_dim: FFN_OUTPUT_DIM,
-    input_dim: FFN_INPUT_DIM,
+    output_dim: MLP_OUTPUT_DIM,
+    input_dim: MLP_INPUT_DIM,
   };
   const controlModel = {
-    type: "FFN",
+    type: "MLP",
     content: {
       ...params,
       model_type: {
@@ -132,7 +132,7 @@ async function testCheckpointFfn(client, modelId) {
       },
     },
   };
-  await runTest(client, buildTestGraph(modelId, controlModel), "checkpoint-ffn");
+  await runTest(client, buildTestGraph(modelId, controlModel), "checkpoint-mlp");
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -143,11 +143,11 @@ async function main() {
   console.log("=== Uploading model ===");
   const modelId = await uploadModel(client);
 
-  console.log("\n=== Test 1: Local testing | Vanilla FFN (random weights) ===");
-  await testVanillaFfn(client, modelId);
+  console.log("\n=== Test 1: Local testing | Vanilla MLP (random weights) ===");
+  await testVanillaMlp(client, modelId);
 
-  console.log("\n=== Test 2: Local testing | FFN from checkpoint ===");
-  await testCheckpointFfn(client, modelId);
+  console.log("\n=== Test 2: Local testing | MLP from checkpoint ===");
+  await testCheckpointMlp(client, modelId);
 
   console.log("\n=== All tests passed ===");
 }

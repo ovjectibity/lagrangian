@@ -126,7 +126,7 @@ def build_training_graph(model_id: str) -> dict:
                         "reward_function_code": PYTHON_REWARD,
                     },
                     "control_model": {
-                        "type": "FFN",
+                        "type": "MLP",
                         "content": {
                             "num_hidden_layers": 2,
                             "hidden_layer_dim": 64,
@@ -135,7 +135,7 @@ def build_training_graph(model_id: str) -> dict:
                         },
                     },
                     "value_model": {
-                        "type": "FFN",
+                        "type": "MLP",
                         "content": {
                             "num_hidden_layers": 2,
                             "hidden_layer_dim": 64,
@@ -174,7 +174,7 @@ def main() -> None:
     print("=== Creating experiment ===")
     exp_id = create_experiment()
 
-    print("\n=== Remote training | FFN control model | Python reward ===")
+    print("\n=== Remote training | MLP control model | Python reward ===")
     run_id = create_run(exp_id)
     graph = build_training_graph(model_id)
     r = requests.post(

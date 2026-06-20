@@ -12,7 +12,7 @@ Array = jax.Array
 Params = Any
 
 
-class FFNPPOModel(PPOTrainedModel, TestingModel):
+class MLPPPOModel(PPOTrainedModel, TestingModel):
     def __init__(
         self,
         policy: Callable[[Params, Array], Array],
@@ -103,7 +103,7 @@ class FFNPPOModel(PPOTrainedModel, TestingModel):
         val_estimator_store: Params,
         nbody: int = 0,
         reward_fn: Callable | None = None,
-    ) -> FFNPPOModel:
+    ) -> MLPPPOModel:
         return cls(
             policy=policy,
             value=val_estimator,
@@ -121,7 +121,7 @@ class FFNPPOModel(PPOTrainedModel, TestingModel):
         contact_pairs: list[tuple[int, int]] | None,
     ) -> float:
         if self._reward_fn is None:
-            raise RuntimeError("No reward function injected into FFNPPOModel")
+            raise RuntimeError("No reward function injected into MLPPPOModel")
         contact_matrix = np.zeros((self.nbody, self.nbody), dtype=np.float32)
         if contact_pairs is not None:
             for a, b in contact_pairs:
@@ -166,7 +166,7 @@ class FFNPPOModel(PPOTrainedModel, TestingModel):
 
     def get_pure_reward_fn(self) -> Callable[[Array, Array, Array, Array], Array]:
         if self._reward_fn is None:
-            raise RuntimeError("No reward function injected into FFNPPOModel")
+            raise RuntimeError("No reward function injected into MLPPPOModel")
         return self._reward_fn
 
     # TestingModel interface

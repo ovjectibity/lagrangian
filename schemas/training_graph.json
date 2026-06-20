@@ -173,10 +173,10 @@
           "properties": {
             "type": {
               "type": "string",
-              "const": "FFN"
+              "const": "MLP"
             },
             "content": {
-              "$ref": "#/definitions/FFNModel"
+              "$ref": "#/definitions/MLPModel"
             }
           },
           "required": [
@@ -202,7 +202,7 @@
         }
       ]
     },
-    "FFNModel": {
+    "MLPModel": {
       "type": "object",
       "properties": {
         "model_type": {
@@ -368,10 +368,10 @@
           "properties": {
             "type": {
               "type": "string",
-              "const": "FFN"
+              "const": "MLP"
             },
             "content": {
-              "$ref": "#/definitions/FFNModel"
+              "$ref": "#/definitions/MLPModel"
             }
           },
           "required": [
@@ -437,7 +437,7 @@
       "type": "object",
       "properties": {
         "noise_model": {
-          "$ref": "#/definitions/FFNModel"
+          "$ref": "#/definitions/MLPModel"
         }
       },
       "required": [

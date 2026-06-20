@@ -34,7 +34,7 @@
 4. Using prior checkpoints in a new training run: 
     a. Users should be able to use prior saved checkpoints in subsequent runs 
     b. The way to provide this capability will be via the training graph 
-    c. In the control model & value model node, in the type param, apart from FFN another param to be added as `Checkpoint` 
+    c. In the control model & value model node, in the type param, apart from MLP another param to be added as `Checkpoint` 
     d. On the user selecting this type, all the other fields should freeze (num_hidden_layers, num_layers, output_dim, input_dim) & an additional field should show up saying `Checkpoint ID` which basically will be a dropdown of all available checkpoint IDs. 
         i. Ensure that the checkpoint IDs listed in the menu bar segregate IDs on the basis the training experiment & run hierarchy with ID labels for both these attributes above every set of checkpoint IDs belonging to them 
         ii. The other fields should automatically populate (but disabled) on the basis of the checkpoint which is loaded. 

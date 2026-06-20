@@ -38,7 +38,7 @@ export type ModelType =
 	| { type: "Checkpoint", content: CheckpointType }
 	| { type: "New", content?: undefined };
 
-export interface FFNModel {
+export interface MLPModel {
 	model_type: ModelType;
 	num_hidden_layers: number;
 	hidden_layer_dim: number;
@@ -50,8 +50,8 @@ export interface Checkpoint {
 	id?: string;
 	model_zip_base64?: string;
 	model_zip_path?: string;
-	control_model_ffn?: FFNModel;
-	value_model_ffn?: FFNModel;
+	control_model_mlp?: MLPModel;
+	value_model_mlp?: MLPModel;
 }
 
 export interface CheckpointReference {
@@ -61,8 +61,8 @@ export interface CheckpointReference {
 	training_experiment_id: string;
 	training_run_id: string;
 	checkpoint_type: string;
-	control_model_params?: FFNModel;
-	value_model_params?: FFNModel;
+	control_model_params?: MLPModel;
+	value_model_params?: MLPModel;
 }
 
 export interface ControlModelInput {
@@ -74,7 +74,7 @@ export interface ControlModelInput {
 }
 
 export interface FlowNoiseConfig {
-	noise_model: FFNModel;
+	noise_model: MLPModel;
 }
 
 export interface LogStream {
@@ -130,11 +130,11 @@ export interface RewardSystem {
 }
 
 export type ControlModel = 
-	| { type: "FFN", content: FFNModel }
+	| { type: "MLP", content: MLPModel }
 	| { type: "VLA", content: VLAModel };
 
 export type ValueModel = 
-	| { type: "FFN", content: FFNModel };
+	| { type: "MLP", content: MLPModel };
 
 export type ControlOutputMode = 
 	| { type: "ActionMean", content?: undefined }

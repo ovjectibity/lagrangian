@@ -5,7 +5,7 @@ use sqlx::FromRow;
 use typeshare::typeshare;
 
 use crate::commondef::{testing::TestGraph, training::{
-    FFNModel, TrainingGraph, TrainingMetrics,
+    MLPModel, TrainingGraph, TrainingMetrics,
 }};
 
 #[typeshare(serialized_as = "string")]
@@ -155,8 +155,8 @@ pub struct CheckpointReference {
     pub training_experiment_id: String,
     pub training_run_id: String,
     pub checkpoint_type: String,
-    pub control_model_params: Option<FFNModel>,
-    pub value_model_params: Option<FFNModel>,
+    pub control_model_params: Option<MLPModel>,
+    pub value_model_params: Option<MLPModel>,
 }
 
 impl<'r, R> sqlx::FromRow<'r, R> for CheckpointReference

@@ -171,7 +171,7 @@ of only `model.safetensors` and `config.json` via `huggingface_hub.hf_hub_downlo
 3. Numerical parity check vs lerobot on a fixed (images, state, task) input before removing lerobot from the image
 4. `jax.jit(forward)` compiles without error
 5. `jax.grad(forward, argnums=0)` returns gradients only for trainable params
-6. `test_training_remote_trossen_arm.py` (FFN path) still passes end-to-end
+6. `test_training_remote_trossen_arm.py` (MLP path) still passes end-to-end
 
 **Future test (tracked separately)**: standalone `Pi0Jax` inference test
 (no PPO, no simulator) once VLA simulation workload exists. Verify

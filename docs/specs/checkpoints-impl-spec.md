@@ -6,22 +6,22 @@
 **Scope decisions:**
 - Base64 encoding retained (no binary WSS this iteration)
 - Checkpoint viewer tab shows active run only
-- FFN params stored as TEXT at save time, deserialized into `Option<FFNModel>` by the ORM (no sqlx json feature; no Cargo.toml changes beyond `base64` which is already present)
+- MLP params stored as TEXT at save time, deserialized into `Option<MLPModel>` by the ORM (no sqlx json feature; no Cargo.toml changes beyond `base64` which is already present)
 - `CheckpointsForRunMessage` is a separate explicit message (sent after `RunLoadedMessage`)
 - Checkpoint loading is remote-job only (AllOnServer excluded)
 - `LastOnly` checkpoint also fires when user stops training mid-run
 
 ---
 
-## Step 1 — Backend: extend `CheckpointReference` with FFN metadata
+## Step 1 — Backend: extend `CheckpointReference` with MLP metadata
 
 **File:** `app/src/commondef/experiments.rs`
 
-Add two strongly-typed optional fields to `CheckpointReference`. Because `sqlx::FromRow` can't auto-map TEXT → struct, we drop the `FromRow` derive from `CheckpointReference` and write a manual `impl sqlx::FromRow` (or use an intermediate raw struct). The public API field types are `Option<FFNModel>` from `crate::commondef::training`.
+Add two strongly-typed optional fields to `CheckpointReference`. Because `sqlx::FromRow` can't auto-map TEXT → struct, we drop the `FromRow` derive from `CheckpointReference` and write a manual `impl sqlx::FromRow` (or use an intermediate raw struct). The public API field types are `Option<MLPModel>` from `crate::commondef::training`.
 
 ```rust
-pub control_model_params: Option<FFNModel>,
-pub value_model_params: Option<FFNModel>,
+pub control_model_params: Option<MLPModel>,
+pub value_model_params: Option<MLPModel>,
 ```
 
 **Approach for manual FromRow:**
@@ -40,7 +40,7 @@ impl From<CheckpointReferenceRow> for CheckpointReference {
 }
 ```
 
-Add `use crate::commondef::training::FFNModel;` import. Also add `#[typeshare]` support — the TS type should have `control_model_params: FFNModel | null`.
+Add `use crate::commondef::training::MLPModel;` import. Also add `#[typeshare]` support — the TS type should have `control_model_params: MLPModel | null`.
 
 ---
 
@@ -139,7 +139,7 @@ Add interfaces and extend `ServerMessage` / `ClientMessage` unions to match. `Ch
 
 **File:** `app/src/main.rs`
 
-Before `tokio::spawn`, lock `ACTIVE_CONTEXT` and clone `exp_id` and `run_id` for capture into the closure. Also capture the `training_graph` for FFN param extraction.
+Before `tokio::spawn`, lock `ACTIVE_CONTEXT` and clone `exp_id` and `run_id` for capture into the closure. Also capture the `training_graph` for MLP param extraction.
 
 Inside the closure replacing `checkpoints: vec![]`:
 For each `Checkpoint { model_zip_base64: Some(b64), .. }` in an update:
@@ -147,8 +147,8 @@ For each `Checkpoint { model_zip_base64: Some(b64), .. }` in an update:
 2. Generate `ckpt_id = Uuid::new_v4().to_string()`.
 3. `std::fs::create_dir_all(format!("checkpoints/{exp_id}/{run_id}"))`, then `std::fs::write(format!("checkpoints/{exp_id}/{run_id}/{ckpt_id}.zip"), &bytes)`.
 4. Extract `control_model_params_json` / `value_model_params_json`:
-   - If `ControlModel::FFN(m)` → `serde_json::to_string(&m).ok()`
-   - If `ControlModel::Checkpoint(src_id)` → fetch `get_checkpoint_ref(src_id)` and re-serialize the returned `FFNModel`.
+   - If `ControlModel::MLP(m)` → `serde_json::to_string(&m).ok()`
+   - If `ControlModel::Checkpoint(src_id)` → fetch `get_checkpoint_ref(src_id)` and re-serialize the returned `MLPModel`.
 5. `postgres_orm().create_checkpoint_ref(&ckpt_id, &path, "ppo", &exp_id, &run_id, ctrl_json.as_deref(), val_json.as_deref()).await`
 6. `postgres_orm().add_checkpoint_ref_to_run(&exp_id, &run_id, &ckpt_id).await`
 7. Push returned `CheckpointReference` into the `clientmessages::TrainingUpdate.checkpoints` vec.
@@ -286,10 +286,10 @@ checkpoint_frequency: freqType === 'LastOnly'
 - Add `checkpoint_id` setting to both nodes: `{ key: "checkpoint_id", label: "Checkpoint ID", value: "", inputType: "select", options: [] }`.
 - Update `buildTrainingWorkflow` to read model type and checkpoint_id:
   ```ts
-  const controlType = getStringSetting('control-model', 'type', 'FFN');
+  const controlType = getStringSetting('control-model', 'type', 'MLP');
   control_model: controlType === 'Checkpoint'
     ? { type: 'Checkpoint', content: getStringSetting('control-model', 'checkpoint_id', '') }
-    : { type: 'FFN', content: buildFfnModel('control-model') },
+    : { type: 'MLP', content: buildMlpModel('control-model') },
   // same for value_model
   ```
 
@@ -333,7 +333,7 @@ A scrollable list of checkpoint cards. Each card shows: Checkpoint ID, Experimen
 - Import `CheckpointsViewer`.
 - Add `runCheckpoints = $state<CheckpointReference[]>([])` and `allCheckpoints = $state<CheckpointReference[]>([])`.
 - Handle `AllCheckpointsMessage` → `allCheckpoints = content.checkpoints`.
-- Handle `CheckpointInfoMessage` → auto-fill FFN fields of the relevant model node (control or value, distinguished by a `nodeId` passed from `onCheckpointSelected`) from `checkpoint.control_model_params` / `checkpoint.value_model_params`; update `checkpoint_id` options.
+- Handle `CheckpointInfoMessage` → auto-fill MLP fields of the relevant model node (control or value, distinguished by a `nodeId` passed from `onCheckpointSelected`) from `checkpoint.control_model_params` / `checkpoint.value_model_params`; update `checkpoint_id` options.
 - Handle `CheckpointsForRunMessage` → `runCheckpoints = content.checkpoints`.
 - On `TrainingUpdatesMessage`: for each update with non-empty `checkpoints`, append to `runCheckpoints`.
 - On `RunLoadedMessage`: reset `runCheckpoints = []` (server sends `CheckpointsForRunMessage` immediately after).
@@ -352,14 +352,14 @@ A scrollable list of checkpoint cards. Each card shows: Checkpoint ID, Experimen
 | File | Change |
 |------|--------|
 | `scripts/init_db.sh` | Add `control_model_params`, `value_model_params` TEXT cols |
-| `app/src/commondef/experiments.rs` | `Option<FFNModel>` fields on `CheckpointReference`; private `CheckpointReferenceRow` + `From` impl |
+| `app/src/commondef/experiments.rs` | `Option<MLPModel>` fields on `CheckpointReference`; private `CheckpointReferenceRow` + `From` impl |
 | `app/src/db/db_orm.rs` | Update `create_checkpoint_ref` + `get_checkpoint_ref`; add `get_checkpoint_refs_for_run`, `get_all_checkpoint_refs`, `add_checkpoint_ref_to_run` |
 | `app/src/commondef/clientmessages.rs` | 3 new server→client messages + 2 new client→server messages + structs |
 | `app/src/main.rs` | Save checkpoints from remote updates (Steps 4, 5, 6) |
 | `worker/trainer/trainer-py/commondef/training.py` | `LastOnly` variant |
 | `worker/trainer/trainer-py/training.py` | `LastOnly` handling (normal + early stop); base64 typo fix |
 | `worker/trainer/trainer-py/main.py` | Load checkpoint before training starts |
-| `client/src/commondef/training.ts` | `LastOnly` in `CheckpointFrequency`; `FFNModel` in `CheckpointReference` |
+| `client/src/commondef/training.ts` | `LastOnly` in `CheckpointFrequency`; `MLPModel` in `CheckpointReference` |
 | `client/src/commondef/messages.ts` | New TS message types |
 | `client/src/workflows/workflowgraph.ts` | `checkpoint_frequency` settings; `Checkpoint` model type; `buildTrainingController` + `buildTrainingWorkflow` updates |
 | `client/src/lib/nodegrapheditor.svelte` | Conditional disable/show for checkpoint mode; new props |
@@ -378,4 +378,4 @@ A scrollable list of checkpoint cards. Each card shows: Checkpoint ID, Experimen
 4. `LastOnly` — normal finish: checkpoint appears after all epochs complete.
 5. `LastOnly` — user stops early: checkpoint still fires for the last completed epoch.
 6. Checkpoint reuse (remote path):
-   - Select `Checkpoint` in ControlModel → dropdown shows saved IDs grouped by experiment/run → select one → FFN fields auto-populate → start remote training → worker receives zip and trains from it.
+   - Select `Checkpoint` in ControlModel → dropdown shows saved IDs grouped by experiment/run → select one → MLP fields auto-populate → start remote training → worker receives zip and trains from it.

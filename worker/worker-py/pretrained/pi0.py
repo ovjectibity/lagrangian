@@ -14,8 +14,8 @@ import jax
 import jax.numpy as jnp
 from jax import random
 
-from commondef.training import ControlPolicyOutputMode, FFNModel, VLAModel
-from ppo_model import FFNPPOModel
+from commondef.training import ControlPolicyOutputMode, MLPModel, VLAModel
+from ppo_model import MLPPPOModel
 from ppo_trainer import PPOTrainedModel, TestingModel, compute_flow_noise_log_prob
 from pretrained.pi0_jax import Pi0Jax
 
@@ -25,12 +25,12 @@ Array = jax.Array
 Params = Any
 
 
-def _init_ffn(ffn_spec: FFNModel, seed: int = 42) -> tuple[Callable, Params]:
-    policy_fn, params = FFNPPOModel.init_policy(
-        input_dimension=ffn_spec.input_dim,
-        output_dimension=ffn_spec.output_dim,
-        hidden_layer_dimension=ffn_spec.hidden_layer_dim,
-        num_layers=ffn_spec.num_hidden_layers,
+def _init_mlp(mlp_spec: MLPModel, seed: int = 42) -> tuple[Callable, Params]:
+    policy_fn, params = MLPPPOModel.init_policy(
+        input_dimension=mlp_spec.input_dim,
+        output_dimension=mlp_spec.output_dim,
+        hidden_layer_dimension=mlp_spec.hidden_layer_dim,
+        num_layers=mlp_spec.num_hidden_layers,
         add_softmax=False,
         control_policy=False,
         seed=seed,
@@ -42,7 +42,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     """PPO-trainable wrapper for the Pi-0 flow-matching VLA.
 
     Policy store: trainable_params from Pi0Jax (action expert + projections).
-    Value store:  a small FFN initialised from value_ffn_spec.
+    Value store:  a small MLP initialised from value_mlp_spec.
     """
 
     _STATE_KEY_ORDER = ("cameras", "qdof", "qpos", "qvel", "xpos", "xquat")
@@ -50,8 +50,8 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     def __init__(
         self,
         vla_spec: VLAModel,
-        noise_ffn_spec: FFNModel,
-        value_ffn_spec: FFNModel | None = None,
+        noise_mlp_spec: MLPModel,
+        value_mlp_spec: MLPModel | None = None,
         seed: int = 0,
     ) -> None:
         checkpoint_dir = os.environ.get("PI0_CHECKPOINT_DIR", "/opt/lagrangian/pi0")
@@ -63,8 +63,8 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         self._policy_store: Params = self._pi0.get_policy_store()
         self._frozen_store: Params = self._pi0.get_frozen_store()
 
-        if value_ffn_spec is not None:
-            self._value_fn, self._value_store = _init_ffn(value_ffn_spec, seed + 1)
+        if value_mlp_spec is not None:
+            self._value_fn, self._value_store = _init_mlp(value_mlp_spec, seed + 1)
         else:
             self._value_fn = None
             self._value_store = None
@@ -189,10 +189,10 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     def _ensure_value_store(self, state: Array) -> None:
         if self._value_store is None:
             obs_dim = int(state.shape[-1])
-            spec = FFNModel(
+            spec = MLPModel(
                 num_hidden_layers=2,
                 hidden_layer_dim=256,
                 output_dim=1,
                 input_dim=obs_dim,
             )
-            self._value_fn, self._value_store = _init_ffn(spec, seed=99)
+            self._value_fn, self._value_store = _init_mlp(spec, seed=99)

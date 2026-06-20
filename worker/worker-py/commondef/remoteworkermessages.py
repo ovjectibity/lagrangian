@@ -20,7 +20,7 @@ class ModelTypeNew(BaseModel):
     type: Literal[ModelTypeTypes.NEW] = ModelTypeTypes.NEW
 
 ModelType = Union[ModelTypeCheckpoint, ModelTypeNew]
-class FFNModel(BaseModel):
+class MLPModel(BaseModel):
     model_type: ModelType
     num_hidden_layers: int
     hidden_layer_dim: int
@@ -33,8 +33,8 @@ class Checkpoint(BaseModel):
     id: Optional[str] = Field(default=None)
     model_zip_base_64: Optional[str] = Field(alias="model_zip_base64", default=None)
     model_zip_path: Optional[str] = Field(default=None)
-    control_model_ffn: Optional[FFNModel] = Field(default=None)
-    value_model_ffn: Optional[FFNModel] = Field(default=None)
+    control_model_mlp: Optional[MLPModel] = Field(default=None)
+    value_model_mlp: Optional[MLPModel] = Field(default=None)
 
 class ControlModelInput(BaseModel):
     all_cameras: bool
@@ -44,7 +44,7 @@ class ControlModelInput(BaseModel):
     xquat_state: bool
 
 class FlowNoiseConfig(BaseModel):
-    noise_model: FFNModel
+    noise_model: MLPModel
 
 class MetricsData(BaseModel):
     x_axis: List[float]
@@ -62,26 +62,26 @@ class RewardSystem(BaseModel):
     reward_function_code: str
 
 class ControlModelTypes(str, Enum):
-    FFN = "FFN"
+    MLP = "MLP"
     VLA = "VLA"
 
-class ControlModelFFN(BaseModel):
-    type: Literal[ControlModelTypes.FFN] = ControlModelTypes.FFN
-    content: FFNModel
+class ControlModelMLP(BaseModel):
+    type: Literal[ControlModelTypes.MLP] = ControlModelTypes.MLP
+    content: MLPModel
 
 class ControlModelVLA(BaseModel):
     type: Literal[ControlModelTypes.VLA] = ControlModelTypes.VLA
     content: VLAModel
 
-ControlModel = Union[ControlModelFFN, ControlModelVLA]
+ControlModel = Union[ControlModelMLP, ControlModelVLA]
 class ValueModelTypes(str, Enum):
-    FFN = "FFN"
+    MLP = "MLP"
 
-class ValueModelFFN(BaseModel):
-    type: Literal[ValueModelTypes.FFN] = ValueModelTypes.FFN
-    content: FFNModel
+class ValueModelMLP(BaseModel):
+    type: Literal[ValueModelTypes.MLP] = ValueModelTypes.MLP
+    content: MLPModel
 
-ValueModel = ValueModelFFN
+ValueModel = ValueModelMLP
 class ControlOutputModeTypes(str, Enum):
     ACTION_MEAN = "ActionMean"
     FLOW_MATCHING_ACTION = "FlowMatchingAction"

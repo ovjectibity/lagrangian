@@ -10,7 +10,7 @@ use crate::plugin::{ControlPolicyModel, ControlPolicyOutputMode, ppo_trainer::PP
 
 const STATE_KEY_ORDER: &[&str] = &["cameras", "qdof", "qpos", "qvel", "xpos", "xquat"];
 
-pub struct FFNModel {
+pub struct MLPModel {
     control_output_mode: ControlPolicyOutputMode,
     policy: nn::Sequential,
     value: nn::Sequential,
@@ -21,7 +21,7 @@ pub struct FFNModel {
     reward_input_spec: ModelInputSpec,
 }
 
-impl FFNModel {
+impl MLPModel {
     pub fn init_policy(
         input_dimension: i64,
         output_dimension: i64,
@@ -125,14 +125,14 @@ impl FFNModel {
     }
 }
 
-impl PPOTrainedModel for FFNModel {
+impl PPOTrainedModel for MLPModel {
     fn init_ppo_trained_model(
         policy: nn::Sequential,
         val_estimator: nn::Sequential,
         pol_store: nn::VarStore,
         val_estimator_store: nn::VarStore,
     ) -> Self {
-        FFNModel {
+        MLPModel {
             control_output_mode: ControlPolicyOutputMode::TargetPositions,
             policy,
             value: val_estimator,
@@ -216,7 +216,7 @@ impl PPOTrainedModel for FFNModel {
     }
 }
 
-impl ControlPolicyModel for FFNModel {
+impl ControlPolicyModel for MLPModel {
     fn get_policy_output(&self, state: &Tensor) -> Tensor {
         self.forward_policy_impl(state)
     }

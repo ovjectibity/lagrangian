@@ -182,14 +182,14 @@
                   String(getSettingValue(node.id,
                     (node.settings ?? []).find((s: WorkflowNodeSetting) => s.key === 'type') ?? setting
                   )) === 'Checkpoint'}
-                {@const isFfnField =
+                {@const isMlpField =
                   setting.key === 'num_hidden_layers' ||
                   setting.key === 'hidden_layer_dim' ||
                   setting.key === 'output_dim' ||
                   setting.key === 'input_dim'}
                 {@const isCheckpointIdField = setting.key === 'checkpoint_id'}
                 {#if isCheckpointIdField && !isCheckpointMode}
-                  <!-- hide checkpoint_id when type is FFN -->
+                  <!-- hide checkpoint_id when type is MLP -->
                 {:else}
                   <label class="workflow-node-setting">
                     <span>{setting.label}</span>
@@ -244,7 +244,7 @@
                         <input
                           class="workflow-node-setting-input"
                           type="number"
-                          disabled={(setting.disabled ?? false) || (isCheckpointMode && isFfnField)}
+                          disabled={(setting.disabled ?? false) || (isCheckpointMode && isMlpField)}
                           min={setting.min}
                           max={setting.max}
                           step={setting.step ?? 1}

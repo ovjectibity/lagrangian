@@ -23,7 +23,7 @@ from pydantic import ValidationError
 from websockets.exceptions import ConnectionClosed
 
 from commondef.remoteworkermessages import (
-    ControlModelFFN,
+    ControlModelMLP,
     ControlModelVLA,
     ControlOutputModeFlowMatchingAction,
     PPOTrainingMethod,
@@ -34,7 +34,7 @@ from commondef.remoteworkermessages import (
     StopTrainingMessage,
     TrainingAccelerationMode,
 )
-from ppo_model import FFNPPOModel
+from ppo_model import MLPPPOModel
 from ppo_trainer import PPOTrainedModel, TestingModel
 from simulator import MjxSimulator, MujocoSimulator, Simulator
 from testing import CallbackTestingTaskSink, TestingWorkflow
@@ -107,28 +107,28 @@ def _build_model_for_training(
             )
         from pretrained.pi0 import Pi0Model
         vla_spec = params.control_model.content
-        noise_ffn_spec = params.control_output_mode.content.content.noise_model
-        return Pi0Model(vla_spec, noise_ffn_spec)
+        noise_mlp_spec = params.control_output_mode.content.content.noise_model
+        return Pi0Model(vla_spec, noise_mlp_spec)
 
-    control_ffn = params.control_model.content
-    value_ffn = params.value_model.content
-    policy, policy_store = FFNPPOModel.init_policy(
-        input_dimension=int(control_ffn.input_dim),
-        output_dimension=int(control_ffn.output_dim),
-        hidden_layer_dimension=int(control_ffn.hidden_layer_dim),
-        num_layers=int(control_ffn.num_hidden_layers),
+    control_mlp = params.control_model.content
+    value_mlp = params.value_model.content
+    policy, policy_store = MLPPPOModel.init_policy(
+        input_dimension=int(control_mlp.input_dim),
+        output_dimension=int(control_mlp.output_dim),
+        hidden_layer_dimension=int(control_mlp.hidden_layer_dim),
+        num_layers=int(control_mlp.num_hidden_layers),
         add_softmax=False,
         control_policy=True,
     )
-    value, value_store = FFNPPOModel.init_policy(
-        input_dimension=int(value_ffn.input_dim),
-        output_dimension=int(value_ffn.output_dim),
-        hidden_layer_dimension=int(value_ffn.hidden_layer_dim),
-        num_layers=int(value_ffn.num_hidden_layers),
+    value, value_store = MLPPPOModel.init_policy(
+        input_dimension=int(value_mlp.input_dim),
+        output_dimension=int(value_mlp.output_dim),
+        hidden_layer_dimension=int(value_mlp.hidden_layer_dim),
+        num_layers=int(value_mlp.num_hidden_layers),
         add_softmax=False,
         control_policy=False,
     )
-    return FFNPPOModel.init_ppo_trained_model(
+    return MLPPPOModel.init_ppo_trained_model(
         policy=policy,
         val_estimator=value,
         pol_store=policy_store,
@@ -144,26 +144,26 @@ def _build_model_for_testing(
 ) -> TestingModel:
     if isinstance(control_model, ControlModelVLA):
         from pretrained.pi0 import Pi0Model
-        return Pi0Model(control_model.content, noise_ffn_spec=None)
+        return Pi0Model(control_model.content, noise_mlp_spec=None)
 
-    control_ffn = control_model.content
-    policy, policy_store = FFNPPOModel.init_policy(
-        input_dimension=int(control_ffn.input_dim),
-        output_dimension=int(control_ffn.output_dim),
-        hidden_layer_dimension=int(control_ffn.hidden_layer_dim),
-        num_layers=int(control_ffn.num_hidden_layers),
+    control_mlp = control_model.content
+    policy, policy_store = MLPPPOModel.init_policy(
+        input_dimension=int(control_mlp.input_dim),
+        output_dimension=int(control_mlp.output_dim),
+        hidden_layer_dimension=int(control_mlp.hidden_layer_dim),
+        num_layers=int(control_mlp.num_hidden_layers),
         add_softmax=False,
         control_policy=True,
     )
-    value, value_store = FFNPPOModel.init_policy(
-        input_dimension=int(control_ffn.input_dim),
+    value, value_store = MLPPPOModel.init_policy(
+        input_dimension=int(control_mlp.input_dim),
         output_dimension=1,
-        hidden_layer_dimension=int(control_ffn.hidden_layer_dim),
+        hidden_layer_dimension=int(control_mlp.hidden_layer_dim),
         num_layers=1,
         add_softmax=False,
         control_policy=False,
     )
-    return FFNPPOModel.init_ppo_trained_model(
+    return MLPPPOModel.init_ppo_trained_model(
         policy=policy,
         val_estimator=value,
         pol_store=policy_store,

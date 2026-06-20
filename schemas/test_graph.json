@@ -87,10 +87,10 @@
           "properties": {
             "type": {
               "type": "string",
-              "const": "FFN"
+              "const": "MLP"
             },
             "content": {
-              "$ref": "#/definitions/FFNModel"
+              "$ref": "#/definitions/MLPModel"
             }
           },
           "required": [
@@ -116,7 +116,7 @@
         }
       ]
     },
-    "FFNModel": {
+    "MLPModel": {
       "type": "object",
       "properties": {
         "model_type": {

@@ -3,7 +3,7 @@ import type {
   CheckpointFrequency,
   ComputeInstance,
   ControlModel,
-  FFNModel,
+  MLPModel,
   TrainingAccelerationMode,
   TrainingJobController,
   TrainingMethod,
@@ -102,10 +102,10 @@ export const ControlModelNode: WorkflowNode = {
     {
       key: "type",
       label: "type",
-      value: "FFN",
+      value: "MLP",
       inputType: "select",
       options: [
-        { label: "FFN", value: "FFN" },
+        { label: "MLP", value: "MLP" },
         { label: "Checkpoint", value: "Checkpoint" },
       ],
     },
@@ -137,10 +137,10 @@ export const ValueModelNode: WorkflowNode = {
     {
       key: "type",
       label: "type",
-      value: "FFN",
+      value: "MLP",
       inputType: "select",
       options: [
-        { label: "FFN", value: "FFN" },
+        { label: "MLP", value: "MLP" },
         { label: "Checkpoint", value: "Checkpoint" },
       ],
     },
@@ -300,9 +300,9 @@ export const TestingControlModelNode: WorkflowNode = {
     {
       key: "type",
       label: "type",
-      value: "FFN",
+      value: "MLP",
       inputType: "select",
-      options: [{ label: "FFN", value: "FFN" }],
+      options: [{ label: "MLP", value: "MLP" }],
     },
     { key: "num_hidden_layers", label: "num_hidden_layers", value: 3, min: 1, step: 1 },
     { key: "hidden_layer_dim", label: "hidden_layer_dim", value: 512, min: 1, step: 1 },
@@ -337,7 +337,7 @@ export const buildSimulationParams = (): SimulationParams => {
       SimulationParametersNode.settings?.find(
         (node) => node.key === "num_timesteps")?.value as number,
     control_model: {
-      type: 'FFN',
+      type: 'MLP',
       content: {
         num_hidden_layers: 3,
         hidden_layer_dim: 128,
@@ -374,7 +374,7 @@ export const getStringSetting = (
   return typeof value === 'string' ? value : fallbackValue;
 };
 
-export const buildFfnModel = (nodeId: string): FFNModel => {
+export const buildMlpModel = (nodeId: string): MLPModel => {
   return {
     num_hidden_layers: getNumericSetting(nodeId, 'num_hidden_layers', 2),
     hidden_layer_dim: getNumericSetting(nodeId, 'hidden_layer_dim', 128),
@@ -402,16 +402,16 @@ export const buildTrainingWorkflow = (): TrainingMethod => {
         ),
       },
       control_model: ((): ControlModel => {
-        const t = getStringSetting('control-model', 'type', 'FFN');
+        const t = getStringSetting('control-model', 'type', 'MLP');
         return t === 'Checkpoint'
           ? { type: 'Checkpoint', content: getStringSetting('control-model', 'checkpoint_id', '') }
-          : { type: 'FFN', content: buildFfnModel('control-model') };
+          : { type: 'MLP', content: buildMlpModel('control-model') };
       })(),
       value_model: ((): ValueModel => {
-        const t = getStringSetting('value-model', 'type', 'FFN');
+        const t = getStringSetting('value-model', 'type', 'MLP');
         return t === 'Checkpoint'
           ? { type: 'Checkpoint', content: getStringSetting('value-model', 'checkpoint_id', '') }
-          : { type: 'FFN', content: buildFfnModel('value-model') };
+          : { type: 'MLP', content: buildMlpModel('value-model') };
       })(),
     },
   };
