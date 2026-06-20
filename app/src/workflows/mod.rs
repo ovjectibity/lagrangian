@@ -4,13 +4,14 @@ use crate::commondef::testing::TestGraph;
 use crate::commondef::training::{
     ControlModel, ModelInputSpec, ModelType, PPOTrainingMethod, ValueModel,
 };
-use crate::plugin::mj_simulator::MjSimulator;
-use crate::plugin::ppo_trainer::PPOTrainedModel;
-use crate::plugin::{ControlPolicyModel, Simulator};
-use crate::usr::arm::MLPModel;
+use crate::simulator::mj_simulator::MjSimulator;
+use crate::simulator::{Simulator};
+use crate::models::{ControlPolicyModel, PPOTrainedModel};
+use crate::models::mlp::MLPModel;
 
 pub mod testing;
 pub mod training;
+pub mod ppo_trainer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowMode {

@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use tch::{Kind, Tensor};
 
 use crate::commondef::training::ModelInputSpec;
-use crate::mujoco;
-use crate::plugin::Simulator;
+use crate::simulator::mujoco;
+use crate::simulator::Simulator;
 use crate::simulator;
 
 pub struct MjSimulator {

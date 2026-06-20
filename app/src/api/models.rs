@@ -11,8 +11,8 @@ use zip::ZipArchive;
 
 use crate::commondef::model::WorldBody;
 use crate::commondef::record::ModelReference;
-use crate::plugin::mj_simulator::MjSimulator;
-use crate::plugin::Simulator as _;
+use crate::simulator::mj_simulator::MjSimulator;
+use crate::simulator::Simulator as _;
 
 // ── Response types ───────────────────────────
 

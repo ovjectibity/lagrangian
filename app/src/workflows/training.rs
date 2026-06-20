@@ -10,8 +10,9 @@ use crate::commondef::training::{
     StopTrainingMessage, TrainingUpdatesMessage, TrainingUpdate,
 };
 use crate::commondef::workermessages::TrainingTaskMessage;
-use crate::plugin::Simulator;
-use crate::plugin::ppo_trainer::{PPOTrainedModel, PPOTrainer};
+use crate::simulator::{Simulator};
+use crate::models::{PPOTrainedModel, ControlPolicyModel};
+use crate::workflows::ppo_trainer::{PPOTrainer};
 
 pub struct TrainingWorkflow {
     id: String,

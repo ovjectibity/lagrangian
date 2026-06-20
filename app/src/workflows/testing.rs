@@ -8,8 +8,9 @@ use crate::commondef::{
     training::ControlModel,
     workermessages::TestTaskMessage,
 };
-use crate::plugin::ControlPolicyOutputMode;
-use crate::plugin::{ControlPolicyModel, Simulator};
+use crate::simulator::{Simulator};
+use crate::models::{PPOTrainedModel, ControlPolicyModel};
+use crate::commondef::training::ControlPolicyOutputMode;
 
 pub struct TestingWorkflow {
     id: String,

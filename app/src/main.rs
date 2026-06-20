@@ -14,11 +14,9 @@ use crate::db::mongo_orm::MongoOrm;
 pub mod api;
 pub mod commondef;
 pub mod db;
-pub mod mujoco;
-pub mod plugin;
 pub mod remote_workflows;
 pub mod simulator;
-pub mod usr;
+pub mod models;
 pub mod workflows;
 
 // ── Project/User constants ──────────────────

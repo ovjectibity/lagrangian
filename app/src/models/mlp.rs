@@ -5,8 +5,8 @@ use tch::{
     nn::{self, Module},
 };
 
-use crate::commondef::training::ModelInputSpec;
-use crate::plugin::{ControlPolicyModel, ControlPolicyOutputMode, ppo_trainer::PPOTrainedModel};
+use crate::commondef::training::{ModelInputSpec,ControlPolicyOutputMode};
+use crate::models::{PPOTrainedModel, ControlPolicyModel};
 
 const STATE_KEY_ORDER: &[&str] = &["cameras", "qdof", "qpos", "qvel", "xpos", "xquat"];
 

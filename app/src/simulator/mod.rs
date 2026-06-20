@@ -1,8 +1,36 @@
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 
+use tch::Tensor;
+
+use crate::commondef::training::{
+    ModelInputSpec
+};
+
 use crate::commondef::model::{Body, Geom, GeomType, WorldBody};
-use crate::mujoco;
+
+pub mod mj_simulator;
+pub mod mujoco;
+
+pub trait Simulator {
+    fn reset_state(&mut self);
+    fn nq(&self) -> i64;
+    fn nu(&self) -> i64;
+    fn nv(&self) -> i64;
+    //Shape of u: [nu]
+    fn forward_dyn(&self, controls: &Tensor);
+    //Shape of acc: [nq]
+    //Shape of output: [nv]
+    fn inverse_dyn(&self, acc: &Tensor) -> Tensor;
+    fn get_model_state(&self, input_spec: &ModelInputSpec) -> HashMap<String, Tensor>;
+    fn get_model_cartesian_state(&self) -> Tensor;
+    fn get_world_body(&self) -> Option<WorldBody>;
+    fn get_simul_update(&self) -> (Vec<f64>, Vec<f64>);
+    fn get_contact_body_index_pairs(&self) -> Vec<(usize, usize)>;
+    fn modify_target_position(&mut self, target_pos_diff: &Tensor) -> Tensor;
+    fn get_target_controls_from_target_positions(&self, target_pos_diff: &Tensor) -> Tensor;
+    fn get_target_controls_from_target_velocities(&self, target_vel_diff: &Tensor) -> Tensor;
+}
 
 pub fn get_test_model() -> WorldBody {
     // A simple robot arm model
