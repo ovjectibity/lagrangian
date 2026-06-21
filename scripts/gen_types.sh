@@ -63,6 +63,16 @@ trap 'rm -rf "$py_record_dir"' EXIT
 cp "$REPO_ROOT/app/src/commondef/record.rs" "$py_record_dir/"
 typeshare "$py_record_dir" --lang=python \
   --output-file="$REPO_ROOT/worker/worker-py/commondef/record.py"
+# typeshare serialized_as = "string" is correct for TypeScript but emits
+# the literal name "string" in Python, which is not a built-in. Replace
+# with "str" — the correct Python type — after generation.
+python3 -c "
+with open('$REPO_ROOT/worker/worker-py/commondef/record.py') as f:
+    content = f.read()
+content = content.replace(' = string\n', ' = str\n')
+with open('$REPO_ROOT/worker/worker-py/commondef/record.py', 'w') as f:
+    f.write(content)
+"
 echo "Generated: worker/worker-py/commondef/record.py"
 
 # training.py — imports CheckpointReference from record.py

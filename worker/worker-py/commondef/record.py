@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 
 
-Timestamp = string
+Timestamp = str
 
 class CheckpointReference(BaseModel):
     created_at: Timestamp
