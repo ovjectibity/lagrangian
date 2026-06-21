@@ -144,7 +144,7 @@ pub struct RewardSystem {
     pub input_spec: ModelInputSpec
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum TrainingMetrics {
@@ -156,7 +156,7 @@ pub enum TrainingMetrics {
     ValueGradientNorm(MetricsData),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct MetricsData {
     pub x_axis: Vec<f64>,
@@ -202,27 +202,27 @@ pub enum CheckpointFrequency {
     LastOnly
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum TrainingRunState {
     PPOTrainingRunState(PPOTrainingRunState),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct PPOTrainingRunState {
     pub epoch_index: i32,
     pub update_index: i32,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct StopTrainingMessage {
     pub id: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct TrainingUpdatesMessage {
     pub id: String,
@@ -232,6 +232,7 @@ pub struct TrainingUpdatesMessage {
 #[derive(
     Debug, Clone,
     serde::Serialize, serde::Deserialize,
+    ToSchema,
 )]
 #[typeshare]
 pub struct TrainingUpdate {

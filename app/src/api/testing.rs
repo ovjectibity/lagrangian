@@ -286,6 +286,7 @@ pub async fn stop_test(
 #[route_doc(
     tag = "Testing",
     sse,
+    ok = Vec<u8>,
     params(test_id = "Test run UUID"),
 )]
 #[get("/testing/<test_id>/updates")]

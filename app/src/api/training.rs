@@ -601,6 +601,7 @@ pub async fn stop_training(
 #[route_doc(
     tag = "Training",
     sse,
+    ok = cm::ClientMessage,
     params(
         experiment_id = "Experiment UUID",
         run_id = "Run UUID",

@@ -8,15 +8,15 @@ use syn::{
     parse_macro_input,
     punctuated::Punctuated,
     Attribute, Ident, ItemFn, LitInt,
-    LitStr, Path, Token,
+    LitStr, Token, Type,
 };
 
 // ── Argument types ────────────────────────────
 
 struct RouteDocArgs {
     tag: LitStr,
-    ok: Option<Path>,
-    body: Option<Path>,
+    ok: Option<Type>,
+    body: Option<Type>,
     multipart: bool,
     sse: bool,
     errors: Vec<u16>,
@@ -28,8 +28,8 @@ impl Parse for RouteDocArgs {
         input: ParseStream,
     ) -> syn::Result<Self> {
         let mut tag: Option<LitStr> = None;
-        let mut ok: Option<Path> = None;
-        let mut body: Option<Path> = None;
+        let mut ok: Option<Type> = None;
+        let mut body: Option<Type> = None;
         let mut multipart = false;
         let mut sse = false;
         let mut errors: Vec<u16> = Vec::new();
@@ -48,12 +48,12 @@ impl Parse for RouteDocArgs {
                 "ok" => {
                     input.parse::<Token![=]>()?;
                     ok =
-                        Some(input.parse::<Path>()?);
+                        Some(input.parse::<Type>()?);
                 }
                 "body" => {
                     input.parse::<Token![=]>()?;
                     body =
-                        Some(input.parse::<Path>()?);
+                        Some(input.parse::<Type>()?);
                 }
                 "multipart" => {
                     multipart = true;
@@ -266,11 +266,18 @@ pub fn route_doc(
     let mut resp: Vec<Ts2> = Vec::new();
 
     if args.sse {
+        let sse_body: Ts2 =
+            if let Some(ref ok_ty) = args.ok {
+                quote! { #ok_ty }
+            } else {
+                quote! { String }
+            };
         resp.push(quote! {
             (
                 status = 200,
                 description =
                     "Server-sent event stream",
+                body = #sse_body,
                 content_type = "text/event-stream",
             )
         });

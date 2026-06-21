@@ -103,6 +103,18 @@ use utoipa::OpenApi;
         crate::commondef::testing::TestGraph,
         crate::commondef::testing::TestJobController,
         crate::commondef::testing::TestParams,
+        crate::commondef::testing::StopTestMessage,
+        crate::commondef::testing::TestUpdateMessage,
+        crate::commondef::testing::ModelForward,
+        crate::commondef::clientmessages::ClientMessage,
+        crate::commondef::training::StopTrainingMessage,
+        crate::commondef::training
+            ::TrainingUpdatesMessage,
+        crate::commondef::training::TrainingUpdate,
+        crate::commondef::training::TrainingRunState,
+        crate::commondef::training::PPOTrainingRunState,
+        crate::commondef::training::TrainingMetrics,
+        crate::commondef::training::MetricsData,
     )),
     tags(
         (

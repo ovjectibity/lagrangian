@@ -42,13 +42,13 @@ pub struct StartTestMessage {
     pub simulation_models: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct StopTestMessage {
     pub id: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct TestUpdateMessage {
     pub id: String,
@@ -57,7 +57,7 @@ pub struct TestUpdateMessage {
     pub updates: Vec<Vec<ModelForward>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct ModelForward {
     pub xpos: Vec<f64>,  //nbody x 3
