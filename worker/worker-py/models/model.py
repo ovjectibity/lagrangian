@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any, Callable
 from commondef.training import ModelInputSpec, ControlPolicyOutputMode
 import jax
 

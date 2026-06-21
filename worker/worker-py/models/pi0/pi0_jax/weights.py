@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 import numpy as np
+from safetensors.numpy import load_file
 
 Params = dict[str, Any]
 
@@ -29,7 +30,6 @@ def load(safetensors_path: str) -> tuple[Params, Params, dict[str, Any]]:
         expert_head_dim, expert_intermediate,
         action_dim, state_dim, time_embed_dim, num_patches, mm_proj_out,
     """
-    from safetensors.numpy import load_file
     flat = load_file(safetensors_path)
 
     frozen: Params = {}

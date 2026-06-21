@@ -16,6 +16,8 @@ from typing import Any, Callable
 import jax
 import jax.numpy as jnp
 import numpy as np
+import sentencepiece as spm
+from huggingface_hub import hf_hub_download
 
 from . import weights as wt
 from .siglip import siglip_forward, _rename_params as _siglip_rename
@@ -116,14 +118,11 @@ class Pi0Jax:
     def _encode_task(self, task: str) -> Array:
         """Tokenise a task string → int32 token ids [tok_max_len]."""
         if self._tokenizer is None:
-            import sentencepiece as spm
             tok_path = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
                 "tokenizer.model",
             )
             if not os.path.exists(tok_path):
-                # Download from HuggingFace on first call
-                from huggingface_hub import hf_hub_download
                 tok_path = hf_hub_download(
                     "google/paligemma-3b-pt-224",
                     "tokenizer.model",

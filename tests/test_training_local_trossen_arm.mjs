@@ -9,7 +9,7 @@
  * Requires: node >= 18, sdk built (cd sdk && npm run build)
  */
 
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -159,7 +159,9 @@ async function uploadModel(client) {
   const modelDir = dirname(resolve(MODEL_PATH));
   const zipPath = join(tmpdir(), `lagrangian-model-${Date.now()}.zip`);
   try {
-    execSync(`zip -r "${zipPath}" .`, { cwd: modelDir, stdio: "pipe" });
+    const r = spawnSync("zip", ["-r", zipPath, "."], { cwd: modelDir });
+    if (r.error) throw r.error;
+    if (r.status !== 0) throw new Error(`zip failed (${r.status}): ${r.stderr?.toString()}`);
     const buf = readFileSync(zipPath);
     const blob = new Blob([buf], { type: "application/zip" });
     const result = await client.models.upload(blob, "vx300s.zip");

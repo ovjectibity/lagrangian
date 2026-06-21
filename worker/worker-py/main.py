@@ -3,10 +3,12 @@ os.environ["JAX_LOG_COMPILES"] = "0"
 
 import asyncio
 import base64
+import functools
 import hmac
 import io
 import json
 import logging
+import math
 import ssl
 import tempfile
 import threading
@@ -17,6 +19,8 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 import jax
+import jax.numpy as jnp
+import numpy as np
 import orbax.checkpoint as ocp
 import websockets
 from pydantic import ValidationError
@@ -33,8 +37,10 @@ from commondef.remoteworkermessages import (
     StopTrainingMessage,
     TrainingAccelerationMode,
 )
+from commondef.training import ModelInputSpec
 from models.mlp import MLPModel
 from models.model import PPOTrainedModel, TestingModel
+from models.pi0.pi0 import Pi0Model
 from simulator.simulator import MjxSimulator, MujocoSimulator, Simulator
 from workflows.testing import CallbackTestingTaskSink, TestingWorkflow
 from workflows.training import CallbackTrainingTaskSink, TrainingWorkflow
@@ -104,10 +110,15 @@ def _build_model_for_training(
             raise ValueError(
                 "VLA control model requires control_output_mode=FlowMatchingAction(FlowNoise)"
             )
-        from pretrained.pi0 import Pi0Model
         vla_spec = params.control_model.content
         noise_mlp_spec = params.control_output_mode.content.content.noise_model
-        return Pi0Model(vla_spec, noise_mlp_spec)
+        return Pi0Model(
+            vla_spec,
+            noise_mlp_spec,
+            control_input_spec=vla_spec.input_spec,
+            value_input_spec=params.value_model.content.input_spec,
+            reward_input_spec=params.reward_function.input_spec,
+        )
 
     control_mlp = params.control_model.content
     value_mlp = params.value_model.content
@@ -142,8 +153,18 @@ def _build_model_for_testing(
     control_model: Any,
 ) -> TestingModel:
     if isinstance(control_model, ControlModelVLA):
-        from pretrained.pi0 import Pi0Model
-        return Pi0Model(control_model.content, noise_mlp_spec=None)
+        vla_spec = control_model.content
+        _null_spec = ModelInputSpec(
+            all_cameras=False, qpos_state=False, qvel_state=False,
+            xpos_state=False, xquat_state=False, qdof_state=False, contact_pairs=False,
+        )
+        return Pi0Model(
+            vla_spec,
+            noise_mlp_spec=None,
+            control_input_spec=vla_spec.input_spec,
+            value_input_spec=_null_spec,
+            reward_input_spec=_null_spec,
+        )
 
     control_mlp = control_model.content
     policy, policy_store = MLPModel.init_policy(
@@ -219,10 +240,6 @@ def _extract_sim_model_from_zip(
 
 
 def _load_user_reward_fn(code: str) -> Any:
-    import jax.numpy as jnp
-    import numpy as np
-    import math
-    import functools
     ns: dict[str, Any] = {
         "jax": jax, "jnp": jnp, "numpy": np, "np": np,
         "math": math, "functools": functools,

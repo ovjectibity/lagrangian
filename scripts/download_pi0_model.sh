@@ -3,7 +3,7 @@ set -euo pipefail
 
 PI0_DIR="${PI0_CHECKPOINT_DIR:-/opt/lagrangian/pi0}"
 HF_REPO="lerobot/pi0_libero_base"
-FILES=(model.safetensors config.json)
+FILES=(model.safetensors config.json tokenizer.model)
 
 mkdir -p "${PI0_DIR}"
 

@@ -9,7 +9,7 @@
  * Requires: node >= 18, sdk built (cd sdk && npm run build)
  */
 
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -37,8 +37,12 @@ async function uploadModel(client) {
   try {
     // Bundle all non-XML assets (meshes, textures, etc.) then add only the
     // target XML so the worker doesn't pick the wrong XML at the zip root.
-    execSync(`zip -r "${zipPath}" . --exclude "*.xml"`, { cwd: modelDir, stdio: "pipe" });
-    execSync(`zip "${zipPath}" "${modelFile}"`, { cwd: modelDir, stdio: "pipe" });
+    const r1 = spawnSync("zip", ["-r", zipPath, ".", "--exclude", "*.xml"], { cwd: modelDir });
+    if (r1.error) throw r1.error;
+    if (r1.status !== 0) throw new Error(`zip failed (${r1.status}): ${r1.stderr?.toString()}`);
+    const r2 = spawnSync("zip", [zipPath, modelFile], { cwd: modelDir });
+    if (r2.error) throw r2.error;
+    if (r2.status !== 0) throw new Error(`zip failed (${r2.status}): ${r2.stderr?.toString()}`);
     const blob = new Blob([readFileSync(zipPath)], { type: "application/zip" });
     const result = await client.models.upload(blob, modelFile.replace(".xml", ".zip"));
     console.log(`  model_id=${result.id}`);

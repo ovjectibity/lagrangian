@@ -8,6 +8,7 @@ import os
 import zipfile
 from typing import Any, Callable
 
+import jax
 import orbax.checkpoint as ocp
 
 from commondef.remoteworkermessages import (
@@ -35,7 +36,7 @@ from commondef.training import (
 )
 from workflows.ppo_trainer import PPOTrainer
 from models.model import PPOTrainedModel
-from simulator.simulator import Simulator
+from simulator.simulator import MjxSimulator, Simulator
 
 logger = logging.getLogger(__name__)
 
@@ -190,8 +191,6 @@ class TrainingWorkflow:
         logger.info("Training run started: id=%s use_gpu=%s", self.id, use_gpu)
 
         if use_gpu:
-            import jax
-            from simulator import MjxSimulator
             mjx_sim: MjxSimulator = self.simulator  # type: ignore[assignment]
             mjx_sim.reset_state()
             base_mjx_data = mjx_sim._mjx_data
