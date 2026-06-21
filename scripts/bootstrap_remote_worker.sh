@@ -48,6 +48,7 @@ __ECR_LOGIN__
 docker pull __IMAGE_URI__
 docker rm -f __CONTAINER_NAME__ || true
 
+export HF_TOKEN=__HF_TOKEN__
 bash /tmp/download_pi0_model.sh
 cat >/etc/lagrangian-worker.env <<'ENV_EOF'
 WS_HOST=0.0.0.0
