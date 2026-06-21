@@ -78,54 +78,49 @@ class GemmaAttention(nn.Module):
         x: Array,
         freqs: Array,
         mask: Array | None = None,
-        cross_kv: Array | None = None,
+        prefix_kv: tuple[Array, Array] | None = None,
     ) -> Array:
         """
         Args:
-            x:        [B, T, hidden]
-            freqs:    [max_len, head_dim] RoPE frequencies
-            mask:     [B, 1, T, T] additive attention mask (0 or -inf), optional
-            cross_kv: if provided, K/V come from this context tensor [B, S, hidden_kv]
-                      and RoPE is NOT applied to K (cross-attention mode for expert)
+            x:         [B, T, hidden]
+            freqs:     [max_len, head_dim] RoPE frequencies
+            mask:      additive attention mask (0 or -inf), optional
+            prefix_kv: if provided, (K_prefix [B, 1, S, head_dim],
+                       V_prefix [B, 1, S, head_dim]) are prepended to self K/V
         """
         B, T, _ = x.shape
         q_dim = self.num_heads * self.head_dim
         kv_dim = self.num_kv_heads * self.head_dim
 
-        q = nn.Dense(q_dim, use_bias=False, name="q_proj")(x)   # [B, T, q_dim]
-        if cross_kv is not None:
-            k = nn.Dense(kv_dim, use_bias=False, name="k_proj")(cross_kv)
-            v = nn.Dense(kv_dim, use_bias=False, name="v_proj")(cross_kv)
-        else:
-            k = nn.Dense(kv_dim, use_bias=False, name="k_proj")(x)
-            v = nn.Dense(kv_dim, use_bias=False, name="v_proj")(x)
+        q = nn.Dense(q_dim,  use_bias=False, name="q_proj")(x)
+        k = nn.Dense(kv_dim, use_bias=False, name="k_proj")(x)
+        v = nn.Dense(kv_dim, use_bias=False, name="v_proj")(x)
 
         def reshape_heads(t: Array, n_heads: int) -> Array:
             B_, S, _ = t.shape
             return t.reshape(B_, S, n_heads, self.head_dim).transpose(0, 2, 1, 3)
 
-        q = reshape_heads(q, self.num_heads)           # [B, H, T, D]
-        k = reshape_heads(k, self.num_kv_heads)        # [B, Hkv, S, D]
+        q = _apply_rope(reshape_heads(q, self.num_heads),    freqs)
+        k = _apply_rope(reshape_heads(k, self.num_kv_heads), freqs)
         v = reshape_heads(v, self.num_kv_heads)
 
-        # Apply RoPE to Q always; apply to K only for self-attention
-        q = _apply_rope(q, freqs)
-        if cross_kv is None:
-            k = _apply_rope(k, freqs)
+        if prefix_kv is not None:
+            K_prefix, V_prefix = prefix_kv
+            k = jnp.concatenate([K_prefix, k], axis=2)
+            v = jnp.concatenate([V_prefix, v], axis=2)
 
-        # Broadcast KV heads to match Q heads
         if self.num_kv_heads != self.num_heads:
             repeats = self.num_heads // self.num_kv_heads
             k = jnp.repeat(k, repeats, axis=1)
             v = jnp.repeat(v, repeats, axis=1)
 
         scale = self.head_dim ** -0.5
-        attn = jnp.einsum("bhtd,bhsd->bhts", q, k) * scale  # [B, H, T, S]
+        attn = jnp.einsum("bhtd,bhsd->bhts", q, k) * scale
         if mask is not None:
             attn = attn + mask
         attn = nn.softmax(attn.astype(jnp.float32), axis=-1).astype(x.dtype)
 
-        out = jnp.einsum("bhts,bhsd->bhtd", attn, v)         # [B, H, T, D]
+        out = jnp.einsum("bhts,bhsd->bhtd", attn, v)
         out = out.transpose(0, 2, 1, 3).reshape(B, T, q_dim)
         out = nn.Dense(x.shape[-1], use_bias=False, name="o_proj")(out)
         return out
@@ -165,14 +160,14 @@ class GemmaLayer(nn.Module):
         x: Array,
         freqs: Array,
         mask: Array | None = None,
-        cross_kv: Array | None = None,
+        prefix_kv: tuple[Array, Array] | None = None,
     ) -> Array:
         residual = x
         x = RMSNorm(name="input_ln")(x)
         x = GemmaAttention(
             self.num_heads, self.num_kv_heads, self.head_dim,
             name="self_attn",
-        )(x, freqs, mask=mask, cross_kv=cross_kv)
+        )(x, freqs, mask=mask, prefix_kv=prefix_kv)
         x = residual + x
 
         residual = x
@@ -231,53 +226,6 @@ def lm_forward(
     x = norm.apply({"params": params["norm"]}, x)
     return x
 
-
-def expert_forward(
-    params: Params,
-    action_tokens: Array,
-    context: Array,
-    freqs: Array,
-    arch: dict,
-    n_action_tokens: int,
-) -> Array:
-    """Run trainable action expert with joint attention.
-
-    Action tokens attend to all context tokens (cross-attention style within
-    the joint sequence). Context tokens are treated as read-only prefix.
-
-    Args:
-        params:          trainable["expert"] pytree
-        action_tokens:   [B, A, expert_hidden]  (A = chunk_size + 1 state)
-        context:         [B, S, lm_hidden] — LM output (stop_gradient applied by caller)
-        freqs:           RoPE frequencies [max_len, head_dim]
-        arch:            arch_config from weights.load()
-        n_action_tokens: number of action token positions (for causal mask shape)
-    Returns:
-        [B, A, expert_hidden]
-    """
-    # Project context from lm_hidden → expert_hidden for cross-attention KV
-    # (handled in model.py before calling here; context passed already in expert_hidden)
-    x = action_tokens
-    A = x.shape[1]
-    mask = causal_mask(A)   # action tokens are causally masked within themselves
-
-    num_layers = arch["expert_num_layers"]
-    for i in range(num_layers):
-        layer = GemmaLayer(
-            num_heads=arch["expert_num_heads"],
-            num_kv_heads=arch["expert_num_kv_heads"],
-            head_dim=arch["expert_head_dim"],
-            intermediate_dim=arch["expert_intermediate"],
-            hidden_dim=arch["expert_hidden"],
-            name=f"layer_{i}",
-        )
-        lparams = _layer_params(params["layers"][i])
-        # Self-attention over action tokens (causal), then cross-attend to context
-        x = layer.apply({"params": lparams}, x, freqs, mask=mask, cross_kv=context)
-
-    norm = RMSNorm(name="norm")
-    x = norm.apply({"params": params["norm"]}, x)
-    return x
 
 
 # ---------------------------------------------------------------------------
