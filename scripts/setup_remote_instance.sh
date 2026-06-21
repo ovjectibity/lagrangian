@@ -152,6 +152,7 @@ IMAGE_URI="${REMOTE_WORKER_IMAGE_URI}"
 CONTAINER_NAME="${REMOTE_WORKER_CONTAINER_NAME}"
 WORKER_PORT="${REMOTE_WORKER_PORT}"
 WORKER_SHARED_SECRET="${REMOTE_WORKER_SHARED_SECRET}"
+HF_TOKEN="${HF_TOKEN:-}"
 
 REGISTRY="\${IMAGE_URI%%/*}"
 if [[ "\${REGISTRY}" == *".dkr.ecr."* ]]; then
@@ -166,6 +167,7 @@ s#__IMAGE_URI__#\${IMAGE_URI}#g;
 s#__CONTAINER_NAME__#\${CONTAINER_NAME}#g;
 s#__WORKER_PORT__#\${WORKER_PORT}#g;
 s#__WORKER_SHARED_SECRET__#\${WORKER_SHARED_SECRET}#g;
+s#__HF_TOKEN__#\${HF_TOKEN}#g;
 " /tmp/bootstrap_remote_worker.sh > /tmp/bootstrap_remote_worker.rendered.sh
 
 chmod +x /tmp/bootstrap_remote_worker.rendered.sh

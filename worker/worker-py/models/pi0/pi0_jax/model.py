@@ -118,15 +118,14 @@ class Pi0Jax:
     def _encode_task(self, task: str) -> Array:
         """Tokenise a task string → int32 token ids [tok_max_len]."""
         if self._tokenizer is None:
-            tok_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "tokenizer.model",
-            )
+            checkpoint_dir = os.environ.get("PI0_CHECKPOINT_DIR", "/opt/lagrangian/pi0")
+            tok_path = os.path.join(checkpoint_dir, "tokenizer.model")
             if not os.path.exists(tok_path):
                 tok_path = hf_hub_download(
                     "google/paligemma-3b-pt-224",
                     "tokenizer.model",
-                    local_dir=os.path.dirname(tok_path),
+                    local_dir=checkpoint_dir,
+                    token=os.environ.get("HF_TOKEN"),
                 )
             sp = spm.SentencePieceProcessor()
             sp.Load(tok_path)
