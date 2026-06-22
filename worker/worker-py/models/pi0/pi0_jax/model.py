@@ -158,24 +158,18 @@ class Pi0Jax:
             lm_kv:         (Ks, Vs) stacked LM KV cache [18, B, 1, S, 256] each,
                            pre-computed by encode_prefix()
             state_b:       [B, state_dim] proprioceptive state (already normalised)
-            noised_action: [B, max_action_dim] noised action (already normalised, zero-padded)
+            noised_action: [B, chunk_size, max_action_dim] noised action chunk
             t:             scalar timestep in [0, 1]
         Returns:
             velocity: [B, chunk_size, max_action_dim]
         """
-        B = state_b.shape[0]
-
         state_tok = _dense_apply(
             trainable["state_proj"]["kernel"],
             trainable["state_proj"].get("bias"),
             state_b[:, None, :],
         )  # [B, 1, expert_hidden]
 
-        na = jnp.broadcast_to(
-            noised_action[:, None, :],
-            (B, self._chunk_size, self._max_action_dim),
-        )
-        action_tok = self._action_embed(trainable, na, t)  # [B, chunk, expert_hidden]
+        action_tok = self._action_embed(trainable, noised_action, t)  # [B, chunk, expert_hidden]
 
         expert_in  = jnp.concatenate([state_tok, action_tok], axis=1)
         expert_out = self._run_expert_with_cache(trainable["expert"], expert_in, lm_kv)
@@ -226,67 +220,21 @@ class Pi0Jax:
 
         lm_kv = self.encode_prefix(frozen, images_b, tokens_b)
 
-        x   = jax.random.normal(rng, (self._max_action_dim,))
-        x_b = x[None]
+        x_b = jax.random.normal(rng, (1, self._chunk_size, self._max_action_dim))
 
         dt = 1.0 / self._num_inference_steps
         ts = 1.0 - jnp.arange(self._num_inference_steps, dtype=jnp.float32) * dt
 
         def denoise_step(x_b, t):
-            vel  = self.forward(trainable, lm_kv, state_b, x_b, t)
-            vel0 = vel[0, 0, :]
-            x    = x_b[0] - dt * vel0
-            return x[None], vel
+            vel = self.forward(trainable, lm_kv, state_b, x_b, t)
+            return x_b - dt * vel, None
 
         x_final, _ = jax.lax.scan(denoise_step, x_b, ts)
+        # x_final: [1, chunk_size, max_action_dim]
 
-        action    = self._unnormalize(x_final[0], frozen["unnorm_action"])
-        actual_dim = self._cfg.get("output_features", {}).get("action", {}).get("shape", [self._max_action_dim])[0]
-        action    = action[:actual_dim]
-        return jnp.broadcast_to(action[None], (self._n_action_steps, actual_dim))
-
-    def infer_chunk(
-        self,
-        trainable: Params,
-        frozen: Params,
-        images: Array,
-        state: Array,
-        task: str,
-        rng: Array,
-    ) -> Array:
-        """Run Euler ODE and return full chunk [n_action_steps, actual_action_dim]."""
-        state_dim = state.shape[0]
-        norm_dim = frozen["norm_state"]["mean"].shape[0]
-        dim = min(state_dim, norm_dim)
-        norm_state = self._normalize(
-            state[:dim],
-            {"mean": frozen["norm_state"]["mean"][:dim], "std": frozen["norm_state"]["std"][:dim]},
-        )
-        state_pad   = _pad_to(norm_state, self._arch.get("state_dim", 32))
-        task_tokens = self._encode_task(task)
-
-        images_b = images[None]
-        state_b  = state_pad[None]
-        tokens_b = task_tokens[None]
-
-        lm_kv = self.encode_prefix(frozen, images_b, tokens_b)
-
-        x   = jax.random.normal(rng, (self._max_action_dim,))
-        x_b = x[None]
-
-        dt = 1.0 / self._num_inference_steps
-        ts = 1.0 - jnp.arange(self._num_inference_steps, dtype=jnp.float32) * dt
-
-        def denoise_step(x_b, t):
-            vel  = self.forward(trainable, lm_kv, state_b, x_b, t)
-            vel0 = vel[0, 0, :]
-            x    = x_b[0] - dt * vel0
-            return x[None], vel
-
-        _, all_vels = jax.lax.scan(denoise_step, x_b, ts)
-
-        actual_dim = self._cfg.get("output_features", {}).get("action", {}).get("shape", [self._max_action_dim])[0]
-        return all_vels[-1, 0, :self._n_action_steps, :actual_dim]
+        actual_dim = frozen["unnorm_action"]["mean"].shape[0]
+        chunk = x_final[0, :self._n_action_steps, :actual_dim]   # [n_action_steps, actual_dim]
+        return self._unnormalize(chunk, frozen["unnorm_action"])
 
     # ------------------------------------------------------------------
     # Pure policy function (for PPO trainer)
