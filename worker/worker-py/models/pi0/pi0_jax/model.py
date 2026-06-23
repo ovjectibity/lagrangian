@@ -10,7 +10,6 @@ the trainable portion.
 from __future__ import annotations
 
 import json
-import logging
 import os
 from typing import Any, Callable
 
@@ -29,6 +28,8 @@ from .gemma import (
     _rope_freqs,
     _layer_params,
 )
+import logging
+_logger = logging.getLogger(__name__)
 
 Params = dict[str, Any]
 Array = jax.Array
@@ -99,8 +100,8 @@ class Pi0Jax:
         # safetensors.numpy upcasts bfloat16 checkpoint weights to float32 (numpy has no
         # native bfloat16 type), doubling GPU memory from ~7GB to ~14GB. Explicitly cast
         # back to bfloat16 so the weights fit comfortably on a 16GB T4.
-        frozen    = jax.tree_util.tree_map(lambda x: jnp.array(x, dtype=jnp.bfloat16), frozen)
-        trainable = jax.tree_util.tree_map(lambda x: jnp.array(x, dtype=jnp.bfloat16), trainable)
+        # frozen    = jax.tree_util.tree_map(lambda x: jnp.array(x, dtype=jnp.bfloat16), frozen)
+        # trainable = jax.tree_util.tree_map(lambda x: jnp.array(x, dtype=jnp.bfloat16), trainable)
 
         _log_gpu_memory("after weight load")
         return cls(frozen, trainable, arch, config, n_action_steps=n_action_steps)
@@ -413,9 +414,6 @@ def _pad_to(x: Array, target_dim: int) -> Array:
     if pad <= 0:
         return x[..., :target_dim]
     return jnp.pad(x, [(0, pad)])
-
-
-_logger = logging.getLogger(__name__)
 
 
 def _log_gpu_memory(label: str) -> None:

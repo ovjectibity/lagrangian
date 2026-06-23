@@ -11,7 +11,12 @@ import re
 from typing import Any
 
 import numpy as np
-from safetensors.numpy import load_file
+from safetensors.flax import load_file
+import jax
+import jax.numpy as jnp
+
+import logging
+_logger = logging.getLogger(__name__)
 
 Params = dict[str, Any]
 
@@ -30,6 +35,7 @@ def load(safetensors_path: str) -> tuple[Params, Params, dict[str, Any]]:
         expert_head_dim, expert_intermediate,
         action_dim, state_dim, time_embed_dim, num_patches, mm_proj_out,
     """
+    # Loading over the GPU by default
     flat = load_file(safetensors_path)
 
     frozen: Params = {}
@@ -57,9 +63,14 @@ def load(safetensors_path: str) -> tuple[Params, Params, dict[str, Any]]:
         "out": _load_linear(flat, "model.action_time_mlp_out"),
     }
 
+    #Give a log of the devices the loaded Pi-0 Pytree is on
+    device_map_frozen = jax.tree.map(lambda node: node.devices(),frozen)
+    _logger.info(device_map_frozen)
+    device_map_trainable = jax.tree.map(lambda node: node.devices(),trainable)
+    _logger.info(device_map_trainable)
+
     arch = _infer_arch(flat)
     return frozen, trainable, arch
-
 
 # ---------------------------------------------------------------------------
 # Sub-loaders
@@ -101,7 +112,7 @@ def _load_siglip(flat: dict) -> Params:
                 "fc2": _load_linear_bias(flat, f"{p}.mlp.fc2"),
             },
         })
-    out["layers"] = layers
+    out["layers"] = _stack_layers(layers)
     out["post_ln"] = _load_ln(flat, f"{prefix}.post_layernorm")
     return out
 
@@ -128,7 +139,7 @@ def _load_lm(flat: dict) -> Params:
 
     layers_prefix = f"{prefix}.layers"
     num_layers = _count_layers(flat, layers_prefix)
-    out["layers"] = [_load_gemma_layer(flat, f"{layers_prefix}.{i}") for i in range(num_layers)]
+    out["layers"] = _stack_layers([_load_gemma_layer(flat, f"{layers_prefix}.{i}") for i in range(num_layers)])
 
     if lm_head_key in flat:
         out["lm_head"] = {"kernel": flat[lm_head_key].T}
@@ -141,7 +152,7 @@ def _load_expert(flat: dict) -> Params:
     out["norm"] = _load_rms(flat, f"{prefix}.norm")
     layers_prefix = f"{prefix}.layers"
     num_layers = _count_layers(flat, layers_prefix)
-    out["layers"] = [_load_gemma_layer(flat, f"{layers_prefix}.{i}") for i in range(num_layers)]
+    out["layers"] = _stack_layers([_load_gemma_layer(flat, f"{layers_prefix}.{i}") for i in range(num_layers)])
     return out
 
 
@@ -166,6 +177,15 @@ def _load_gemma_layer(flat: dict, prefix: str) -> Params:
 # ---------------------------------------------------------------------------
 # Primitives
 # ---------------------------------------------------------------------------
+
+def _stack_layers(layers: list[Params]) -> Params:
+    """Stack a list of per-layer param dicts into a single pytree with a leading [num_layers, ...] dim on every leaf."""
+    def _stack(vals: list) -> Any:
+        if isinstance(vals[0], dict):
+            return {k: _stack([v[k] for v in vals]) for k in vals[0]}
+        return jnp.stack(vals)
+    return _stack(layers)
+
 
 def _load_linear(flat: dict, prefix: str) -> Params:
     return {"kernel": flat[f"{prefix}.weight"].T}
