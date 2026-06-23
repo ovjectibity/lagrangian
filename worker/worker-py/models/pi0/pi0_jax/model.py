@@ -10,6 +10,7 @@ the trainable portion.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Callable
 
@@ -95,10 +96,13 @@ class Pi0Jax:
         safetensors_path = os.path.join(path, "model.safetensors")
         frozen, trainable, arch = wt.load(safetensors_path)
 
-        # Convert numpy arrays to jax arrays
-        frozen = jax.tree_util.tree_map(jnp.array, frozen)
-        trainable = jax.tree_util.tree_map(jnp.array, trainable)
+        # safetensors.numpy upcasts bfloat16 checkpoint weights to float32 (numpy has no
+        # native bfloat16 type), doubling GPU memory from ~7GB to ~14GB. Explicitly cast
+        # back to bfloat16 so the weights fit comfortably on a 16GB T4.
+        frozen    = jax.tree_util.tree_map(lambda x: jnp.array(x, dtype=jnp.bfloat16), frozen)
+        trainable = jax.tree_util.tree_map(lambda x: jnp.array(x, dtype=jnp.bfloat16), trainable)
 
+        _log_gpu_memory("after weight load")
         return cls(frozen, trainable, arch, config, n_action_steps=n_action_steps)
 
     # ------------------------------------------------------------------
@@ -314,11 +318,14 @@ class Pi0Jax:
         self, frozen: Params, images_b: Array, tokens_b: Array
     ) -> tuple[Array, Array]:
         frozen_sg = jax.lax.stop_gradient(frozen)
+        _log_gpu_memory("encode_prefix: start")
         vis  = siglip_forward(frozen_sg["siglip"], images_b, self._arch)
         vis  = _dense_apply(frozen_sg["mm_proj"]["kernel"], frozen_sg["mm_proj"]["bias"], vis)
+        _log_gpu_memory("encode_prefix: after siglip")
         txt  = frozen_sg["lm"]["embed_tokens"]["embedding"][tokens_b]
         lm_x = jnp.concatenate([vis, txt], axis=1)
         _, (Ks, Vs) = self._run_lm_and_cache(frozen_sg["lm"], lm_x)
+        _log_gpu_memory("encode_prefix: after lm")
         return Ks, Vs
 
     def _run_expert_with_cache(
@@ -406,3 +413,16 @@ def _pad_to(x: Array, target_dim: int) -> Array:
     if pad <= 0:
         return x[..., :target_dim]
     return jnp.pad(x, [(0, pad)])
+
+
+_logger = logging.getLogger(__name__)
+
+
+def _log_gpu_memory(label: str) -> None:
+    try:
+        stats = jax.devices()[0].memory_stats()
+        used_gb  = stats["bytes_in_use"] / 1e9
+        limit_gb = stats["bytes_limit"] / 1e9
+        _logger.info("GPU mem [%s]: %.2f / %.2f GB used", label, used_gb, limit_gb)
+    except Exception:
+        pass

@@ -132,6 +132,7 @@ class TestingWorkflow:
             if should_stop is not None and should_stop():
                 logger.info("Test run stop requested: id=%s remaining=%s", self.id, remaining)
                 break
+            logger.info("Running the first loop of batched rollout for _run_mjx_batched in testing.py %s", remaining)
             chunk = min(UPDATE_CHUNK_SIZE, remaining)
             batched_data, (chunk_xpos, chunk_xquat) = jax.lax.scan(
                 scan_body, batched_data, None, length=chunk
