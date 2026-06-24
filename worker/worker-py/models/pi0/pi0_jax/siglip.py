@@ -90,126 +90,58 @@ class SigLIPEncoder(nn.Module):
     """SigLIP ViT image encoder.
 
     Processes a batch of images (potentially multi-camera) and returns
-    patch token embeddings.
+    patch token embeddings. Params are passed in via apply() and must
+    match the weights.py pytree structure directly — no renaming needed.
     """
-    num_layers: int
-    hidden_dim: int
-    intermediate_dim: int
     num_heads: int
     head_dim: int
-    num_patches: int   # 256 for 224×224 @ patch 14
+    hidden_dim: int
 
     @nn.compact
-    def __call__(self, images: Array) -> Array:
+    def __call__(self, params: Params, images: Array) -> Array:
         """
         Args:
+            params: frozen["siglip"] pytree from weights.load()
             images: [B, N_cam, H, W, 3] float32 in [0, 1]
         Returns:
             tokens: [B, N_cam * num_patches, hidden_dim]
         """
         B, N_cam, H, W, C = images.shape
-
-        # Process all cameras in parallel by merging batch and camera dims
         x = images.reshape(B * N_cam, H, W, C)
 
-        # Patch embedding via strided Conv (no bias in original SigLIP? — bias IS present)
         x = nn.Conv(
             features=self.hidden_dim,
             kernel_size=(14, 14),
             strides=(14, 14),
             padding="VALID",
             use_bias=True,
-            name="patch_embed",
-        )(x)                                       # [B*N, ph, pw, hidden]
+        ).apply({"params": params["patch_embed"]}, x)     # [B*N, ph, pw, hidden]
         ph, pw = x.shape[1], x.shape[2]
-        x = x.reshape(B * N_cam, ph * pw, self.hidden_dim)   # [B*N, T, hidden]
+        x = x.reshape(B * N_cam, ph * pw, self.hidden_dim)
 
-        # Learned position embeddings
-        pos = self.param(
-            "pos_embed",
-            lambda rng, shape: jnp.zeros(shape),
-            (self.num_patches, self.hidden_dim),
+        x = x + params["pos_embed"]["embedding"]
+
+        layer = _SigLIPLayer(
+            num_heads=self.num_heads,
+            head_dim=self.head_dim,
+            intermediate_dim=params["layers"]["mlp"]["fc1"]["kernel"].shape[-1],
+            hidden_dim=self.hidden_dim,
         )
-        x = x + pos[None, :, :]
 
-        # Transformer encoder layers
-        for i in range(self.num_layers):
-            x = _SigLIPLayer(
-                num_heads=self.num_heads,
-                head_dim=self.head_dim,
-                intermediate_dim=self.intermediate_dim,
-                hidden_dim=self.hidden_dim,
-                name=f"layers_{i}",
-            )(x)
+        def scan_fn(x, layer_p):
+            return layer.apply({"params": layer_p}, x), None
 
-        x = nn.LayerNorm(name="post_ln")(x)         # [B*N, T, hidden]
+        x, _ = jax.lax.scan(scan_fn, x, params["layers"])
 
-        # Reshape back to separate camera axis, then flatten cameras into tokens
-        x = x.reshape(B, N_cam * ph * pw, self.hidden_dim)
-        return x
+        x = nn.LayerNorm().apply({"params": params["post_ln"]}, x)
 
+        return x.reshape(B, N_cam * ph * pw, self.hidden_dim)
 
-# ---------------------------------------------------------------------------
-# Functional forward (for use without Flax module machinery)
-# ---------------------------------------------------------------------------
 
 def siglip_forward(params: Params, images: Array, arch: dict) -> Array:
-    """Pure-functional SigLIP forward pass.
-
-    Args:
-        params: frozen["siglip"] pytree from weights.load()
-        images: [B, N_cam, H, W, 3]
-        arch:   arch_config from weights.load()
-    Returns:
-        [B, N_cam * num_patches, siglip_hidden]
-    """
     enc = SigLIPEncoder(
-        num_layers=arch["siglip_num_layers"],
-        hidden_dim=arch["siglip_hidden"],
-        intermediate_dim=4304,   # inferred offline from checkpoint; constant for this variant
         num_heads=arch["siglip_num_heads"],
         head_dim=arch["siglip_head_dim"],
-        num_patches=arch["num_patches"],
+        hidden_dim=arch["siglip_hidden"],
     )
-    return enc.apply({"params": _rename_params(params)}, images)
-
-
-# ---------------------------------------------------------------------------
-# Weight name bridge: weights.py pytree → Flax param names
-# ---------------------------------------------------------------------------
-
-def _rename_params(p: Params) -> Params:
-    """Convert weights.py pytree layout to Flax module param names."""
-    out: Params = {
-        "patch_embed": {"kernel": p["patch_embed"]["kernel"],
-                        "bias": p["patch_embed"]["bias"]},
-        "post_ln": {"scale": p["post_ln"]["scale"], "bias": p["post_ln"]["bias"]},
-    }
-    # pos_embed is stored as a plain array in weights.py; Flax expects it under
-    # the param name used in self.param() call — "pos_embed"
-    out["pos_embed"] = p["pos_embed"]["embedding"]
-
-    layers_out = {}
-    for i, layer in enumerate(p["layers"]):
-        layers_out[f"layers_{i}"] = {
-            "ln1": {"scale": layer["ln1"]["scale"], "bias": layer["ln1"]["bias"]},
-            "ln2": {"scale": layer["ln2"]["scale"], "bias": layer["ln2"]["bias"]},
-            "self_attn": {
-                "q_proj": {"kernel": layer["self_attn"]["q_proj"]["kernel"],
-                            "bias": layer["self_attn"]["q_proj"]["bias"]},
-                "k_proj": {"kernel": layer["self_attn"]["k_proj"]["kernel"],
-                            "bias": layer["self_attn"]["k_proj"]["bias"]},
-                "v_proj": {"kernel": layer["self_attn"]["v_proj"]["kernel"],
-                            "bias": layer["self_attn"]["v_proj"]["bias"]},
-                "out_proj": {"kernel": layer["self_attn"]["out_proj"]["kernel"],
-                              "bias": layer["self_attn"]["out_proj"]["bias"]},
-            },
-            "mlp": {
-                "fc1": {"kernel": layer["mlp"]["fc1"]["kernel"],
-                         "bias": layer["mlp"]["fc1"]["bias"]},
-                "fc2": {"kernel": layer["mlp"]["fc2"]["kernel"],
-                         "bias": layer["mlp"]["fc2"]["bias"]},
-            },
-        }
-    out.update(layers_out)
-    return out
+    return enc.apply({}, params, images)

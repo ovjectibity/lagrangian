@@ -44,6 +44,7 @@ fi
 SCRIPT_BASENAME="$(basename "${TEST_SCRIPT}")"
 REMOTE_TMP="/tmp/${SCRIPT_BASENAME}"
 CONTAINER_PATH="/tmp/${SCRIPT_BASENAME}"
+PROFILE_NAME="memory_abc.prof"
 
 echo "Transferring ${TEST_SCRIPT} to ${REMOTE_IP}:${REMOTE_TMP} ..."
 scp "${SSH_ARGS[@]}" "${TEST_SCRIPT}" "${SSH_USER}@${REMOTE_IP}:${REMOTE_TMP}"
@@ -53,5 +54,28 @@ ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
   "sudo docker cp ${REMOTE_TMP} ${CONTAINER_NAME}:${CONTAINER_PATH} && rm -f ${REMOTE_TMP}"
 
 echo "Running test inside container ..."
+set +e
 ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
-  "sudo docker exec -e PYTHONPATH=/opt/lagrangian/worker ${CONTAINER_NAME} python3 ${CONTAINER_PATH}"
+  "sudo docker exec \
+  -w /tmp \
+  -e PYTHONPATH=/opt/lagrangian/worker \
+  -e TF_GPU_ALLOCATOR=cuda_malloc_async \
+  ${CONTAINER_NAME} python3 ${CONTAINER_PATH}"
+TEST_EXIT=$?
+set -e
+
+echo "Transferring memory profile ${PROFILE_NAME} back to local (best-effort) ..."
+if ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
+     "sudo docker cp ${CONTAINER_NAME}:/tmp/${PROFILE_NAME} /tmp/${PROFILE_NAME}"; then
+  scp "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}:/tmp/${PROFILE_NAME}" "${SCRIPT_DIR}/${PROFILE_NAME}" \
+    && echo "Profile saved to ${SCRIPT_DIR}/${PROFILE_NAME}"
+else
+  echo "No memory profile found in container (test may not have reached the save call)."
+fi
+
+exit ${TEST_EXIT}
+
+# -e TF_GPU_ALLOCATOR=cuda_malloc_async \
+# -e XLA_PYTHON_CLIENT_ALLOCATOR=platform \
+#  -e XLA_PYTHON_CLIENT_PREALLOCATE=false \
+# -e XLA_PYTHON_CLIENT_ALLOCATOR=cuda_async \

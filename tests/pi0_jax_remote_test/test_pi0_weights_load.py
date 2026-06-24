@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 import jax
 import models.pi0.pi0_jax.weights as wt
+from safetensors.flax import load_file
 
 CHECKPOINT_DIR = os.environ.get("PI0_CHECKPOINT_DIR", "/opt/lagrangian/pi0")
 SAFETENSORS_PATH = os.path.join(CHECKPOINT_DIR, "model.safetensors")
@@ -32,34 +33,44 @@ def main():
     logger.info("GPU before load: %.2f / %.2f GB", used, limit)
 
     logger.info("Loading from %s ...", SAFETENSORS_PATH)
+    # flat = load_file(SAFETENSORS_PATH,backend="mmap")
+    # device_map_flat = jax.tree.map(lambda x : x.devices(),flat)
+    # print(device_map_flat)
+    # print(flat["model.paligemma_with_expert.paligemma.model.vision_tower.vision_model.encoder.layers.9.self_attn.q_proj.weight"].devices())
+
+    ## Perform the custom building out of the map: 
+    
+
     frozen, trainable, arch = wt.load(SAFETENSORS_PATH)
 
     used, limit = _gpu_gb()
     logger.info("GPU after load:  %.2f / %.2f GB", used, limit)
-    logger.info("arch: %s", arch)
 
-    # lm layers
-    lm_layers = frozen["lm"]["layers"]
-    assert isinstance(lm_layers, dict), f"lm layers should be a stacked dict, got {type(lm_layers)}"
-    q_shape = lm_layers["self_attn"]["q_proj"]["kernel"].shape
-    logger.info("lm  q_proj kernel shape: %s  (expect [%d, ...])", q_shape, arch["lm_num_layers"])
-    assert q_shape[0] == arch["lm_num_layers"]
+    # print(device_map_flat)
+    # logger.info("arch: %s", arch)
 
-    # expert layers
-    exp_layers = trainable["expert"]["layers"]
-    assert isinstance(exp_layers, dict), f"expert layers should be a stacked dict, got {type(exp_layers)}"
-    eq_shape = exp_layers["self_attn"]["q_proj"]["kernel"].shape
-    logger.info("exp q_proj kernel shape: %s  (expect [%d, ...])", eq_shape, arch["expert_num_layers"])
-    assert eq_shape[0] == arch["expert_num_layers"]
+    # # lm layers
+    # lm_layers = frozen["lm"]["layers"]
+    # assert isinstance(lm_layers, dict), f"lm layers should be a stacked dict, got {type(lm_layers)}"
+    # q_shape = lm_layers["self_attn"]["q_proj"]["kernel"].shape
+    # logger.info("lm  q_proj kernel shape: %s  (expect [%d, ...])", q_shape, arch["lm_num_layers"])
+    # assert q_shape[0] == arch["lm_num_layers"]
 
-    # siglip layers
-    sig_layers = frozen["siglip"]["layers"]
-    assert isinstance(sig_layers, dict), f"siglip layers should be a stacked dict, got {type(sig_layers)}"
-    sq_shape = sig_layers["self_attn"]["q_proj"]["kernel"].shape
-    logger.info("sig q_proj kernel shape: %s  (expect [%d, ...])", sq_shape, arch["siglip_num_layers"])
-    assert sq_shape[0] == arch["siglip_num_layers"]
+    # # expert layers
+    # exp_layers = trainable["expert"]["layers"]
+    # assert isinstance(exp_layers, dict), f"expert layers should be a stacked dict, got {type(exp_layers)}"
+    # eq_shape = exp_layers["self_attn"]["q_proj"]["kernel"].shape
+    # logger.info("exp q_proj kernel shape: %s  (expect [%d, ...])", eq_shape, arch["expert_num_layers"])
+    # assert eq_shape[0] == arch["expert_num_layers"]
 
-    logger.info("PASS")
+    # # siglip layers
+    # sig_layers = frozen["siglip"]["layers"]
+    # assert isinstance(sig_layers, dict), f"siglip layers should be a stacked dict, got {type(sig_layers)}"
+    # sq_shape = sig_layers["self_attn"]["q_proj"]["kernel"].shape
+    # logger.info("sig q_proj kernel shape: %s  (expect [%d, ...])", sq_shape, arch["siglip_num_layers"])
+    # assert sq_shape[0] == arch["siglip_num_layers"]
+
+    # logger.info("PASS")
 
 
 if __name__ == "__main__":

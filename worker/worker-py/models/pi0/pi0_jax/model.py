@@ -20,13 +20,12 @@ import sentencepiece as spm
 from huggingface_hub import hf_hub_download
 
 from . import weights as wt
-from .siglip import siglip_forward, _rename_params as _siglip_rename
+from .siglip import siglip_forward
 from .gemma import (
     RMSNorm,
     GemmaLayer,
     _apply_rope,
     _rope_freqs,
-    _layer_params,
 )
 import logging
 _logger = logging.getLogger(__name__)
@@ -272,11 +271,6 @@ class Pi0Jax:
         q_dim        = num_heads * head_dim
         freqs        = self._lm_freqs
 
-        stacked = jax.tree_util.tree_map(
-            lambda *xs: jnp.stack(xs),
-            *[_layer_params(lp) for lp in lm_params["layers"]],
-        )
-
         def lm_layer(x, layer_p):
             residual = x
             normed   = self._rms_norm_apply(layer_p["input_ln"], x)
@@ -311,7 +305,7 @@ class Pi0Jax:
             )
             return x, (K_roped, V)
 
-        final_x, (Ks, Vs) = jax.lax.scan(lm_layer, x, stacked)
+        final_x, (Ks, Vs) = jax.lax.scan(lm_layer, x, lm_params["layers"])
         final_x = self._rms_norm_apply(lm_params["norm"], final_x)
         return final_x, (Ks, Vs)
 
@@ -340,11 +334,7 @@ class Pi0Jax:
         mask = mask.at[0, S + 1:].set(-1e9)
         mask = mask[None, None, :, :]
 
-        arch    = self._arch
-        stacked = jax.tree_util.tree_map(
-            lambda *xs: jnp.stack(xs),
-            *[_layer_params(lp) for lp in expert_params["layers"]],
-        )
+        arch = self._arch
 
         def expert_layer(x, inputs):
             layer_p, K_prefix, V_prefix = inputs
@@ -362,7 +352,7 @@ class Pi0Jax:
             )
             return x, None
 
-        final_x, _ = jax.lax.scan(expert_layer, expert_in, (stacked, Ks, Vs))
+        final_x, _ = jax.lax.scan(expert_layer, expert_in, (expert_params["layers"], Ks, Vs))
         norm = RMSNorm(name="exp_norm")
         return norm.apply({"params": expert_params["norm"]}, final_x)
 
@@ -416,11 +406,24 @@ def _pad_to(x: Array, target_dim: int) -> Array:
     return jnp.pad(x, [(0, pad)])
 
 
+def _cpu_ram_gb() -> float:
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1e6   # kB → GB
+    except Exception:
+        pass
+    return 0.0
+
+
 def _log_gpu_memory(label: str) -> None:
     try:
         stats = jax.devices()[0].memory_stats()
         used_gb  = stats["bytes_in_use"] / 1e9
         limit_gb = stats["bytes_limit"] / 1e9
-        _logger.info("GPU mem [%s]: %.2f / %.2f GB used", label, used_gb, limit_gb)
+        cpu_gb   = _cpu_ram_gb()
+        jax.debug.print("JAX DEBUG: [{label}]  GPU {used_gb} / {limit_gb} GB   CPU RSS {cpu_gb} GB",label,used_gb,limit_gb,cpu_gb)
+        _logger.info("[%s]  GPU %.2f / %.2f GB   CPU RSS %.2f GB", label, used_gb, limit_gb, cpu_gb)
     except Exception:
         pass

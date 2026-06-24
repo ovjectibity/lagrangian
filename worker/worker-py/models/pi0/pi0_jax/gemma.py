@@ -186,62 +186,7 @@ def causal_mask(T: int, dtype=jnp.float32) -> Array:
     mask = jnp.triu(jnp.full((T, T), -1e9, dtype=dtype), k=1)
     return mask[None, None, :, :]
 
-
-# ---------------------------------------------------------------------------
-# Functional forward helpers
-# ---------------------------------------------------------------------------
-
-def lm_forward(
-    params: Params,
-    token_embeds: Array,
-    freqs: Array,
-    arch: dict,
-) -> Array:
-    """Run frozen LM backbone (bidirectional, no causal mask).
-
-    Args:
-        params:       frozen["lm"] pytree
-        token_embeds: [B, T, lm_hidden] — image + text tokens already projected
-        freqs:        RoPE frequencies [max_len, head_dim]
-        arch:         arch_config from weights.load()
-    Returns:
-        context: [B, T, lm_hidden]
-    """
-    x = token_embeds
-    num_layers = arch["lm_num_layers"]
-    for i in range(num_layers):
-        layer = GemmaLayer(
-            num_heads=arch["lm_num_heads"],
-            num_kv_heads=arch["lm_num_kv_heads"],
-            head_dim=arch["lm_head_dim"],
-            intermediate_dim=arch["lm_intermediate"],
-            hidden_dim=arch["lm_hidden"],
-            name=f"layer_{i}",
-        )
-        lparams = _layer_params(params["layers"][i])
-        x = layer.apply({"params": lparams}, x, freqs, mask=None)
-
-    # Final RMSNorm
-    norm = RMSNorm(name="norm")
-    x = norm.apply({"params": params["norm"]}, x)
-    return x
-
-
-
 # ---------------------------------------------------------------------------
 # Param name bridge: weights.py pytree → Flax module names
 # ---------------------------------------------------------------------------
 
-def _layer_params(layer: Params) -> Params:
-    """Convert weights.py layer dict to Flax GemmaLayer param names."""
-    return {
-        "input_ln": layer["input_ln"],
-        "post_attn_ln": layer["post_attn_ln"],
-        "self_attn": {
-            "q_proj": layer["self_attn"]["q_proj"],
-            "k_proj": layer["self_attn"]["k_proj"],
-            "v_proj": layer["self_attn"]["v_proj"],
-            "o_proj": layer["self_attn"]["o_proj"],
-        },
-        "mlp": layer["mlp"],
-    }

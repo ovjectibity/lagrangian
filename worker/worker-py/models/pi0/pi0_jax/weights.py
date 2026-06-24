@@ -43,10 +43,13 @@ def load(safetensors_path: str) -> tuple[Params, Params, dict[str, Any]]:
 
     # SigLIP vision tower
     frozen["siglip"] = _load_siglip(flat)
+    del flat["siglip"]
     # Multi-modal projector
     frozen["mm_proj"] = _load_mm_proj(flat)
+    del flat["mm_proj"]
     # LM backbone
     frozen["lm"] = _load_lm(flat)
+    del flat["lm"]
     # State/action normalisation buffers
     frozen["norm_state"] = _load_norm(flat, "normalize_inputs.buffer_observation_state")
     frozen["norm_action"] = _load_norm(flat, "normalize_targets.buffer_action")
@@ -54,6 +57,7 @@ def load(safetensors_path: str) -> tuple[Params, Params, dict[str, Any]]:
 
     # Action expert (trainable)
     trainable["expert"] = _load_expert(flat)
+    del flat["expert"]
     # Small projections (trainable)
     trainable["state_proj"] = _load_linear(flat, "model.state_proj")
     trainable["action_in_proj"] = _load_linear(flat, "model.action_in_proj")
