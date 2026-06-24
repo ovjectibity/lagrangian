@@ -94,7 +94,7 @@ class Pi0Jax:
             config = json.load(f)
 
         safetensors_path = os.path.join(path, "model.safetensors")
-        frozen, trainable, arch = wt.load(safetensors_path)
+        frozen, trainable, arch = wt.load_lazy(safetensors_path)
 
         # safetensors.numpy upcasts bfloat16 checkpoint weights to float32 (numpy has no
         # native bfloat16 type), doubling GPU memory from ~7GB to ~14GB. Explicitly cast

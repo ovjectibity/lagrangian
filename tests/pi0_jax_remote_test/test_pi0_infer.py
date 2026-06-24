@@ -53,18 +53,18 @@ def main():
     H, W = pi0._image_resolution
     images = jnp.zeros((1, H, W, 3), dtype=jnp.float32)   # [N_cam=1, H, W, 3]
     task   = "pick up the block"
-    # state  = jnp.zeros(pi0._arch["state_dim"], dtype=jnp.float32)
-    # rng    = jax.random.PRNGKey(0)
-
+    state  = jnp.zeros(pi0._arch["state_dim"], dtype=jnp.float32)
+    rng    = jax.random.PRNGKey(0)
+    
     # ------------------------------------------------------------------ #
     # Part 1: test just the LM backbone (encode_prefix)                   #
     # ------------------------------------------------------------------ #
-    if TEST_LM_ONLY:
-        pi0._frozen["lm"]["layers"] = jax.tree_util.tree_map(
-            lambda a: a[:1], pi0._frozen["lm"]["layers"]
-        )
-        logger.info("Truncated LM to 1 layer for memory hypothesis test")
-        _log_stats("after lm layer truncation")
+    # if TEST_LM_ONLY:
+    #     pi0._frozen["lm"]["layers"] = jax.tree_util.tree_map(
+    #         lambda a: a[:1], pi0._frozen["lm"]["layers"]
+    #     )
+    #     logger.info("Truncated LM to 1 layer for memory hypothesis test")
+    #     _log_stats("after lm layer truncation")
 
     # Verify pool can satisfy a 144 KiB allocation before we invoke any scan.
     # probe = jnp.zeros((288, 256), dtype=jnp.bfloat16)   # exactly 144 KiB
@@ -72,19 +72,21 @@ def main():
     # _log_stats("after 144 KiB probe alloc")
     # del probe
 
-    logger.info("--- encode_prefix only ---")
-    images_b = images[None]
-    tokens_b = pi0._encode_task(task)[None]
+    # logger.info("--- encode_prefix only ---")
+    # images_b = images[None]
+    # tokens_b = pi0._encode_task(task)[None]
+    # _log_stats("after task encoding")
 
-    jit_encode_prefix = jax.jit(pi0.encode_prefix)
-    compiled_step = jit_encode_prefix.lower(pi0._frozen, images_b, tokens_b).compile()
-    compiled_stats = compiled_step.memory_analysis()
-    print(compiled_stats)
+    # jit_encode_prefix = jax.jit(pi0.encode_prefix)
+    # # compiled_step = jit_encode_prefix.lower(pi0._frozen, images_b, tokens_b).compile()
+    # # compiled_stats = compiled_step.memory_analysis()
+    # # print(compiled_stats)
 
     # Ks, Vs = jit_encode_prefix(pi0._frozen, images_b, tokens_b)
-    # # Ks, Vs = pi0.encode_prefix(pi0._frozen, images_b, tokens_b)
+    # # # Ks, Vs = pi0.encode_prefix(pi0._frozen, images_b, tokens_b)
     # Ks = jax.block_until_ready(Ks)
     # Vs = jax.block_until_ready(Vs)
+    # _log_stats("after encoding prefix")
     # _log_stats("after encode_prefix")
     # logger.info("Ks shape: %s  Vs shape: %s", Ks.shape, Vs.shape)
 
@@ -99,26 +101,26 @@ def main():
     # Part 2: full denoising scan                                         #
     # JIT-compile the scan body (task closed over as constant)            #
     # ------------------------------------------------------------------ #
-    # logger.info("--- full denoising (JIT) ---")
+    logger.info("--- full denoising (JIT) ---")
 
-    # jit_infer = jax.jit(
-    #     lambda trainable, frozen, images, state, rng:
-    #         pi0.infer(trainable, frozen, images, state, task, rng)
-    # )
+    jit_infer = jax.jit(
+        lambda trainable, frozen, images, state, rng:
+            pi0.infer(trainable, frozen, images, state, task, rng)
+    )
 
-    # logger.info("Running infer — images %s, state %s, task: %r", images.shape, state.shape, task)
-    # actions = jit_infer(pi0._trainable, pi0._frozen, images, state, rng)
-    # actions = jax.block_until_ready(actions)
+    logger.info("Running infer — images %s, state %s, task: %r", images.shape, state.shape, task)
+    actions = jit_infer(pi0._trainable, pi0._frozen, images, state, rng)
+    actions = jax.block_until_ready(actions)
 
-    # _log_stats("after infer")
-    # logger.info("actions shape: %s", actions.shape)
-    # logger.info("actions:\n%s", actions)
+    _log_stats("after infer")
+    logger.info("actions shape: %s", actions.shape)
+    logger.info("actions:\n%s", actions)
 
-    # assert actions.ndim == 2, f"expected 2D actions, got shape {actions.shape}"
-    # assert actions.shape[0] == pi0._n_action_steps, \
-    #     f"expected {pi0._n_action_steps} action steps, got {actions.shape[0]}"
+    assert actions.ndim == 2, f"expected 2D actions, got shape {actions.shape}"
+    assert actions.shape[0] == pi0._n_action_steps, \
+        f"expected {pi0._n_action_steps} action steps, got {actions.shape[0]}"
 
-    # logger.info("PASS")
+    logger.info("PASS")
 
 
 if __name__ == "__main__":

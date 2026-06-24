@@ -41,7 +41,8 @@ def main():
     ## Perform the custom building out of the map: 
     
 
-    frozen, trainable, arch = wt.load(SAFETENSORS_PATH)
+    # frozen, trainable, arch = wt.load(SAFETENSORS_PATH)
+    frozen, trainable, arch = wt.load_lazy(SAFETENSORS_PATH)
 
     used, limit = _gpu_gb()
     logger.info("GPU after load:  %.2f / %.2f GB", used, limit)

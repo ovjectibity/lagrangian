@@ -7,10 +7,12 @@ Architecture hyperparams are inferred from weight shapes — no hardcoding.
 """
 from __future__ import annotations
 
+import gc
 import re
 from typing import Any
 
 import numpy as np
+from safetensors import safe_open
 from safetensors.flax import load_file
 import jax
 import jax.numpy as jnp
@@ -24,6 +26,11 @@ Params = dict[str, Any]
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def _del_prefix_key_from_map(flat,key_prefix): 
+    for key in list(flat.keys()): 
+        if key.startswith(key_prefix):
+            del flat[key]
 
 def load(safetensors_path: str) -> tuple[Params, Params, dict[str, Any]]:
     """Load Pi-0 weights and return (frozen_params, trainable_params, arch_config).
@@ -43,13 +50,18 @@ def load(safetensors_path: str) -> tuple[Params, Params, dict[str, Any]]:
 
     # SigLIP vision tower
     frozen["siglip"] = _load_siglip(flat)
-    del flat["siglip"]
+    _del_prefix_key_from_map(flat,"model.paligemma_with_expert.paligemma.model.vision_tower.vision_model")
+    _del_prefix_key_from_map(flat,"model.paligemma_with_expert.embeddings")
+    print(flat.keys())
+
     # Multi-modal projector
     frozen["mm_proj"] = _load_mm_proj(flat)
-    del flat["mm_proj"]
     # LM backbone
     frozen["lm"] = _load_lm(flat)
-    del flat["lm"]
+    _del_prefix_key_from_map(flat,"model.paligemma_with_expert.paligemma.model.language_model")
+    print(flat.keys())
+    # print(flat.keys())
+    # del flat["lm"]
     # State/action normalisation buffers
     frozen["norm_state"] = _load_norm(flat, "normalize_inputs.buffer_observation_state")
     frozen["norm_action"] = _load_norm(flat, "normalize_targets.buffer_action")
@@ -57,7 +69,9 @@ def load(safetensors_path: str) -> tuple[Params, Params, dict[str, Any]]:
 
     # Action expert (trainable)
     trainable["expert"] = _load_expert(flat)
-    del flat["expert"]
+    _del_prefix_key_from_map(flat,"model.paligemma_with_expert.gemma_expert.model")
+    print(flat.keys())
+    # print(flat.keys())
     # Small projections (trainable)
     trainable["state_proj"] = _load_linear(flat, "model.state_proj")
     trainable["action_in_proj"] = _load_linear(flat, "model.action_in_proj")
@@ -74,6 +88,96 @@ def load(safetensors_path: str) -> tuple[Params, Params, dict[str, Any]]:
     _logger.info(device_map_trainable)
 
     arch = _infer_arch(flat)
+    return frozen, trainable, arch
+
+
+class _LazySafetensors:
+    """Read-only mapping over an open safetensors handle that loads on demand.
+
+    ``__getitem__`` pulls a single tensor from the file as a torch tensor, hands
+    it to :func:`torch_to_jax` (which converts it and drops + GCs the source),
+    and returns the JAX array. Keys come from the file header, so membership and
+    iteration are available without reading any tensor data. The handle must
+    stay open (i.e. inside its ``with`` block) for the lifetime of this object.
+    """
+
+    def __init__(self, handle: Any):
+        self._f = handle
+        self._keys: set[str] = set(handle.keys())
+
+    def __getitem__(self, key: str) -> jax.Array:
+        if key not in self._keys:
+            raise KeyError(key)
+        return torch_to_jax(self._f.get_tensor(key))
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._keys
+
+    def __iter__(self):
+        return iter(self._keys)
+
+    def keys(self):
+        return set(self._keys)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self[key] if key in self._keys else default
+
+    def __delitem__(self, key: str) -> None:
+        # Drops the key from the known set so it is never loaded; no data held.
+        self._keys.discard(key)
+
+
+def load_lazy(safetensors_path: str) -> tuple[Params, Params, dict[str, Any]]:
+    """Lazily load Pi-0 weights tensor-by-tensor.
+
+    Same return contract as :func:`load`, but instead of reading every tensor
+    into memory up front, each tensor is pulled from the file only when a
+    sub-loader asks for it, converted to a JAX array, and the source torch
+    tensor is released (see :func:`torch_to_jax`). The sub-loaders are reused
+    unchanged via the :class:`_LazySafetensors` mapping.
+    """
+    with safe_open(safetensors_path, framework="pt", device="cpu") as handle:
+        flat = _LazySafetensors(handle)
+
+        frozen: Params = {}
+        trainable: Params = {}
+
+        # SigLIP vision tower
+        frozen["siglip"] = _load_siglip(flat)
+        # _del_prefix_key_from_map(flat, f"{_PG}.paligemma.model.vision_tower.vision_model")
+        # _del_prefix_key_from_map(flat, f"{_PG}.embeddings")
+
+        # Multi-modal projector
+        frozen["mm_proj"] = _load_mm_proj(flat)
+        # LM backbone
+        frozen["lm"] = _load_lm(flat)
+        # _del_prefix_key_from_map(flat, f"{_PG}.paligemma.model.language_model")
+
+        # State/action normalisation buffers
+        frozen["norm_state"] = _load_norm(flat, "normalize_inputs.buffer_observation_state")
+        frozen["norm_action"] = _load_norm(flat, "normalize_targets.buffer_action")
+        frozen["unnorm_action"] = _load_norm(flat, "unnormalize_outputs.buffer_action")
+
+        # Action expert (trainable)
+        trainable["expert"] = _load_expert(flat)
+        # _del_prefix_key_from_map(flat, f"{_PG}.gemma_expert.model")
+
+        # Small projections (trainable)
+        trainable["state_proj"] = _load_linear(flat, "model.state_proj")
+        trainable["action_in_proj"] = _load_linear(flat, "model.action_in_proj")
+        trainable["action_out_proj"] = _load_linear(flat, "model.action_out_proj")
+        trainable["action_time_mlp"] = {
+            "in": _load_linear(flat, "model.action_time_mlp_in"),
+            "out": _load_linear(flat, "model.action_time_mlp_out"),
+        }
+
+        arch = _infer_arch(flat)
+
+    # Built on CPU tensor-by-tensor; move the finished pytrees to GPU in one pass.
+    gpu = jax.devices()[0]
+    frozen = jax.device_put(frozen, gpu)
+    trainable = jax.device_put(trainable, gpu)
+
     return frozen, trainable, arch
 
 # ---------------------------------------------------------------------------
@@ -181,6 +285,21 @@ def _load_gemma_layer(flat: dict, prefix: str) -> Params:
 # ---------------------------------------------------------------------------
 # Primitives
 # ---------------------------------------------------------------------------
+
+def torch_to_jax(tensor: Any) -> jax.Array:
+    """Convert a PyTorch tensor to a JAX array and release the source tensor.
+
+    Uses DLPack so JAX consumes the tensor's buffer directly — no numpy detour
+    (which can't represent bfloat16) and no second allocation. DLPack carries
+    the dtype, so bf16 stays bf16. The local reference is then dropped and
+    gc.collect() run to reclaim the torch wrapper promptly. The caller must not
+    retain its own reference to ``tensor`` if it wants the storage freed.
+    """
+    arr = jax.dlpack.from_dlpack(tensor.detach())
+    del tensor
+    gc.collect()
+    return arr
+
 
 def _stack_layers(layers: list[Params]) -> Params:
     """Stack a list of per-layer param dicts into a single pytree with a leading [num_layers, ...] dim on every leaf."""
