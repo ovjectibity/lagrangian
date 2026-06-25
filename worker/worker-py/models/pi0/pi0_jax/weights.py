@@ -16,6 +16,7 @@ from safetensors import safe_open
 from safetensors.flax import load_file
 import jax
 import jax.numpy as jnp
+from warnings import deprecated
 
 import logging
 _logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ def _del_prefix_key_from_map(flat,key_prefix):
         if key.startswith(key_prefix):
             del flat[key]
 
+@deprecated("Use load_lazy instead to reduce memory duplications")
 def load(safetensors_path: str) -> tuple[Params, Params, dict[str, Any]]:
     """Load Pi-0 weights and return (frozen_params, trainable_params, arch_config).
 
