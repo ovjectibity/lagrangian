@@ -125,7 +125,7 @@ class TestingWorkflow:
             states = jax.vmap(assemble_fn)(parts_batched)
             actions = jax.vmap(lambda s: pure_fn(params, s))(states)
             bd_next = jax.vmap(lambda d, a: mjx_sim.forward_dyn_pure(d, a)[0])(bd, actions)
-            return bd_next, (bd_next.xpos[:, :nbody], bd_next.xquat[:, :nbody])
+            return bd_next, (parts_batched["cameras"], bd_next.xpos[:, :nbody], bd_next.xquat[:, :nbody])
 
         remaining = num_timesteps
         while remaining > 0:
@@ -134,18 +134,28 @@ class TestingWorkflow:
                 break
             logger.info("Running the first loop of batched rollout for _run_mjx_batched in testing.py %s", remaining)
             chunk = min(UPDATE_CHUNK_SIZE, remaining)
-            batched_data, (chunk_xpos, chunk_xquat) = jax.lax.scan(
+            batched_data, (camera_frames, chunk_xpos, chunk_xquat) = jax.lax.scan(
                 scan_body, batched_data, None, length=chunk
             )
             # chunk_xpos: [chunk, num_parallel_envs, nbody, 3]
             xpos_np = chunk_xpos.reshape(chunk, num_parallel_envs, -1).tolist()
             xquat_np = chunk_xquat.reshape(chunk, num_parallel_envs, -1).tolist()
+            # camera_frames: [chunk, num_parallel_envs, ncam*H*W*C] float32 in [0, 1];
+            # frames field is u8, so denormalise back to bytes per (timestep, env).
+            frames_np = (
+                (camera_frames * 255.0).round().astype(jnp.uint8)
+                .reshape(chunk, num_parallel_envs, -1).tolist()
+            )
             updates = [
                 [ModelForward(xpos=xpos_np[t][i], xquat=xquat_np[t][i])
                  for i in range(num_parallel_envs)]
                 for t in range(chunk)
             ]
-            tx.send_test_updates(TestUpdateMessage(id=self.id, updates=updates))
+            tx.send_test_updates(TestUpdateMessage(
+                id=self.id,
+                simulation_state=updates,
+                frames=frames_np,
+            ))
             remaining -= chunk
 
     def _run_sequential(
