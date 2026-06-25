@@ -146,7 +146,7 @@ pub async fn start_test(
             match msg {
                 TestTaskMessage
                 ::TestUpdateMessage(m) => {
-                    for frame in m.updates {
+                    for frame in m.simulation_state {
                         for update in frame {
                             let binary =
                                 ClientMessage

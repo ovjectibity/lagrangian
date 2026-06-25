@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from commondef.training import *
 
-from pydantic import BaseModel
-from typing import Dict, List
+from pydantic import BaseModel, Field
+from typing import Dict, List, Optional
 
 
 class ModelForward(BaseModel):
@@ -37,5 +37,6 @@ class StopTestMessage(BaseModel):
 
 class TestUpdateMessage(BaseModel):
     id: str
-    updates: List[List[ModelForward]]
+    simulation_state: List[List[ModelForward]]
+    frames: Optional[List[List[List[int]]]] = Field(default=None)
 

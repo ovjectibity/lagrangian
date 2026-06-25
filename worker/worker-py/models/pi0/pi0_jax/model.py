@@ -146,7 +146,7 @@ class Pi0Jax:
     # ------------------------------------------------------------------
     # Forward pass (differentiable w.r.t. trainable)
     # ------------------------------------------------------------------
-
+    
     def forward(
         self,
         trainable: Params,

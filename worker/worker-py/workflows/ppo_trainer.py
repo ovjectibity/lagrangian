@@ -60,43 +60,6 @@ class PPOTrainerRuntimeInfo:
         return self._value_gradient_norm
 
 
-def compute_flow_noise_log_prob(
-    noise_model_fn: Callable[[Params, Array, Array], Array],
-    noise_model_params: Params,
-    obs: Array,
-    denoising_steps: list[tuple[Array, Array]],
-    euler_steps: list[Array],
-) -> Array:
-    """Compute log π(A | obs) via FlowNoise (Formula 5, arxiv:2510.25889).
-
-    Each discrete ODE step from A_τ → A_{τ+δ} is modelled as a Gaussian:
-        A_{τ+δ} | A_τ, obs  ~  N( euler_step(A_τ, τ),  diag(σ_φ(A_τ, obs)²) )
-
-    The total log-prob is the sum of per-step Gaussian log-probs.
-
-    Args:
-        noise_model_fn: pure fn (params, obs, A_tau) -> per-dim log std devs
-        noise_model_params: trainable params of the noise model σ_φ
-        obs: observation fed to the noise model
-        denoising_steps: list of (A_tau, A_tau_next) pairs for each ODE step
-        euler_steps: deterministic Euler ODE predictions μ_τ for each step
-
-    Returns:
-        Scalar total log-probability of the denoising sequence.
-    """
-    log_two_pi = jnp.log(2.0 * jnp.pi)
-    total_log_prob = jnp.zeros(())
-    for (a_tau, a_tau_next), mu in zip(denoising_steps, euler_steps):
-        log_std = noise_model_fn(noise_model_params, obs, a_tau)
-        std = jnp.exp(log_std)
-        normalized = (a_tau_next - mu) / (std + 1e-8)
-        step_log_prob = jnp.sum(
-            -0.5 * (normalized**2 + 2.0 * log_std + log_two_pi)
-        )
-        total_log_prob = total_log_prob + step_log_prob
-    return total_log_prob
-
-
 class PPOTrainer:
     def __init__(
         self,

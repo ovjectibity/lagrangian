@@ -267,7 +267,8 @@ export interface TestRun {
 
 export interface TestUpdateMessage {
 	id: string;
-	updates: ModelForward[][];
+	simulation_state: ModelForward[][];
+	frames?: number[][][];
 }
 
 export interface TrainingExperiment {

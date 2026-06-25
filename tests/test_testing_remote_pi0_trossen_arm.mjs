@@ -20,9 +20,9 @@ const MODEL_PATH    = process.env.MODEL_PATH      ?? "";
 // const NUM_ENVS      = parseInt(process.env.NUM_ENVS      ?? "4",  10);
 const NUM_ENVS      = 1;
 // const NUM_TIMESTEPS = parseInt(process.env.NUM_TIMESTEPS ?? "50", 10);
-const NUM_TIMESTEPS = 1;
+const NUM_TIMESTEPS = 30;
 
-const MAX_FRAMES = 5;
+const MAX_FRAMES = 100;
 
 if (!MODEL_PATH) {
   console.error("MODEL_PATH env var is required");

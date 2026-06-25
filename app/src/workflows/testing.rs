@@ -50,10 +50,11 @@ impl TestingWorkflow {
         let _ =
             tx_test_t.blocking_send(TestTaskMessage::TestUpdateMessage(TestUpdateMessage {
                 id: id,
-                updates: vec![vec![ModelForward {
+                simulation_state: vec![vec![ModelForward {
                     xpos: xpos,
                     xquat: xquat,
                 }]],
+                frames: None
             }));
     }
 

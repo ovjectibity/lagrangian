@@ -1576,13 +1576,24 @@
         "type": "object",
         "required": [
           "id",
-          "updates"
+          "simulation_state"
         ],
         "properties": {
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "nullable": true
+          },
           "id": {
             "type": "string"
           },
-          "updates": {
+          "simulation_state": {
             "type": "array",
             "items": {
               "type": "array",
