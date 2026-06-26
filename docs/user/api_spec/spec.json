@@ -217,16 +217,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Server-sent event stream",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
+          "500": {
+            "description": "Internal server error"
           }
         }
       }
@@ -533,15 +525,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Server-sent event stream",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/cm.ClientMessage"
-                }
-              }
-            }
+          "500": {
+            "description": "Internal server error"
           }
         }
       }
@@ -1584,8 +1569,17 @@
             "items": {
               "type": "array",
               "items": {
-                "type": "string",
-                "format": "binary"
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
               }
             },
             "nullable": true

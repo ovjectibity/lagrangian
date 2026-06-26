@@ -26,3 +26,4 @@ tests/data
 sdk/node_modules
 sdk/dist
 scripts/gen_mongo_schema/target
+app/proc_macros/target
