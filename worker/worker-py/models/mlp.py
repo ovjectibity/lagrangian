@@ -133,14 +133,6 @@ class MLPModel(PPOTrainedModel, TestingModel):
     def get_reward_input_spec(self) -> ModelInputSpec:
         return self._reward_input_spec
 
-    # --- State assembly ---
-
-    def assemble_control_state(self, parts: dict[str, Array]) -> Array:
-        return jnp.concatenate(list(parts.values()))
-
-    def assemble_value_state(self, parts: dict[str, Array]) -> Array:
-        return jnp.concatenate(list(parts.values()))
-
     # --- Reward ---
 
     def get_reward(
@@ -161,21 +153,23 @@ class MLPModel(PPOTrainedModel, TestingModel):
 
     # --- Policy / value inference ---
 
-    def get_policy_output(self, state: Array) -> Array:
-        return self.policy(self.policy_store, state)
+    def get_policy_output(self, parts: dict[str, Array]) -> Array:
+        return self.get_policy()(self.policy_store, parts)
 
-    def get_value_output(self, state: Array) -> float:
-        val = self.value(self.value_store, state)
+    def get_value_output(self, parts: dict[str, Array]) -> float:
+        val = self.get_value_func()(self.value_store, parts)
         val_arr = np.asarray(jax.device_get(val), dtype=np.float64).reshape(-1)
         if val_arr.size == 0:
             raise ValueError("Expected non-empty value output")
         return float(val_arr[0])
 
-    def get_policy(self) -> Callable[[Params, Array], Array]:
-        return self.policy
+    def get_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
+        # MLP net takes a flat tensor; assemble the labeled parts dict (concat on
+        # the feature axis, batch-safe over leading [num_trajs, T, ...] dims).
+        return lambda store, parts: self.policy(store, jnp.concatenate(list(parts.values()), axis=-1))
 
-    def get_value_func(self) -> Callable[[Params, Array], Array]:
-        return self.value
+    def get_value_func(self) -> Callable[[Params, dict[str, Array]], Array]:
+        return lambda store, parts: self.value(store, jnp.concatenate(list(parts.values()), axis=-1))
 
     def get_policy_store(self) -> Params:
         return self.policy_store
@@ -192,16 +186,16 @@ class MLPModel(PPOTrainedModel, TestingModel):
     def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
         return self.control_output_mode
 
-    def get_pure_policy_fn(self) -> Callable[[Params, Array], Array]:
-        return self.policy
+    def get_pure_policy_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
+        return self.get_policy()
 
     # --- TestingModel interface ---
 
-    def get_test_action(self, state: Array) -> Array:
-        return self.get_policy_output(state)
+    def get_test_action(self, parts: dict[str, Array]) -> Array:
+        return self.get_policy_output(parts)
 
-    def get_test_policy(self) -> Callable[[Params, Array], Array]:
-        return self.policy
+    def get_test_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
+        return self.get_policy()
 
     def get_test_params(self) -> Params:
         return self.policy_store

@@ -21,12 +21,19 @@ Params = Any
 
 # jax.config.update("jax_log_compiles", True)
 
+
+def _tree_stack(items: Sequence[Any]) -> Any:
+    """Stack a list of pytrees (e.g. per-step parts dicts) into one pytree with a
+    leading axis, i.e. jnp.stack applied leaf-wise."""
+    return jax.tree_util.tree_map(lambda *xs: jnp.stack(xs), *items)
+
 @dataclass
 class Trajectory:
-    # traj_depth elements — used for policy re-evaluation (control spec)
-    control_wstates: list[Array]
-    # traj_depth + 1 elements (includes terminal) — used for value estimation (value spec)
-    value_wstates: list[Array]
+    # labeled parts dicts with a leading timestep axis (jnp.stack over time).
+    # control_wstates leaves: [traj_depth, ...]      — policy re-evaluation (control spec)
+    # value_wstates leaves:   [traj_depth + 1, ...]  — value estimation incl. terminal (value spec)
+    control_wstates: dict[str, Array]
+    value_wstates: dict[str, Array]
     model_outputs: list[Array]
     model_output_samples: list[Array]
     model_output_sample_log_probs: list[float]
@@ -132,8 +139,8 @@ class PPOTrainer:
         control_input_spec = self.model.get_control_input_spec()
         value_input_spec = self.model.get_value_input_spec()
         reward_input_spec = self.model.get_reward_input_spec()
-        control_wstates: list[Array] = []
-        value_wstates: list[Array] = []
+        control_wstates: list[dict[str, Array]] = []
+        value_wstates: list[dict[str, Array]] = []
         model_outputs: list[Array] = []
         model_output_samples: list[Array] = []
         rewards: list[float] = []
@@ -144,9 +151,7 @@ class PPOTrainer:
             control_parts = self.simulator.get_model_state(control_input_spec)
             value_parts = self.simulator.get_model_state(value_input_spec)
             reward_parts_pre = self.simulator.get_model_state(reward_input_spec)
-            control_state = self.model.assemble_control_state(control_parts)
-            value_state = self.model.assemble_value_state(value_parts)
-            action_gaussian_params = jnp.asarray(self.model.get_policy_output(control_state))
+            action_gaussian_params = jnp.asarray(self.model.get_policy_output(control_parts))
             action_gaussian_mean = action_gaussian_params[:action_output_size]
             action_gaussian_stdev = jnp.exp(action_gaussian_params[action_output_size:])
             self._rng_key, eps_key = random.split(self._rng_key)
@@ -166,15 +171,15 @@ class PPOTrainer:
             reward = float(self.model.get_reward(reward_parts_pre, reward_parts_post))
             logger.info("gen_trajectory: step %s/%s reward=%.4f", step, self.traj_depth, reward)
             rewards.append(reward)
-            control_wstates.append(control_state)
-            value_wstates.append(value_state)
+            # Store labeled parts dicts; policy/value fns assemble their own inputs.
+            control_wstates.append(control_parts)
+            value_wstates.append(value_parts)
             model_outputs.append(action_gaussian_params)
             model_output_samples.append(sampled_action)
-        logger.info("gen_trajectory: step loop done, computing terminal states")
-        terminal_control_parts = self.simulator.get_model_state(control_input_spec)
+        logger.info("gen_trajectory: step loop done, computing terminal state")
+        # Only the value path needs the terminal state (for GAE/RTG); control does not.
         terminal_value_parts = self.simulator.get_model_state(value_input_spec)
-        control_wstates.append(self.model.assemble_control_state(terminal_control_parts))
-        value_wstates.append(self.model.assemble_value_state(terminal_value_parts))
+        value_wstates.append(terminal_value_parts)
         v_terminal = float(self.model.get_value_output(value_wstates[-1]))
         logger.info("gen_trajectory: computing rtg and log probs")
         rtgs = self.compute_rtg(rewards, v_terminal)
@@ -182,10 +187,13 @@ class PPOTrainer:
             jnp.stack(model_output_samples),
             jnp.stack(model_outputs),
         )
+        # Stack per-step lists into time-leading dicts (control: [T,...], value: [T+1,...]).
+        control_wstates_d = _tree_stack(control_wstates)
+        value_wstates_d = _tree_stack(value_wstates)
         logger.info("gen_trajectory: done")
         return Trajectory(
-            control_wstates=control_wstates,
-            value_wstates=value_wstates,
+            control_wstates=control_wstates_d,
+            value_wstates=value_wstates_d,
             model_outputs=model_outputs,
             model_output_samples=model_output_samples,
             model_output_sample_log_probs=[
@@ -205,23 +213,17 @@ class PPOTrainer:
         return trajs
 
     def compute_gae(self, traj: Trajectory) -> Array:
-        advs: list[float] = []
-        for i in reversed(range(self.traj_depth)):
-            wstate = traj.value_wstates[i]
-            reward = traj.rewards[i]
-            val = float(self.model.get_value_output(wstate))
-            wstate_next = traj.value_wstates[i + 1]
-            val_next = float(self.model.get_value_output(wstate_next))
-            adv = reward + (self.gamma_lambda[0] * val_next) - val
-            advs.append(adv)
-        advs.reverse()
-        gaes: list[Array] = []
-        for i in range(self.traj_depth):
-            exps = jnp.arange(self.traj_depth - i, dtype=jnp.float32)
-            weights = (self.gamma_lambda[0] * self.gamma_lambda[1]) ** exps
-            advs_t = jnp.asarray(advs[i:], dtype=jnp.float32)
-            gaes.append(jnp.sum(advs_t * weights))
-        return jnp.asarray(gaes)
+        # Single batched value call over the [T+1, ...] value-state dict (no
+        # per-step loop); shares the pure GAE implementation with the GPU path.
+        rewards = jnp.asarray(traj.rewards, dtype=jnp.float32)
+        return pure_compute_gae(
+            traj.value_wstates,
+            rewards,
+            self.model.get_value_func(),
+            self.model.get_value_store(),
+            self.gamma_lambda[0],
+            self.gamma_lambda[1],
+        )
 
     def compute_rtg(self, rewards: list[float], v_terminal: float) -> list[float]:
         rtgs = [0.0 for _ in range(self.traj_depth)]
@@ -256,9 +258,8 @@ class PPOTrainer:
         start_log_probs = jnp.stack(
             [jnp.asarray(traj.model_output_sample_log_probs) for traj in trajs]
         )
-        wstates = jnp.stack(
-            [jnp.stack(traj.control_wstates[: self.traj_depth]) for traj in trajs]
-        )
+        # Each traj.control_wstates is already a [T, ...] dict — stack over trajs → [num_trajs, T, ...].
+        wstates = _tree_stack([traj.control_wstates for traj in trajs])
         action_samples = jnp.stack(
             [jnp.stack(traj.model_output_samples) for traj in trajs]
         )
@@ -276,8 +277,9 @@ class PPOTrainer:
         value_store: Params | None = None,
     ) -> Array:
         rtgs = jnp.stack([jnp.asarray(traj.rtgs) for traj in trajs])
-        wstates = jnp.stack(
-            [jnp.stack(traj.value_wstates[: self.traj_depth]) for traj in trajs]
+        # value_wstates is a [T+1, ...] dict; strip the terminal (axis 0) then stack over trajs.
+        wstates = _tree_stack(
+            [jax.tree_util.tree_map(lambda x: x[: self.traj_depth], traj.value_wstates) for traj in trajs]
         )
         if value_store is None:
             value_store = self.model.get_value_store()
@@ -386,7 +388,7 @@ class PPOTrainer:
         mjx_data: Any,
         rng_key: Array,
         policy_store: Params | None = None,
-    ) -> tuple[Array, Array, Array, Array, Array]:
+    ) -> tuple[dict[str, Array], dict[str, Array], Array, Array, Array]:
         """Generate a single trajectory on GPU using lax.scan.
 
         The simulator must be an MjxSimulator. Uses pure functions throughout
@@ -398,8 +400,8 @@ class PPOTrainer:
 
         Returns:
             (control_wstates, value_wstates, model_outputs, action_samples, rewards)
-            control_wstates: [traj_depth, control_state_dim]
-            value_wstates:   [traj_depth+1, value_state_dim]  — includes terminal
+            control_wstates: control parts dict, leaves [traj_depth, ...]
+            value_wstates:   value parts dict, leaves [traj_depth+1, ...]  — incl. terminal
             model_outputs:   [traj_depth, nu*2]
             action_samples:  [traj_depth, nu]
             rewards:         [traj_depth]
@@ -411,8 +413,6 @@ class PPOTrainer:
         control_state_fn = self.simulator.make_state_fn(self.model.get_control_input_spec())  # type: ignore[attr-defined]
         value_state_fn = self.simulator.make_state_fn(self.model.get_value_input_spec())  # type: ignore[attr-defined]
         reward_state_fn = self.simulator.make_state_fn(self.model.get_reward_input_spec())  # type: ignore[attr-defined]
-        assemble_control_fn = self.model.assemble_control_state
-        assemble_value_fn = self.model.assemble_value_state
         reward_fn = self.model.get_pure_reward_fn()
         policy_fn = self.model.get_pure_policy_fn()
         if policy_store is None:
@@ -434,10 +434,7 @@ class PPOTrainer:
             value_parts = value_state_fn(data)
             reward_parts_pre = reward_state_fn(data)
 
-            control_state = assemble_control_fn(control_parts)
-            value_state = assemble_value_fn(value_parts)
-
-            action_gaussian_params = jnp.asarray(policy_fn(policy_store, control_state))
+            action_gaussian_params = jnp.asarray(policy_fn(policy_store, control_parts))
             action_mean = action_gaussian_params[:action_output_size]
             action_std = jnp.exp(action_gaussian_params[action_output_size:])
             rng, eps_key = random.split(rng)
@@ -457,23 +454,27 @@ class PPOTrainer:
             reward_parts_post = reward_state_fn(data_next)
             reward = reward_fn(reward_parts_pre, reward_parts_post)
 
-            return (data_next, rng), (control_state, value_state, action_gaussian_params, sampled_action, reward)
+            # control_parts / value_parts are labeled dicts; the policy/value fns
+            # assemble their own inputs, so we carry the dicts through the scan.
+            return (data_next, rng), (control_parts, value_parts, action_gaussian_params, sampled_action, reward)
 
         (data_final, _), (control_states_t, value_states_t, model_outputs, action_samples, rewards) = (
             jax.lax.scan(scan_body, (mjx_data, rng_key), None, length=self.traj_depth)
         )
         logger.info(
-            "gen_trajectory_gpu: lax.scan complete — control_states shape=%s rewards shape=%s",
-            control_states_t.shape,
-            rewards.shape,
+            "gen_trajectory_gpu: lax.scan complete — rewards shape=%s", rewards.shape,
         )
 
-        # Append terminal value state so shape is [traj_depth+1, value_state_dim]
+        # Append terminal value-state parts so the leading axis is traj_depth+1.
+        # value_states_t is a dict of [traj_depth, ...] leaves; concat each leaf
+        # with the terminal [...] leaf along axis 0.
         terminal_value_parts = value_state_fn(data_final)
-        terminal_value_state = assemble_value_fn(terminal_value_parts)
-        value_wstates = jnp.concatenate([value_states_t, terminal_value_state[None]], axis=0)
+        value_wstates = jax.tree_util.tree_map(
+            lambda seq, term: jnp.concatenate([seq, term[None]], axis=0),
+            value_states_t, terminal_value_parts,
+        )
 
-        logger.info("gen_trajectory_gpu: done (value_wstates shape=%s)", value_wstates.shape)
+        logger.info("gen_trajectory_gpu: done")
         return control_states_t, value_wstates, model_outputs, action_samples, rewards
 
     def gen_trajectories_gpu(
@@ -481,7 +482,7 @@ class PPOTrainer:
         num_trajs: int,
         mjx_data: Any,
         rng_key: Array,
-    ) -> tuple[Array, Array, Array, Array, Array]:
+    ) -> tuple[dict[str, Array], dict[str, Array], Array, Array, Array]:
         """Generate num_trajs trajectories in parallel via vmap on GPU.
 
         Args:
@@ -491,8 +492,8 @@ class PPOTrainer:
 
         Returns:
             (control_wstates, value_wstates, model_outputs, action_samples, rewards)
-            control_wstates: [num_trajs, traj_depth, control_state_dim]
-            value_wstates:   [num_trajs, traj_depth+1, value_state_dim]  — includes terminal
+            control_wstates: control parts dict, leaves [num_trajs, traj_depth, ...]
+            value_wstates:   value parts dict, leaves [num_trajs, traj_depth+1, ...]  — incl. terminal
             model_outputs:   [num_trajs, traj_depth, nu*2]
             action_samples:  [num_trajs, traj_depth, nu]
             rewards:         [num_trajs, traj_depth]
@@ -506,7 +507,7 @@ class PPOTrainer:
         policy_store = self.model.get_policy_store()
         logger.info("gen_trajectories_gpu: split %s RNG keys, launching jit(vmap)", num_trajs)
 
-        def single_traj(ps: Params, md: Any, key: Array) -> tuple[Array, Array, Array, Array, Array]:
+        def single_traj(ps: Params, md: Any, key: Array) -> tuple[dict[str, Array], dict[str, Array], Array, Array, Array]:
             return self.gen_trajectory_gpu(md, key, ps)
 
         all_trajs = jax.vmap(single_traj, in_axes=(None, None, 0))
@@ -542,8 +543,8 @@ class PPOTrainer:
 
     def train_an_epoch_gpu(
         self,
-        control_wstates: Array,
-        value_wstates: Array,
+        control_wstates: dict[str, Array],
+        value_wstates: dict[str, Array],
         action_samples: Array,
         rewards: Array,
         model_outputs: Array,
@@ -551,8 +552,8 @@ class PPOTrainer:
         """GPU training epoch using pure learning_step.
 
         Args:
-            control_wstates: [num_trajs, traj_depth, control_state_dim]
-            value_wstates:   [num_trajs, traj_depth+1, value_state_dim]  — includes terminal
+            control_wstates: control parts dict, leaves [num_trajs, traj_depth, ...]
+            value_wstates:   value parts dict, leaves [num_trajs, traj_depth+1, ...]  — incl. terminal
             action_samples:  [num_trajs, traj_depth, nu]
             rewards:         [num_trajs, traj_depth]
             model_outputs:   [num_trajs, traj_depth, nu*2]
@@ -560,7 +561,7 @@ class PPOTrainer:
         Returns:
             PPOTrainerRuntimeInfo with per-update losses and gradient norms
         """
-        num_trajs_in = control_wstates.shape[0]
+        num_trajs_in = rewards.shape[0]
         logger.info(
             "train_an_epoch_gpu: start (num_trajs=%s traj_depth=%s action_size=%s)",
             num_trajs_in,
@@ -574,8 +575,9 @@ class PPOTrainer:
 
         logger.info("train_an_epoch_gpu: computing RTGs for %s trajs", num_trajs_in)
 
-        def compute_rtg_for_traj(traj_rewards: Array, traj_value_wstates: Array) -> Array:
-            v_terminal = jnp.squeeze(value_fn(self.model.get_value_store(), traj_value_wstates[-1:]), axis=-1)[0]
+        def compute_rtg_for_traj(traj_rewards: Array, traj_value_wstates: Any) -> Array:
+            terminal = jax.tree_util.tree_map(lambda x: x[-1:], traj_value_wstates)
+            v_terminal = jnp.squeeze(value_fn(self.model.get_value_store(), terminal), axis=-1)[0]
             return pure_compute_rtg(traj_rewards, gamma, v_terminal)
 
         rtgs = jax.vmap(compute_rtg_for_traj)(rewards, value_wstates)   # [num_trajs, traj_depth]
@@ -599,9 +601,9 @@ class PPOTrainer:
         )(model_outputs, action_samples)   # [num_trajs, traj_depth]
         logger.info("train_an_epoch_gpu: start log probs computed (shape=%s)", start_log_probs.shape)
 
-        # control_wstates is already [num_trajs, traj_depth, control_state_dim] — no terminal to strip
-        # value_wstates_t strips the terminal for per-step value loss
-        value_wstates_t = value_wstates[:, :self.traj_depth, :]  # [num_trajs, traj_depth, value_state_dim]
+        # control_wstates is already a dict of [num_trajs, traj_depth, ...] — no terminal to strip
+        # value_wstates_t strips the terminal (axis 1) from each leaf for per-step value loss
+        value_wstates_t = jax.tree_util.tree_map(lambda x: x[:, :self.traj_depth], value_wstates)
 
         epsilon = self.epsilon
         learning_rate = self.learning_rate
@@ -749,9 +751,9 @@ def pure_compute_rtg(rewards: Array, gamma: float, v_terminal: Array) -> Array:
 
 
 def pure_compute_gae(
-    wstates: Array,
+    wstates: dict[str, Array],
     rewards: Array,
-    value_fn: Callable[[Params, Array], Array],
+    value_fn: Callable[[Params, dict[str, Array]], Array],
     value_store: Params,
     gamma: float,
     lam: float,
@@ -759,7 +761,7 @@ def pure_compute_gae(
     """Compute generalised advantage estimates for a single trajectory without a Python loop.
 
     Args:
-        wstates:     [T+1, state_dim] — includes terminal state at index T
+        wstates:     value-state parts dict, leaves [T+1, ...] (incl. terminal at index T)
         rewards:     [T] float array
         value_fn:    callable (params, state) -> [1] or scalar
         value_store: value network parameters
@@ -815,8 +817,8 @@ def pure_action_log_probs(
 
 def pure_ppo_clip_loss(
     policy_store: Params,
-    policy_fn: Callable[[Params, Array], Array],
-    wstates: Array,
+    policy_fn: Callable[[Params, dict[str, Array]], Array],
+    wstates: dict[str, Array],
     action_samples: Array,
     start_log_probs: Array,
     gaes: Array,
@@ -847,8 +849,8 @@ def pure_ppo_clip_loss(
 
 def pure_value_loss(
     value_store: Params,
-    value_fn: Callable[[Params, Array], Array],
-    wstates: Array,
+    value_fn: Callable[[Params, dict[str, Array]], Array],
+    wstates: dict[str, Array],
     rtgs: Array,
 ) -> Array:
     """MSE value function loss.
@@ -874,10 +876,10 @@ def learning_step(
     value_store: Params,
     policy_opt: dict,
     value_opt: dict,
-    policy_fn: Callable[[Params, Array], Array],
-    value_fn: Callable[[Params, Array], Array],
-    control_wstates: Array,
-    value_wstates: Array,
+    policy_fn: Callable[[Params, dict[str, Array]], Array],
+    value_fn: Callable[[Params, dict[str, Array]], Array],
+    control_wstates: dict[str, Array],
+    value_wstates: dict[str, Array],
     action_samples: Array,
     start_log_probs: Array,
     gaes: Array,

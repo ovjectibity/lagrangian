@@ -135,14 +135,6 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     # State assembly
     # ------------------------------------------------------------------
 
-    def assemble_control_state(self, parts: dict[str, Array]) -> Array:
-        # cameras arrive as [ncam, H, W, C]; flatten those trailing 4 dims to 1-D
-        # so they concatenate with the already-1-D proprio parts.
-        return jnp.concatenate([
-            parts[k].reshape(*parts[k].shape[:-4], -1) if k == "cameras" else parts[k]
-            for k in self._STATE_KEY_ORDER if k in parts
-        ])
-
     @classmethod
     def _split_observation(cls, parts: dict[str, Array]) -> tuple[Array, Array]:
         """Split a labeled parts dict into (camera images, proprio state vector).
@@ -156,8 +148,18 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         )
         return images, proprio
 
-    def assemble_value_state(self, parts: dict[str, Array]) -> Array:
-        return jnp.concatenate([parts[k] for k in self._STATE_KEY_ORDER if k in parts])
+    @classmethod
+    def _assemble_value(cls, parts: dict[str, Array]) -> Array:
+        """Concatenate value-input parts into a flat vector for the value MLP.
+
+        cameras (if present) arrive as [..., ncam, H, W, C]; flatten those
+        trailing 4 dims so they concatenate with the 1-D proprio parts. Concat
+        is on the feature axis (batch-safe over leading [num_trajs, T, ...]).
+        """
+        return jnp.concatenate([
+            parts[k].reshape(*parts[k].shape[:-4], -1) if k == "cameras" else parts[k]
+            for k in cls._STATE_KEY_ORDER if k in parts
+        ], axis=-1)
 
     # ------------------------------------------------------------------
     # PPOTrainedModel interface
@@ -167,32 +169,16 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     def init_ppo_trained_model(cls, *args, **kwargs) -> "Pi0Model":
         raise NotImplementedError("Construct Pi0Model directly.")
 
-    def get_policy_output(self, state: dict[str,Array] | Array) -> Array:
-        """Run Pi-0 inference on the current observation.
+    def get_policy_output(self, parts: dict[str, Array]) -> Array:
+        """Run Pi-0 inference on a labeled parts dict.
 
-        If `state` is a labeled parts dict, the camera frames ("cameras") are
-        used as the image input and the remaining proprio parts are
-        concatenated (in _STATE_KEY_ORDER) into the proprio state vector.
-
-        If `state` is a flat Array, the previous behavior is kept: images come
-        from set_observation (_last_images, zero fallback) and the array is
-        treated as the proprio state.
+        The camera frames ("cameras") are used as the image input and the
+        remaining proprio parts are concatenated (in _STATE_KEY_ORDER) into the
+        proprio state vector.
         """
         self._rng_key, key = random.split(self._rng_key)
         task = getattr(self, "_last_task", "")
-
-        if isinstance(state, dict):
-            images, proprio = self._split_observation(state)
-        else:
-            images = getattr(self, "_last_images", None)
-            if images is None:
-                logger.warning("Pi0Model: no images set; using zeros for inference")
-                cfg = self._pi0._cfg
-                res = cfg.get("image_resolution", [224, 224])
-                n_cam = len(cfg.get("input_features", {}).get("observation.images", {})) or 1
-                images = jnp.zeros((n_cam, res[0], res[1], 3), dtype=jnp.float32)
-            proprio = state
-
+        images, proprio = self._split_observation(parts)
         actions = self._pi0.infer(
             self._policy_store,
             self._frozen_store,
@@ -208,32 +194,30 @@ class Pi0Model(PPOTrainedModel, TestingModel):
             raise RuntimeError("Call get_policy_output before get_policy_output_log_prob.")
         return self._last_log_prob
 
-    def get_value_output(self, state: Array) -> float:
-        self._ensure_value_store(state)
-        val = self._value_fn(self._value_store, state)
+    def get_value_output(self, parts: dict[str, Array]) -> float:
+        flat = self._assemble_value(parts)
+        self._ensure_value_store(flat)
+        val = self._value_fn(self._value_store, flat)
         return float(jnp.squeeze(val))
 
-    def get_policy(self) -> Callable[[Params, Array | dict[str, Array]], Array]:
+    def get_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
         pi0 = self._pi0
         frozen = self._frozen_store
         task = self._last_task
-        images = getattr(self, "_last_images", jnp.zeros((1, 224, 224, 3)))
         rng = self._rng_key
 
-        def _policy(policy_store: Params, obs: Array | dict[str, Array]) -> Array:
-            if isinstance(obs, dict):
-                imgs, proprio = Pi0Model._split_observation(obs)
-            else:
-                imgs, proprio = images, obs
+        def _policy(policy_store: Params, parts: dict[str, Array]) -> Array:
+            imgs, proprio = Pi0Model._split_observation(parts)
             actions = pi0.infer(policy_store, frozen, imgs, proprio, task, rng)
             return actions[0]
         return _policy
 
-    def get_pure_policy_fn(self) -> Callable[[Params, Array], Array]:
+    def get_pure_policy_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
         return self.get_policy()
 
-    def get_value_func(self) -> Callable[[Params, Array], Array]:
-        return self._value_fn
+    def get_value_func(self) -> Callable[[Params, dict[str, Array]], Array]:
+        # value MLP takes a flat tensor; assemble the parts dict internally.
+        return lambda store, parts: self._value_fn(store, self._assemble_value(parts))
 
     def get_policy_store(self) -> Params:
         return self._policy_store
@@ -270,10 +254,10 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     # TestingModel interface
     # ------------------------------------------------------------------
 
-    def get_test_action(self, state: Array | dict[str, Array]) -> Array:
-        return self.get_policy_output(state)
+    def get_test_action(self, parts: dict[str, Array]) -> Array:
+        return self.get_policy_output(parts)
 
-    def get_test_policy(self) -> Callable[[Params, Array], Array]:
+    def get_test_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
         return self.get_policy()
 
     def get_test_params(self) -> Params:

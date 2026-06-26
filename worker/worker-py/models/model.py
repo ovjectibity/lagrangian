@@ -15,22 +15,21 @@ class TestingModel(ABC):
         ...
 
     @abstractmethod
-    def assemble_control_state(self, parts: dict[str, Array]) -> Array:
-        """Assemble labeled state parts dict into a flat tensor for control inference.
+    def get_test_action(self, parts: dict[str, Array]) -> Array:
+        """Single-step inference: labeled state parts dict → control action.
 
         parts keys: "cameras", "qdof", "qpos", "qvel", "xpos", "xquat" (only flags set).
-        Must be a pure JAX function (safe to jax.vmap over batched pytree dicts).
+        The model assembles its own model-specific input from these parts.
         """
         ...
 
     @abstractmethod
-    def get_test_action(self, state: Array | dict[str, Array]) -> Array:
-        """Single-step inference: state (labeled parts dict or flat tensor) → control action."""
-        ...
+    def get_test_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
+        """Pure (params, parts) -> action for vmap-able MJX batched testing.
 
-    @abstractmethod
-    def get_test_policy(self) -> Callable[[Params, Array | dict[str,Array]], Array]:
-        """Pure (params, state) -> action for vmap-able MJX batched testing."""
+        Receives the labeled parts dict and assembles the model input internally.
+        Must be a pure JAX function (safe to jax.vmap over batched pytree dicts).
+        """
         ...
 
     @abstractmethod
@@ -65,18 +64,6 @@ class PPOTrainedModel(ABC):
     def get_reward_input_spec(self) -> ModelInputSpec:
         pass
 
-    # --- State assembly (model owns ordering/concatenation) ---
-
-    @abstractmethod
-    def assemble_control_state(self, parts: dict[str, Array]) -> Array:
-        """Assemble labeled state parts dict into a flat tensor for the control policy."""
-        pass
-
-    @abstractmethod
-    def assemble_value_state(self, parts: dict[str, Array]) -> Array:
-        """Assemble labeled state parts dict into a flat tensor for the value function."""
-        pass
-
     # --- Reward (pre/post state dicts, matching Rust and the C ABI reward interface) ---
 
     @abstractmethod
@@ -94,19 +81,19 @@ class PPOTrainedModel(ABC):
     # --- Policy / value inference ---
 
     @abstractmethod
-    def get_policy_output(self, state: Array) -> Array:
+    def get_policy_output(self, parts: dict[str, Array]) -> Array:
         pass
 
     @abstractmethod
-    def get_value_output(self, state: Array) -> float:
+    def get_value_output(self, parts: dict[str, Array]) -> float:
         pass
 
     @abstractmethod
-    def get_policy(self) -> Callable[[Params, Array], Array]:
+    def get_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
         pass
 
     @abstractmethod
-    def get_value_func(self) -> Callable[[Params, Array], Array]:
+    def get_value_func(self) -> Callable[[Params, dict[str, Array]], Array]:
         pass
 
     @abstractmethod
@@ -130,5 +117,5 @@ class PPOTrainedModel(ABC):
         pass
 
     @abstractmethod
-    def get_pure_policy_fn(self) -> Callable[[Params, Array], Array]:
+    def get_pure_policy_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
         pass
