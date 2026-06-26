@@ -140,16 +140,17 @@ class TestingWorkflow:
             # chunk_xpos: [chunk, num_parallel_envs, nbody, 3]
             xpos_np = chunk_xpos.reshape(chunk, num_parallel_envs, -1).tolist()
             xquat_np = chunk_xquat.reshape(chunk, num_parallel_envs, -1).tolist()
-            # camera_frames: [chunk, num_parallel_envs, ncam*H*W*C] float32 in [0, 1];
+            # camera_frames: [chunk, num_parallel_envs, ncam, H, W, C] float32 in [0, 1];
             # frames field is u8, so denormalise back to bytes per (timestep, env).
             frames_np = (
                 (camera_frames * 255.0).round().astype(jnp.uint8)
-                .reshape(chunk, num_parallel_envs, -1).tolist()
+                .transpose(1,0,2,3,4,5).tolist()
             )
+            # env-major [env][timestep] to match the frames layout
             updates = [
                 [ModelForward(xpos=xpos_np[t][i], xquat=xquat_np[t][i])
-                 for i in range(num_parallel_envs)]
-                for t in range(chunk)
+                 for t in range(chunk)]
+                for i in range(num_parallel_envs)
             ]
             tx.send_test_updates(TestUpdateMessage(
                 id=self.id,
@@ -173,7 +174,15 @@ class TestingWorkflow:
             action = self.model.get_test_action(state)
             self.simulator.forward_dyn(action)
             xpos, xquat = self.simulator.get_simul_update()
+            # cameras: [ncam*H*W*C] float32 in [0, 1] when requested; frames field is
+            # u8, so denormalise to bytes and wrap as [timestep][env][bytes].
+            cameras = parts.get("cameras")
+            frames = (
+                [[(cameras * 255.0).round().astype(jnp.uint8).tolist()]]
+                if cameras is not None else None
+            )
             tx.send_test_updates(TestUpdateMessage(
                 id=self.id,
-                updates=[[ModelForward(xpos=xpos, xquat=xquat)]],
+                simulation_state=[[ModelForward(xpos=xpos, xquat=xquat)]],
+                frames=frames,
             ))

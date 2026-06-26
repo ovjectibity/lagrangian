@@ -55,7 +55,7 @@ pub struct TestUpdateMessage {
     //The first dimension here is for the env index and 
     //the second one for the sequence of update 
     pub simulation_state: Vec<Vec<ModelForward>>,
-    pub frames: Option<Vec<Vec<Vec<u8>>>>
+    pub frames: Option<Vec<Vec<Vec<Vec<Vec<Vec<u8>>>>>>>
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]

@@ -468,7 +468,8 @@ class MjxSimulator(Simulator):
                         camera=cam_id, width=_CAM_WIDTH, height=_CAM_HEIGHT,
                     )
                 )(jnp.arange(ncam))
-                result["cameras"] = (frames.astype(jnp.float32) / 255.0).reshape(-1)
+                # Output expected [ncam, H, W, 3]
+                result["cameras"] = (frames.astype(jnp.float32) / 255.0)
             if not result:
                 result["qpos"] = data.qpos[:nq]
                 result["qvel"] = data.qvel[:nv]

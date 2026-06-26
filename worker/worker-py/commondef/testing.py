@@ -38,5 +38,5 @@ class StopTestMessage(BaseModel):
 class TestUpdateMessage(BaseModel):
     id: str
     simulation_state: List[List[ModelForward]]
-    frames: Optional[List[List[List[int]]]] = Field(default=None)
+    frames: Optional[List[List[List[List[List[List[int]]]]]]] = Field(default=None)
 
