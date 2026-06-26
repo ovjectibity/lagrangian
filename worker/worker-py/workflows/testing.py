@@ -109,7 +109,7 @@ class TestingWorkflow:
     ) -> None:
         mjx_sim: MjxSimulator = self.simulator  # type: ignore[assignment]
         nbody = mjx_sim.nbody()
-        pure_fn = self.model.get_pure_test_fn()
+        pure_fn = self.model.get_test_policy()
         params = self.model.get_test_params()
 
         batched_data = jax.tree_util.tree_map(
@@ -118,12 +118,12 @@ class TestingWorkflow:
         )
 
         state_fn = mjx_sim.make_state_fn(self.model.get_control_input_spec())
-        assemble_fn = self.model.assemble_control_state
 
         def scan_body(bd: Any, _: Any) -> tuple[Any, tuple[Any, Any]]:
             parts_batched = jax.vmap(state_fn)(bd)
-            states = jax.vmap(assemble_fn)(parts_batched)
-            actions = jax.vmap(lambda s: pure_fn(params, s))(states)
+            # Pass the labeled parts dict straight to the policy; it splits
+            # cameras (images) from proprio internally.
+            actions = jax.vmap(lambda p: pure_fn(params, p))(parts_batched)
             bd_next = jax.vmap(lambda d, a: mjx_sim.forward_dyn_pure(d, a)[0])(bd, actions)
             return bd_next, (parts_batched["cameras"], bd_next.xpos[:, :nbody], bd_next.xquat[:, :nbody])
 
@@ -170,8 +170,8 @@ class TestingWorkflow:
                 logger.info("Test run stop requested: id=%s", self.id)
                 break
             parts = self.simulator.get_model_state(self.model.get_control_input_spec())
-            state = self.model.assemble_control_state(parts)
-            action = self.model.get_test_action(state)
+            # Pass the labeled parts dict; get_policy_output splits cameras from proprio.
+            action = self.model.get_test_action(parts)
             self.simulator.forward_dyn(action)
             xpos, xquat = self.simulator.get_simul_update()
             # cameras: [ncam*H*W*C] float32 in [0, 1] when requested; frames field is

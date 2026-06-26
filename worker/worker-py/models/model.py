@@ -24,12 +24,12 @@ class TestingModel(ABC):
         ...
 
     @abstractmethod
-    def get_test_action(self, state: Array) -> Array:
-        """Single-step inference: assembled state tensor → control action."""
+    def get_test_action(self, state: Array | dict[str, Array]) -> Array:
+        """Single-step inference: state (labeled parts dict or flat tensor) → control action."""
         ...
 
     @abstractmethod
-    def get_pure_test_fn(self) -> Callable[[Params, Array], Array]:
+    def get_test_policy(self) -> Callable[[Params, Array | dict[str,Array]], Array]:
         """Pure (params, state) -> action for vmap-able MJX batched testing."""
         ...
 

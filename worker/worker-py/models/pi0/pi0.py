@@ -136,7 +136,25 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     # ------------------------------------------------------------------
 
     def assemble_control_state(self, parts: dict[str, Array]) -> Array:
-        return jnp.concatenate([parts[k] for k in self._STATE_KEY_ORDER if k in parts])
+        # cameras arrive as [ncam, H, W, C]; flatten those trailing 4 dims to 1-D
+        # so they concatenate with the already-1-D proprio parts.
+        return jnp.concatenate([
+            parts[k].reshape(*parts[k].shape[:-4], -1) if k == "cameras" else parts[k]
+            for k in self._STATE_KEY_ORDER if k in parts
+        ])
+
+    @classmethod
+    def _split_observation(cls, parts: dict[str, Array]) -> tuple[Array, Array]:
+        """Split a labeled parts dict into (camera images, proprio state vector).
+
+        Camera frames come straight through as the image input; the remaining
+        proprio parts are concatenated in _STATE_KEY_ORDER.
+        """
+        images = parts["cameras"]
+        proprio = jnp.concatenate(
+            [parts[k] for k in cls._STATE_KEY_ORDER if k != "cameras" and k in parts]
+        )
+        return images, proprio
 
     def assemble_value_state(self, parts: dict[str, Array]) -> Array:
         return jnp.concatenate([parts[k] for k in self._STATE_KEY_ORDER if k in parts])
@@ -149,31 +167,37 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     def init_ppo_trained_model(cls, *args, **kwargs) -> "Pi0Model":
         raise NotImplementedError("Construct Pi0Model directly.")
 
-    def get_policy_output(self, state: Array) -> Array:
+    def get_policy_output(self, state: dict[str,Array] | Array) -> Array:
         """Run Pi-0 inference on the current observation.
 
-        `state` here is the flattened observation vector (images + proprio).
-        The Pi0Jax.infer path requires structured inputs; this method expects
-        the simulator to provide images and state separately via set_observation().
-        Falls back to zero images if not set.
+        If `state` is a labeled parts dict, the camera frames ("cameras") are
+        used as the image input and the remaining proprio parts are
+        concatenated (in _STATE_KEY_ORDER) into the proprio state vector.
+
+        If `state` is a flat Array, the previous behavior is kept: images come
+        from set_observation (_last_images, zero fallback) and the array is
+        treated as the proprio state.
         """
         self._rng_key, key = random.split(self._rng_key)
+        task = getattr(self, "_last_task", "")
 
-        images = getattr(self, "_last_images", None)
-        task   = getattr(self, "_last_task", "")
-
-        if images is None:
-            logger.warning("Pi0Model: no images set; using zeros for inference")
-            cfg = self._pi0._cfg
-            res = cfg.get("image_resolution", [224, 224])
-            n_cam = len(cfg.get("input_features", {}).get("observation.images", {})) or 1
-            images = jnp.zeros((n_cam, res[0], res[1], 3), dtype=jnp.float32)
+        if isinstance(state, dict):
+            images, proprio = self._split_observation(state)
+        else:
+            images = getattr(self, "_last_images", None)
+            if images is None:
+                logger.warning("Pi0Model: no images set; using zeros for inference")
+                cfg = self._pi0._cfg
+                res = cfg.get("image_resolution", [224, 224])
+                n_cam = len(cfg.get("input_features", {}).get("observation.images", {})) or 1
+                images = jnp.zeros((n_cam, res[0], res[1], 3), dtype=jnp.float32)
+            proprio = state
 
         actions = self._pi0.infer(
             self._policy_store,
             self._frozen_store,
             images,
-            state,
+            proprio,
             task,
             key,
         )
@@ -189,15 +213,19 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         val = self._value_fn(self._value_store, state)
         return float(jnp.squeeze(val))
 
-    def get_policy(self) -> Callable[[Params, Array], Array]:
+    def get_policy(self) -> Callable[[Params, Array | dict[str, Array]], Array]:
         pi0 = self._pi0
         frozen = self._frozen_store
         task = self._last_task
         images = getattr(self, "_last_images", jnp.zeros((1, 224, 224, 3)))
         rng = self._rng_key
 
-        def _policy(policy_store: Params, obs: Array) -> Array:
-            actions = pi0.infer(policy_store, frozen, images, obs, task, rng)
+        def _policy(policy_store: Params, obs: Array | dict[str, Array]) -> Array:
+            if isinstance(obs, dict):
+                imgs, proprio = Pi0Model._split_observation(obs)
+            else:
+                imgs, proprio = images, obs
+            actions = pi0.infer(policy_store, frozen, imgs, proprio, task, rng)
             return actions[0]
         return _policy
 
@@ -242,10 +270,10 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     # TestingModel interface
     # ------------------------------------------------------------------
 
-    def get_test_action(self, state: Array) -> Array:
+    def get_test_action(self, state: Array | dict[str, Array]) -> Array:
         return self.get_policy_output(state)
 
-    def get_pure_test_fn(self) -> Callable[[Params, Array], Array]:
+    def get_test_policy(self) -> Callable[[Params, Array], Array]:
         return self.get_policy()
 
     def get_test_params(self) -> Params:

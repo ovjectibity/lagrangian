@@ -200,7 +200,7 @@ class MLPModel(PPOTrainedModel, TestingModel):
     def get_test_action(self, state: Array) -> Array:
         return self.get_policy_output(state)
 
-    def get_pure_test_fn(self) -> Callable[[Params, Array], Array]:
+    def get_test_policy(self) -> Callable[[Params, Array], Array]:
         return self.policy
 
     def get_test_params(self) -> Params:
