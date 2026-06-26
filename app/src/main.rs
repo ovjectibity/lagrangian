@@ -14,9 +14,7 @@ use crate::db::mongo_orm::MongoOrm;
 pub mod api;
 pub mod commondef;
 pub mod db;
-pub mod remote_workflows;
 pub mod simulator;
-pub mod models;
 pub mod workflows;
 
 // ── Project/User constants ──────────────────
@@ -27,7 +25,7 @@ pub const PROJECT_ID: &str = "1";
 pub type RemoteWorkerSlot = Arc<
     AsyncMutex<
         Option<
-            remote_workflows::remote_worker_controller
+            workflows::remote_worker_controller
             ::RemoteWorkerController
         >
     >
@@ -87,13 +85,13 @@ pub fn ensure_remote_worker_shutdown_hook() {
 
 pub fn build_remote_worker_config()
 -> Result<
-    remote_workflows::remote_worker_controller
+    workflows::remote_worker_controller
     ::RemoteWorkerControllerConfig,
     String,
 >
 {
     let mut cfg =
-        remote_workflows::remote_worker_controller
+        workflows::remote_worker_controller
         ::RemoteWorkerControllerConfig::default();
 
     if let Ok(region) =

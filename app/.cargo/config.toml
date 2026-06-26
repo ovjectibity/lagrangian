@@ -3,20 +3,20 @@
 [build]
 rustflags = [
   # ---- search paths ----
-  "-L", "/Users/avi/Documents/projects/libtorch/lib",
+  # "-L", "/Users/avi/Documents/projects/libtorch/lib",
   "-L", "/Users/avi/Documents/projects/mujoco/lib",
 
   # ---- link the libs ----
   "-l", "mujoco",
 
   # Libtorch typically needs at least these:
-  "-l", "torch",
-  "-l", "c10",
+  #"-l", "torch",
+  #"-l", "c10",
 
   # Depending on your libtorch distro, you may need torch_cpu too:
-  "-l", "torch_cpu",
+  #"-l", "torch_cpu",
 
   # ---- runtime search paths (rpath) ----
-  "-C", "link-arg=-Wl,-rpath,/Users/avi/Documents/projects/libtorch/lib",
+  # "-C", "link-arg=-Wl,-rpath,/Users/avi/Documents/projects/libtorch/lib",
   "-C", "link-arg=-Wl,-rpath,/Users/avi/Documents/projects/mujoco/lib",
 ]

@@ -21,8 +21,7 @@ use crate::commondef::testing::{
 };
 use crate::commondef::training::TrainingAccelerationMode;
 use crate::commondef::workermessages::TestTaskMessage;
-use crate::workflows::{WorkflowMode, WorkflowRuntime};
-use crate::workflows::testing::TestingWorkflow;
+use crate::workflows::local_worker_controller::LocalWorkerController;
 
 // ── Request / response types ─────────────────
 
@@ -169,37 +168,15 @@ pub async fn start_test(
     if is_local {
         let tx_c = tx_test.clone();
         let id_c = test_id.clone();
-        let graph_c = test_graph.clone();
-        let h = rocket::tokio::task::spawn_blocking(
-            move || {
-                let mut runtime =
-                    match WorkflowRuntime::for_testing(
-                        model_path,
-                        &graph_c,
-                    ) {
-                        Ok(r) => r,
-                        Err(e) => {
-                            println!(
-                                "WorkflowRuntime \
-                                 for_testing failed: {:?}",
-                                e
-                            );
-                            return;
-                        }
-                    };
-                runtime.set_mode(WorkflowMode::Testing);
-                let sim = runtime.simulator_handle();
-                let model =
-                    runtime.control_model_handle();
-                let mut wf = TestingWorkflow::new(
-                    id_c,
-                    sim,
-                    model,
-                    graph_c,
-                );
-                wf.run_test(tx_c);
-            },
-        );
+        let h = rocket::tokio::spawn(async move {
+            spawn_local_test_task(
+                id_c,
+                test_graph,
+                Some(model_path),
+                tx_c,
+            )
+            .await;
+        });
 
         state
             .simul_tasks
@@ -324,17 +301,62 @@ pub async fn test_updates(
 
 // ── Remote test helpers ───────────────────────
 
+async fn spawn_local_test_task(
+    test_id: String,
+    test_graph: TestGraph,
+    model_path: Option<String>,
+    tx: mpsc::Sender<TestTaskMessage>,
+) {
+    // Connect-only: assumes a Python worker is already running on the local host.
+    let mut controller = match LocalWorkerController::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            println!("Local worker config failed: {:?}", e);
+            let _ = tx
+                .send(TestTaskMessage::StopTestMessage(StopTestMessage {
+                    id: test_id.clone(),
+                }))
+                .await;
+            return;
+        }
+    };
+
+    let result = controller
+        .run_test_job(
+            test_id.clone(),
+            test_graph,
+            model_path,
+            |update: &TestUpdateMessage| {
+                let _ = tx.try_send(TestTaskMessage::TestUpdateMessage(update.clone()));
+            },
+        )
+        .await;
+
+    if let Err(e) = result {
+        println!("Local test failed: {:?}", e);
+    }
+    let _ = tx
+        .send(TestTaskMessage::StopTestMessage(StopTestMessage {
+            id: test_id.clone(),
+        }))
+        .await;
+
+    let _ = crate::postgres_orm()
+        .update_test_run_status(&test_id, &TestRunStatus::Completed)
+        .await;
+}
+
 async fn spawn_remote_test_task(
     test_id: String,
     test_graph: TestGraph,
     model_path: Option<String>,
-    remote_cfg: crate::remote_workflows
+    remote_cfg: crate::workflows
         ::remote_worker_controller
         ::RemoteWorkerControllerConfig,
     worker_slot: crate::RemoteWorkerSlot,
     tx: mpsc::Sender<TestTaskMessage>,
 ) {
-    use crate::remote_workflows
+    use crate::workflows
         ::remote_worker_controller
         ::RemoteWorkerController;
 

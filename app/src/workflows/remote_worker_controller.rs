@@ -1,3 +1,5 @@
+//! Remote worker controller: launches an EC2 spot instance running the Python
+//! worker, then drives jobs over the shared `CommonWorkerController`.
 //!
 //! Assumptions:
 //! - The worker image is already built from `worker/worker-py` Dockerfile and published
@@ -8,7 +10,7 @@
 
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use aws_config::Region;
@@ -20,112 +22,14 @@ use aws_sdk_ec2::types::{
 };
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use futures_util::{SinkExt, StreamExt};
-use http::HeaderValue;
-use tokio::net::TcpStream;
 use tokio::time::sleep;
-use tokio_tungstenite::MaybeTlsStream;
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-use crate::commondef::remoteworkermessages::{
-    RemoteWorkerClientMessage, RemoteWorkerServerMessage, WorkerTrainingUpdatesMessage,
+use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
+use crate::commondef::testing::{TestGraph, TestUpdateMessage};
+use crate::commondef::training::{Checkpoint, TrainingJobController};
+use crate::workflows::common_worker_controller::{
+    CommonWorkerController, CommonWorkerControllerConfig, Result,
 };
-use crate::commondef::testing::{
-    StartTestMessage, StopTestMessage, TestGraph, TestUpdateMessage,
-};
-use crate::commondef::training::{
-    Checkpoint, StartTrainingMessage, StopTrainingMessage, TrainingGraph,
-    TrainingJobController, TrainingMethod,
-};
-
-type DynError = Box<dyn std::error::Error + Send + Sync>;
-type Result<T> = std::result::Result<T, DynError>;
-type WorkerWs = WebSocketStream<MaybeTlsStream<TcpStream>>;
-
-fn find_xml_in_zip_root(zip_bytes: &[u8]) -> Result<String> {
-    use std::io::Cursor;
-    let cursor = Cursor::new(zip_bytes);
-    let mut archive = zip::ZipArchive::new(cursor)?;
-    for i in 0..archive.len() {
-        let entry = archive.by_index(i)?;
-        let name = entry.name().to_string();
-        if !name.contains('/') && name.ends_with(".xml") {
-            return Ok(name);
-        }
-    }
-    Err("No XML file at zip root".into())
-}
-
-fn load_mjcf_package_zip_base64(model_path: &str) -> Result<(String, String)> {
-    let path = Path::new(model_path);
-
-    if path.extension().and_then(|e| e.to_str()) == Some("zip") {
-        let zip_bytes = fs::read(path)?;
-        let entrypoint = find_xml_in_zip_root(&zip_bytes)?;
-        println!(
-            "Using model zip directly {:?} ({} bytes), entrypoint={}",
-            path, zip_bytes.len(), entrypoint
-        );
-        return Ok((BASE64.encode(&zip_bytes), entrypoint));
-    }
-
-    let model_path = Path::new(model_path);
-    let model_dir = model_path.parent().ok_or("model_path has no parent directory")?;
-    let default_entrypoint = model_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or("model_path has no valid UTF-8 filename")?;
-    let entrypoint = env::var("REMOTE_WORKER_MJCF_ENTRYPOINT")
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| default_entrypoint.to_string());
-
-    let zip_path = match env::var("REMOTE_WORKER_MODEL_ZIP_PATH")
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-    {
-        Some(path) => PathBuf::from(path),
-        None => {
-            let explicit_default = model_dir.join("model.zip");
-            if explicit_default.exists() {
-                explicit_default
-            } else {
-                let stem = model_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .ok_or("model_path has no valid UTF-8 stem")?;
-                model_dir.join(format!("{stem}.zip"))
-            }
-        }
-    };
-
-    if !zip_path.exists() {
-        return Err(format!(
-            "Prebuilt zip not found at {:?}. Set REMOTE_WORKER_MODEL_ZIP_PATH or place model.zip/{:?}.zip in {:?}.",
-            zip_path,
-            model_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("model"),
-            model_dir
-        )
-        .into());
-    }
-
-    let zip_bytes = fs::read(&zip_path)?;
-    println!(
-        "Using prebuilt model zip {:?} ({} bytes), entrypoint={}",
-        zip_path,
-        zip_bytes.len(),
-        entrypoint
-    );
-    Ok((BASE64.encode(zip_bytes), entrypoint))
-}
 
 fn skip_instance_launch_terminate() -> bool {
     matches!(
@@ -175,13 +79,27 @@ impl Default for RemoteWorkerControllerConfig {
     }
 }
 
+impl RemoteWorkerControllerConfig {
+    /// Connection-only config for the inner `CommonWorkerController`. `host` is
+    /// filled in once the instance's public DNS is known.
+    fn common_config(&self) -> CommonWorkerControllerConfig {
+        CommonWorkerControllerConfig {
+            host: String::new(),
+            port: self.worker_port,
+            ws_path: self.worker_ws_path.clone(),
+            shared_secret: self.worker_shared_secret.clone(),
+            websocket_connect_timeout: self.websocket_connect_timeout,
+        }
+    }
+}
+
 pub struct RemoteWorkerController {
+    common: CommonWorkerController,
     ec2: Ec2Client,
     config: RemoteWorkerControllerConfig,
     skip_instance_lifecycle: bool,
     instance_id: Option<String>,
     instance_public_dns: Option<String>,
-    worker_ws: Option<WorkerWs>,
 }
 
 impl RemoteWorkerController {
@@ -204,13 +122,14 @@ impl RemoteWorkerController {
             .load()
             .await;
         let ec2 = Ec2Client::new(&shared_cfg);
+        let common = CommonWorkerController::new(config.common_config());
         let mut controller = Self {
+            common,
             ec2,
             config,
             skip_instance_lifecycle,
             instance_id: None,
             instance_public_dns: None,
-            worker_ws: None,
         };
 
         if controller.skip_instance_lifecycle {
@@ -223,7 +142,13 @@ impl RemoteWorkerController {
             controller.instance_id = Some(instance_id);
             controller.instance_public_dns = Some(public_dns);
         }
-        controller.connect_worker_wss().await?;
+
+        let public_dns = controller
+            .instance_public_dns
+            .clone()
+            .ok_or("Missing public dns; instance is not ready")?;
+        controller.common.set_host(public_dns);
+        controller.common.connect_worker_wss().await?;
 
         Ok(controller)
     }
@@ -242,57 +167,14 @@ impl RemoteWorkerController {
         training_controller: TrainingJobController,
         model_path: Option<String>,
         checkpoints: Vec<Checkpoint>,
-        mut on_update: F,
+        on_update: F,
     ) -> Result<()>
     where
         F: FnMut(&WorkerTrainingUpdatesMessage) + Send,
     {
-        // Always reconnect before each job — the previous connection
-        // may be in a half-open state where pings succeed but data
-        // sends hang.
-        if let Some(ws) = self.worker_ws.as_mut() {
-            let _ = ws.close(None).await;
-        }
-        self.worker_ws = None;
-        self.connect_worker_wss().await?;
-
-        let model_zip_base64 = match model_path {
-            Some(path) => match load_mjcf_package_zip_base64(&path) {
-                Ok((zip_b64, _entrypoint)) => Some(zip_b64),
-                Err(e) => {
-                    println!(
-                        "Could not load prebuilt zipped model package from path {:?}: {:?}. Falling back to simulation_models.",
-                        path, e
-                    );
-                    None
-                }
-            },
-            None => None,
-        };
-
-        let sim_model_id = match &training_controller.training_method {
-            TrainingMethod::PPO(p) => p.simulation_model.clone(),
-        };
-        let mut simulation_models = std::collections::HashMap::new();
-        if let Some(ref zip_b64) = model_zip_base64 {
-            simulation_models.insert(sim_model_id, zip_b64.clone());
-        }
-
-        self.send_to_worker(&RemoteWorkerServerMessage::StartTrainingMessage(
-            StartTrainingMessage {
-                id: training_id.clone(),
-                training_graph: TrainingGraph {
-                    training_job_controller: training_controller,
-                },
-                checkpoints,
-                simulation_models,
-            },
-        ))
-        .await?;
-
-        self.monitor_training_until_stop(&training_id, &mut on_update)
-            .await?;
-        Ok(())
+        self.common
+            .run_training_job(training_id, training_controller, model_path, checkpoints, on_update)
+            .await
     }
 
     pub async fn run_test_job<F>(
@@ -300,81 +182,27 @@ impl RemoteWorkerController {
         test_id: String,
         test_graph: TestGraph,
         model_path: Option<String>,
-        mut on_update: F,
+        on_update: F,
     ) -> Result<()>
     where
         F: FnMut(&TestUpdateMessage) + Send,
     {
-        if let Some(ws) = self.worker_ws.as_mut() {
-            let _ = ws.close(None).await;
-        }
-        self.worker_ws = None;
-        self.connect_worker_wss().await?;
-
-        let model_zip_base64 = match model_path {
-            Some(path) => match load_mjcf_package_zip_base64(&path) {
-                Ok((zip_b64, _entrypoint)) => Some(zip_b64),
-                Err(e) => {
-                    println!(
-                        "Could not load model zip for test from {:?}: {:?}. \
-                         Falling back to empty simulation_models.",
-                        path, e
-                    );
-                    None
-                }
-            },
-            None => None,
-        };
-
-        let sim_model_id = test_graph
-            .test_job_controller
-            .test_params
-            .simulation_model
-            .clone();
-        let mut simulation_models = std::collections::HashMap::new();
-        if let Some(ref zip_b64) = model_zip_base64 {
-            simulation_models.insert(sim_model_id, zip_b64.clone());
-        }
-
-        self.send_to_worker(&RemoteWorkerServerMessage::StartTestingMessage(
-            StartTestMessage {
-                id: test_id.clone(),
-                test_graph,
-                simulation_models,
-            },
-        ))
-        .await?;
-
-        self.monitor_testing_until_stop(&test_id, &mut on_update)
-            .await?;
-        Ok(())
+        self.common
+            .run_test_job(test_id, test_graph, model_path, on_update)
+            .await
     }
 
     pub async fn stop_test(&mut self, test_id: &str) -> Result<()> {
-        self.send_to_worker(&RemoteWorkerServerMessage::StopTestingMessage(
-            StopTestMessage {
-                id: test_id.to_string(),
-            },
-        ))
-        .await
+        self.common.stop_test(test_id).await
     }
 
     pub async fn stop_training_and_terminate(&mut self, training_id: &str) -> Result<()> {
-        let _ = self
-            .send_to_worker(&RemoteWorkerServerMessage::StopTrainingMessage(
-                StopTrainingMessage {
-                    id: training_id.to_string(),
-                },
-            ))
-            .await;
+        let _ = self.common.stop_training(training_id).await;
         self.terminate_instance().await
     }
 
     pub async fn terminate_instance(&mut self) -> Result<()> {
-        if let Some(ws) = self.worker_ws.as_mut() {
-            let _ = ws.close(None).await;
-        }
-        self.worker_ws = None;
+        self.common.close().await;
 
         if self.skip_instance_lifecycle {
             self.instance_id = None;
@@ -542,141 +370,6 @@ impl RemoteWorkerController {
 
             sleep(Duration::from_secs(5)).await;
         }
-    }
-
-    async fn connect_worker_wss(&mut self) -> Result<()> {
-        let public_dns = self
-            .instance_public_dns
-            .as_deref()
-            .ok_or("Missing public dns; instance is not ready")?;
-
-        let mut path = self.config.worker_ws_path.clone();
-        if !path.starts_with('/') {
-            path = format!("/{path}");
-        }
-        let url = format!("ws://{public_dns}:{}{}", self.config.worker_port, path);
-
-        let deadline = tokio::time::Instant::now() + self.config.websocket_connect_timeout;
-        loop {
-            if tokio::time::Instant::now() > deadline {
-                return Err(format!("Timed out connecting to worker WSS at {url}").into());
-            }
-
-            let mut req = url.clone().into_client_request()?;
-            let auth = format!("Bearer {}", self.config.worker_shared_secret);
-            req.headers_mut()
-                .insert("Authorization", HeaderValue::from_str(&auth)?);
-
-            match connect_async(req).await {
-                Ok((ws, _)) => {
-                    self.worker_ws = Some(ws);
-                    return Ok(());
-                }
-                Err(_) => {
-                    sleep(Duration::from_secs(3)).await;
-                }
-            }
-        }
-    }
-
-    async fn send_to_worker(&mut self, message: &RemoteWorkerServerMessage) -> Result<()> {
-        let ws = self
-            .worker_ws
-            .as_mut()
-            .ok_or("Worker websocket is not connected")?;
-        let payload = serde_json::to_string(message)?;
-        ws.send(Message::Text(payload.into())).await?;
-        Ok(())
-    }
-
-    async fn monitor_training_until_stop<F>(
-        &mut self,
-        training_id: &str,
-        on_update: &mut F,
-    ) -> Result<()>
-    where
-        F: FnMut(&WorkerTrainingUpdatesMessage) + Send,
-    {
-        let ws = self
-            .worker_ws
-            .as_mut()
-            .ok_or("Worker websocket is not connected")?;
-
-        while let Some(msg) = ws.next().await {
-            let msg = msg?;
-            match msg {
-                Message::Text(text) => {
-                    let parsed = serde_json::from_str::<RemoteWorkerClientMessage>(&text);
-                    if let Ok(ev) = parsed {
-                        match ev {
-                            RemoteWorkerClientMessage::TrainingUpdatesMessage(update) => {
-                                on_update(&update);
-                            }
-                            RemoteWorkerClientMessage::StopTrainingMessage(stop) => {
-                                if stop.id == training_id {
-                                    return Ok(());
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                Message::Close(_) => {
-                    return Err("Worker websocket closed before training completion".into());
-                }
-                Message::Ping(payload) => {
-                    ws.send(Message::Pong(payload)).await?;
-                }
-                _ => {}
-            }
-        }
-
-        Err("Worker websocket stream ended before training completion".into())
-    }
-
-    async fn monitor_testing_until_stop<F>(
-        &mut self,
-        test_id: &str,
-        on_update: &mut F,
-    ) -> Result<()>
-    where
-        F: FnMut(&TestUpdateMessage) + Send,
-    {
-        let ws = self
-            .worker_ws
-            .as_mut()
-            .ok_or("Worker websocket is not connected")?;
-
-        while let Some(msg) = ws.next().await {
-            let msg = msg?;
-            match msg {
-                Message::Text(text) => {
-                    let parsed = serde_json::from_str::<RemoteWorkerClientMessage>(&text);
-                    if let Ok(ev) = parsed {
-                        match ev {
-                            RemoteWorkerClientMessage::TestUpdatesMessage(update) => {
-                                on_update(&update);
-                            }
-                            RemoteWorkerClientMessage::StopTestingMessage(stop) => {
-                                if stop.id == test_id {
-                                    return Ok(());
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                Message::Close(_) => {
-                    return Err("Worker websocket closed before test completion".into());
-                }
-                Message::Ping(payload) => {
-                    ws.send(Message::Pong(payload)).await?;
-                }
-                _ => {}
-            }
-        }
-
-        Err("Worker websocket stream ended before test completion".into())
     }
 
     fn build_user_data_script(&self) -> Result<String> {

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -17,9 +16,10 @@ use base64::engine::general_purpose::STANDARD
 use crate::api::{route_doc, ApiState};
 use crate::commondef::clientmessages as cm;
 use crate::commondef::record::TrainingRunStatus;
-use tch::Tensor;
 
+use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
 use crate::commondef::training::{
+    Checkpoint,
     CheckpointType,
     ControlModel,
     ModelType,
@@ -33,8 +33,7 @@ use crate::commondef::training::{
     ValueModel,
 };
 use crate::commondef::workermessages::TrainingTaskMessage;
-use crate::workflows::{WorkflowMode, WorkflowRuntime};
-use crate::workflows::training::TrainingWorkflow;
+use crate::workflows::local_worker_controller::LocalWorkerController;
 
 // ── Request / response types ─────────────────
 
@@ -358,44 +357,13 @@ pub async fn start_training(
                     .clone(),
             ),
         };
-    if is_local
-        && !matches!(
-            reward_lang,
-            RewardLanguage::Rust,
-        )
-    {
+    // Both local and remote run in the Python worker, so reward functions must
+    // be Python and are validated as such; the spec is forwarded in the Start
+    // message (training_graph) and executed inside the worker.
+    if !matches!(reward_lang, RewardLanguage::Python) {
         return Err(Status::BadRequest);
     }
-    if !is_local
-        && !matches!(
-            reward_lang,
-            RewardLanguage::Python,
-        )
     {
-        return Err(Status::BadRequest);
-    }
-    let user_reward_lib = if is_local {
-        let code = reward_code.clone();
-        let lib = rocket::tokio::task
-            ::spawn_blocking(move || {
-                crate::api::reward_validation
-                    ::validate_and_compile_rust_reward(
-                        &code,
-                    )
-            })
-            .await
-            .map_err(|_| {
-                Status::InternalServerError
-            })?
-            .map_err(|e| {
-                println!(
-                    "Reward validation \
-                     failed: {e}"
-                );
-                Status::UnprocessableEntity
-            })?;
-        Some(lib)
-    } else {
         let code = reward_code.clone();
         rocket::tokio::task
             ::spawn_blocking(move || {
@@ -413,91 +381,29 @@ pub async fn start_training(
                 );
                 Status::UnprocessableEntity
             })?;
-        None
-    };
+    }
+
+    // Build ctrl/val JSON for checkpoint records (used by both local and remote).
+    let (ctrl_json, val_json) =
+        build_ctrl_val_json(&controller).await;
 
     if is_local {
-        let ppo_params = match controller
-            .training_method
-        {
-            TrainingMethod::PPO(ref p) => p.clone(),
-        };
         let tx_c = tx_train.clone();
         let run_id_c = run_id.clone();
-        let h = rocket::tokio::task::spawn_blocking(
-            move || {
-                use std::sync::Arc as StdArc;
-                let reward_fn: Option<
-                    Box<
-                        dyn Fn(
-                            &HashMap<String, Tensor>,
-                            &HashMap<String, Tensor>,
-                        ) -> f64
-                            + Send,
-                    >,
-                > = user_reward_lib.map(|lib| {
-                    let lib = StdArc::new(lib);
-                    let lib_c = lib.clone();
-                    Box::new(
-                        move |parts_pre: &HashMap<
-                            String,
-                            Tensor,
-                        >,
-                              parts_post: &HashMap<
-                            String,
-                            Tensor,
-                        >| {
-                            crate::api::reward_validation
-                                ::call_reward_c_abi(
-                                    &lib_c,
-                                    parts_pre,
-                                    parts_post,
-                                )
-                        },
-                    ) as Box<
-                        dyn Fn(
-                            &HashMap<String, Tensor>,
-                            &HashMap<String, Tensor>,
-                        ) -> f64
-                            + Send,
-                    >
-                });
-                let mut runtime =
-                    match WorkflowRuntime::for_training(
-                        model_path,
-                        &ppo_params,
-                        reward_fn,
-                    ) {
-                        Ok(r) => r,
-                        Err(e) => {
-                            println!(
-                                "WorkflowRuntime \
-                                 for_training failed: {:?}",
-                                e
-                            );
-                            return;
-                        }
-                    };
-                runtime.set_mode(
-                    WorkflowMode::Training,
-                );
-                let sim = runtime.simulator_handle();
-                let model =
-                    runtime.ppo_model_handle();
-                let wf = TrainingWorkflow::new(
-                    run_id_c,
-                    ppo_params,
-                    sim,
-                    model,
-                );
-                if let Ok(mut wf) = wf {
-                    wf.run_training_blocking(
-                        tx_c,
-                        stop_flag_c,
-                    );
-                }
-            },
-        );
+        let exp_id_c = experiment_id.clone();
+        let h = rocket::tokio::spawn(async move {
+            spawn_local_training_task(
+                run_id_c,
+                exp_id_c,
+                controller,
+                model_path,
+                tx_c,
+                stop_flag_c,
+                ctrl_json,
+                val_json,
+            )
+            .await;
+        });
         state
             .training_stops
             .lock()
@@ -520,10 +426,6 @@ pub async fn start_training(
                 }
             };
         crate::ensure_remote_worker_shutdown_hook();
-
-        // Build ctrl/val JSON for checkpoint records
-        let (ctrl_json, val_json) =
-            build_ctrl_val_json(&controller).await;
 
         let tx_c = tx_train.clone();
         let run_id_c = run_id.clone();
@@ -698,21 +600,11 @@ async fn build_ctrl_val_json(
     (ctrl, val)
 }
 
-async fn spawn_remote_training_task(
-    run_id: String,
-    exp_id: String,
-    controller: TrainingJobController,
-    model_path: String,
-    remote_cfg: crate::remote_workflows
-        ::remote_worker_controller
-        ::RemoteWorkerControllerConfig,
-    worker_slot: crate::RemoteWorkerSlot,
-    tx: mpsc::Sender<TrainingTaskMessage>,
-    stop_flag: Arc<AtomicBool>,
-    ctrl_json: Option<String>,
-    val_json: Option<String>,
-) {
-    use crate::commondef::training::Checkpoint as WC;
+/// Builds the checkpoint payloads to seed a training job from any pretrained
+/// control/value checkpoints referenced by the controller.
+async fn build_worker_checkpoints(
+    controller: &TrainingJobController,
+) -> Vec<Checkpoint> {
     use crate::commondef::training::{
         CheckpointType as CT,
         ControlModel as CM,
@@ -722,9 +614,196 @@ async fn spawn_remote_training_task(
     };
     use std::collections::HashMap;
 
+    let mut map: HashMap<String, Checkpoint> = HashMap::new();
+    let TM::PPO(ref ppo) = controller.training_method;
+
+    if let CM::MLP(ref m) = ppo.control_model {
+        if let MT::Checkpoint(CT::Checkpoint(ref src_id)) = m.model_type {
+            if let Some(r) = crate::postgres_orm()
+                .get_checkpoint_ref(src_id)
+                .await
+                .ok()
+                .flatten()
+            {
+                if let Ok(bytes) = std::fs::read(&r.path) {
+                    map.insert(
+                        src_id.clone(),
+                        Checkpoint {
+                            id: Some(src_id.clone()),
+                            model_zip_base64: Some(BASE64.encode(&bytes)),
+                            model_zip_path: None,
+                            control_model_mlp: r.control_model_params.clone(),
+                            value_model_mlp: r.value_model_params.clone(),
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    let VM::MLP(ref vm) = ppo.value_model;
+    if let MT::Checkpoint(CT::Checkpoint(ref src_id)) = vm.model_type {
+        if !map.contains_key(src_id) {
+            if let Some(r) = crate::postgres_orm()
+                .get_checkpoint_ref(src_id)
+                .await
+                .ok()
+                .flatten()
+            {
+                if let Ok(bytes) = std::fs::read(&r.path) {
+                    map.insert(
+                        src_id.clone(),
+                        Checkpoint {
+                            id: Some(src_id.clone()),
+                            model_zip_base64: Some(BASE64.encode(&bytes)),
+                            model_zip_path: None,
+                            control_model_mlp: r.control_model_params.clone(),
+                            value_model_mlp: r.value_model_params.clone(),
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    map.into_values().collect()
+}
+
+/// Builds the per-update handler shared by local and remote training: persists
+/// any returned checkpoint zips to disk + DB and forwards a client update via tx.
+fn make_training_on_update(
+    run_id: String,
+    exp_id: String,
+    tx: mpsc::Sender<TrainingTaskMessage>,
+    ctrl_json: Option<String>,
+    val_json: Option<String>,
+) -> impl FnMut(&WorkerTrainingUpdatesMessage) {
+    move |update| {
+        let mut client_updates = vec![];
+        for u in &update.updates {
+            let mut saved_refs = vec![];
+            for ckpt in &u.checkpoints {
+                if let Some(ref b64) = ckpt.model_zip_base64 {
+                    match BASE64.decode(b64) {
+                        Ok(bytes) => {
+                            let ckpt_id = uuid::Uuid::new_v4().to_string();
+                            let base = std::env::var("CHECKPOINTS_DIR")
+                                .unwrap_or_else(|_| "checkpoints".to_string());
+                            let dir = format!("{}/{}/{}", base, exp_id, run_id);
+                            let path = format!("{}/{}.zip", dir, ckpt_id);
+                            let _ = std::fs::create_dir_all(&dir);
+                            let _ = std::fs::write(&path, &bytes);
+                            let pg = crate::postgres_orm();
+                            let create_res = tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(
+                                    pg.create_checkpoint_ref(
+                                        &ckpt_id,
+                                        &path,
+                                        "ppo",
+                                        &exp_id,
+                                        &run_id,
+                                        ctrl_json.as_deref(),
+                                        val_json.as_deref(),
+                                    ),
+                                )
+                            });
+                            if let Ok(r) = create_res {
+                                let _ = tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(
+                                        pg.add_checkpoint_ref_to_run(&exp_id, &run_id, &ckpt_id),
+                                    )
+                                });
+                                saved_refs.push(r);
+                            }
+                        }
+                        Err(e) => println!("b64 decode: {:?}", e),
+                    }
+                }
+            }
+            client_updates.push(TrainingUpdate {
+                training_run_state: u.training_run_state.clone(),
+                logs: u.logs.clone(),
+                metrics: u.metrics.clone(),
+                checkpoints: saved_refs,
+            });
+        }
+        let _ = tx.try_send(TrainingTaskMessage::TrainingUpdates(TrainingUpdatesMessage {
+            id: update.id.clone(),
+            updates: client_updates,
+        }));
+    }
+}
+
+async fn spawn_local_training_task(
+    run_id: String,
+    exp_id: String,
+    controller: TrainingJobController,
+    model_path: String,
+    tx: mpsc::Sender<TrainingTaskMessage>,
+    _stop_flag: Arc<AtomicBool>,
+    ctrl_json: Option<String>,
+    val_json: Option<String>,
+) {
+    // Connect-only: assumes a Python worker is already running on the local host.
+    let mut local = match LocalWorkerController::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            println!("Local worker config failed: {:?}", e);
+            let _ = tx
+                .send(TrainingTaskMessage::StopTraining(StopTrainingMessage {
+                    id: run_id.clone(),
+                }))
+                .await;
+            return;
+        }
+    };
+
+    let worker_checkpoints = build_worker_checkpoints(&controller).await;
+    let on_update = make_training_on_update(
+        run_id.clone(),
+        exp_id,
+        tx.clone(),
+        ctrl_json,
+        val_json,
+    );
+
+    let result = local
+        .run_training_job(
+            run_id.clone(),
+            controller,
+            Some(model_path),
+            worker_checkpoints,
+            on_update,
+        )
+        .await;
+
+    if let Err(e) = result {
+        println!("Local training failed: {:?}", e);
+    }
+    let _ = tx
+        .send(TrainingTaskMessage::StopTraining(StopTrainingMessage {
+            id: run_id.clone(),
+        }))
+        .await;
+}
+
+async fn spawn_remote_training_task(
+    run_id: String,
+    exp_id: String,
+    controller: TrainingJobController,
+    model_path: String,
+    remote_cfg: crate::workflows
+        ::remote_worker_controller
+        ::RemoteWorkerControllerConfig,
+    worker_slot: crate::RemoteWorkerSlot,
+    tx: mpsc::Sender<TrainingTaskMessage>,
+    _stop_flag: Arc<AtomicBool>,
+    ctrl_json: Option<String>,
+    val_json: Option<String>,
+) {
     let mut guard = worker_slot.lock().await;
     if guard.is_none() {
-        match crate::remote_workflows
+        match crate::workflows
             ::remote_worker_controller
             ::RemoteWorkerController
             ::initialize(remote_cfg)
@@ -732,237 +811,34 @@ async fn spawn_remote_training_task(
         {
             Ok(w) => *guard = Some(w),
             Err(e) => {
-                println!(
-                    "Remote worker init: {:?}",
-                    e
-                );
+                println!("Remote worker init: {:?}", e);
                 let _ = tx
-                    .send(
-                        TrainingTaskMessage
-                        ::StopTraining(
-                            StopTrainingMessage {
-                                id: run_id.clone(),
-                            },
-                        ),
-                    )
+                    .send(TrainingTaskMessage::StopTraining(StopTrainingMessage {
+                        id: run_id.clone(),
+                    }))
                     .await;
                 return;
             }
         }
     }
-    let worker = guard
-        .as_mut()
-        .expect("worker initialised");
+    let worker = guard.as_mut().expect("worker initialised");
 
-    // Build checkpoint payloads
-    let worker_checkpoints: Vec<WC> = {
-        let mut map: HashMap<String, WC> =
-            HashMap::new();
-        let TM::PPO(ref ppo) =
-            controller.training_method;
-
-        if let CM::MLP(ref m) = ppo.control_model {
-            if let MT::Checkpoint(
-                CT::Checkpoint(ref src_id),
-            ) = m.model_type
-            {
-                if let Some(r) =
-                    crate::postgres_orm()
-                        .get_checkpoint_ref(src_id)
-                        .await
-                        .ok()
-                        .flatten()
-                {
-                    if let Ok(bytes) =
-                        std::fs::read(&r.path)
-                    {
-                        map.insert(
-                            src_id.clone(),
-                            WC {
-                                id: Some(
-                                    src_id.clone(),
-                                ),
-                                model_zip_base64:
-                                    Some(BASE64
-                                        .encode(&bytes)),
-                                model_zip_path: None,
-                                control_model_mlp:
-                                    r.control_model_params
-                                    .clone(),
-                                value_model_mlp:
-                                    r.value_model_params
-                                    .clone(),
-                            },
-                        );
-                    }
-                }
-            }
-        }
-
-        let VM::MLP(ref vm) = ppo.value_model;
-        if let MT::Checkpoint(
-            CT::Checkpoint(ref src_id),
-        ) = vm.model_type
-        {
-            if !map.contains_key(src_id) {
-                if let Some(r) =
-                    crate::postgres_orm()
-                        .get_checkpoint_ref(src_id)
-                        .await
-                        .ok()
-                        .flatten()
-                {
-                    if let Ok(bytes) =
-                        std::fs::read(&r.path)
-                    {
-                        map.insert(
-                            src_id.clone(),
-                            WC {
-                                id: Some(
-                                    src_id.clone(),
-                                ),
-                                model_zip_base64:
-                                    Some(BASE64
-                                        .encode(&bytes)),
-                                model_zip_path: None,
-                                control_model_mlp:
-                                    r.control_model_params
-                                    .clone(),
-                                value_model_mlp:
-                                    r.value_model_params
-                                    .clone(),
-                            },
-                        );
-                    }
-                }
-            }
-        }
-
-        map.into_values().collect()
-    };
+    let worker_checkpoints = build_worker_checkpoints(&controller).await;
+    let on_update = make_training_on_update(
+        run_id.clone(),
+        exp_id,
+        tx.clone(),
+        ctrl_json,
+        val_json,
+    );
 
     let result = worker
         .run_training_job(
             run_id.clone(),
-            controller.clone(),
+            controller,
             Some(model_path),
             worker_checkpoints,
-            |update| {
-                let mut client_updates = vec![];
-                for u in &update.updates {
-                    let mut saved_refs = vec![];
-                    for ckpt in &u.checkpoints {
-                        if let Some(ref b64) =
-                            ckpt.model_zip_base64
-                        {
-                            match BASE64.decode(&b64)
-                            {
-                                Ok(bytes) => {
-                                    let ckpt_id =
-                                        uuid::Uuid
-                                        ::new_v4()
-                                        .to_string();
-                                    let base = std::env::var("CHECKPOINTS_DIR")
-                                        .unwrap_or_else(|_| "checkpoints".to_string());
-                                    let dir = format!(
-                                        "{}/{}/{}",
-                                        base,
-                                        exp_id,
-                                        run_id,
-                                    );
-                                    let path =
-                                        format!(
-                                            "{}/{}.zip",
-                                            dir,
-                                            ckpt_id,
-                                        );
-                                    let _ =
-                                        std::fs
-                                        ::create_dir_all(
-                                            &dir,
-                                        );
-                                    let _ =
-                                        std::fs::write(
-                                            &path,
-                                            &bytes,
-                                        );
-                                    let pg =
-                                        crate::postgres_orm();
-                                    let create_res =
-                                        tokio::task
-                                        ::block_in_place(
-                                            || {
-                                                tokio::runtime
-                                                ::Handle
-                                                ::current()
-                                                .block_on(
-                                                    pg
-                                                    .create_checkpoint_ref(
-                                                        &ckpt_id,
-                                                        &path,
-                                                        "ppo",
-                                                        &exp_id,
-                                                        &run_id,
-                                                        ctrl_json
-                                                            .as_deref(),
-                                                        val_json
-                                                            .as_deref(),
-                                                    )
-                                                )
-                                            }
-                                        );
-                                    if let Ok(r) =
-                                        create_res
-                                    {
-                                        let _ =
-                                            tokio::task
-                                            ::block_in_place(
-                                                || {
-                                                    tokio::runtime
-                                                    ::Handle
-                                                    ::current()
-                                                    .block_on(
-                                                        pg
-                                                        .add_checkpoint_ref_to_run(
-                                                            &exp_id,
-                                                            &run_id,
-                                                            &ckpt_id,
-                                                        )
-                                                    )
-                                                }
-                                            );
-                                        saved_refs
-                                            .push(r);
-                                    }
-                                }
-                                Err(e) => println!(
-                                    "b64 decode: {:?}",
-                                    e
-                                ),
-                            }
-                        }
-                    }
-                    client_updates.push(
-                        TrainingUpdate {
-                            training_run_state:
-                                u.training_run_state
-                                .clone(),
-                            logs: u.logs.clone(),
-                            metrics: u.metrics.clone(),
-                            checkpoints: saved_refs,
-                        },
-                    );
-                }
-                let _ = tx.try_send(
-                    TrainingTaskMessage
-                    ::TrainingUpdates(
-                        TrainingUpdatesMessage {
-                            id: update.id.clone(),
-                            updates: client_updates,
-                        },
-                    ),
-                );
-            },
+            on_update,
         )
         .await;
 
@@ -971,10 +847,8 @@ async fn spawn_remote_training_task(
         println!("Remote training failed: {:?}", e);
     }
     let _ = tx
-        .send(TrainingTaskMessage::StopTraining(
-            StopTrainingMessage {
-                id: run_id.clone(),
-            },
-        ))
+        .send(TrainingTaskMessage::StopTraining(StopTrainingMessage {
+            id: run_id.clone(),
+        }))
         .await;
 }
