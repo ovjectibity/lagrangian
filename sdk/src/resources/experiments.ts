@@ -1,4 +1,4 @@
-import { streamSSE } from "../sse.js";
+import { streamWS } from "../ws.js";
 import type {
   CheckpointReference,
   ClientMessage,
@@ -122,6 +122,6 @@ export class ExperimentsResource {
     runId: string,
   ): AsyncIterable<ClientMessage> {
     const url = `${this.baseUrl}/training/experiments/${experimentId}/runs/${runId}/updates`;
-    return streamSSE<ClientMessage>(url);
+    return streamWS<ClientMessage>(url);
   }
 }

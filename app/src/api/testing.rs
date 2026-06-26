@@ -1,15 +1,11 @@
 use rocket::State;
 use rocket::http::Status;
-use rocket::response::stream::{Event, EventStream};
 use rocket::serde::json::Json;
 use rocket::tokio::sync::{broadcast, mpsc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
-
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD
-    as BASE64;
+use rocket_ws as ws;
 
 use crate::api::{route_doc, ApiState};
 use crate::commondef::clientmessages::ClientMessage;
@@ -124,9 +120,9 @@ pub async fn start_test(
         )
         .await;
 
-    // SSE broadcast channel
+    // Broadcast channel of raw binary simul frames (fanned out to WS subscribers)
     let (sse_tx, _) =
-        broadcast::channel::<String>(512);
+        broadcast::channel::<Vec<u8>>(512);
     state
         .simul_senders
         .lock()
@@ -153,9 +149,7 @@ pub async fn start_test(
                                     relay_id.clone(),
                                     update,
                                 );
-                            relay_sse_tx
-                                .send(BASE64.encode(&binary))
-                                .ok();
+                            relay_sse_tx.send(binary).ok();
                         }
                     }
                 }
@@ -262,15 +256,14 @@ pub async fn stop_test(
 
 #[route_doc(
     tag = "Testing",
-    sse,
-    ok = Vec<u8>,
     params(test_id = "Test run UUID"),
 )]
 #[get("/testing/<test_id>/updates")]
 pub async fn test_updates(
     test_id: String,
     state: &State<ApiState>,
-) -> EventStream![]
+    ws: ws::WebSocket,
+) -> ws::Channel<'static>
 {
     let rx = state
         .simul_senders
@@ -279,24 +272,31 @@ pub async fn test_updates(
         .get(&test_id)
         .map(|tx| tx.subscribe());
 
-    EventStream! {
+    ws.channel(move |mut stream| Box::pin(async move {
+        use rocket::futures::{SinkExt, StreamExt};
         if let Some(mut rx) = rx {
             loop {
-                match rx.recv().await {
-                    Ok(data) =>
-                        yield Event::data(data),
-                    Err(
-                        broadcast::error::RecvError
-                        ::Closed
-                    ) => break,
-                    Err(
-                        broadcast::error::RecvError
-                        ::Lagged(_)
-                    ) => continue,
+                rocket::tokio::select! {
+                    msg = rx.recv() => match msg {
+                        Ok(bytes) => {
+                            if stream.send(ws::Message::Binary(bytes)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Closed) => break,
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    },
+                    incoming = stream.next() => match incoming {
+                        None
+                        | Some(Ok(ws::Message::Close(_)))
+                        | Some(Err(_)) => break,
+                        Some(Ok(_)) => {}
+                    },
                 }
             }
         }
-    }
+        Ok(())
+    }))
 }
 
 // ── Remote test helpers ───────────────────────

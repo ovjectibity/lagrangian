@@ -3,11 +3,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use rocket::State;
 use rocket::http::Status;
-use rocket::response::stream::{Event, EventStream};
 use rocket::serde::json::Json;
 use rocket::tokio::sync::{broadcast, mpsc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use rocket_ws as ws;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD
@@ -502,8 +502,6 @@ pub async fn stop_training(
 
 #[route_doc(
     tag = "Training",
-    sse,
-    ok = cm::ClientMessage,
     params(
         experiment_id = "Experiment UUID",
         run_id = "Run UUID",
@@ -517,7 +515,8 @@ pub async fn training_updates(
     _experiment_id: String,
     run_id: String,
     state: &State<ApiState>,
-) -> EventStream![]
+    ws: ws::WebSocket,
+) -> ws::Channel<'static>
 {
     let rx = state
         .training_senders
@@ -526,24 +525,31 @@ pub async fn training_updates(
         .get(&run_id)
         .map(|tx| tx.subscribe());
 
-    EventStream! {
+    ws.channel(move |mut stream| Box::pin(async move {
+        use rocket::futures::{SinkExt, StreamExt};
         if let Some(mut rx) = rx {
             loop {
-                match rx.recv().await {
-                    Ok(data) =>
-                        yield Event::data(data),
-                    Err(
-                        broadcast::error::RecvError
-                        ::Closed
-                    ) => break,
-                    Err(
-                        broadcast::error::RecvError
-                        ::Lagged(_)
-                    ) => continue,
+                rocket::tokio::select! {
+                    msg = rx.recv() => match msg {
+                        Ok(json) => {
+                            if stream.send(ws::Message::Text(json)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Closed) => break,
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    },
+                    incoming = stream.next() => match incoming {
+                        None
+                        | Some(Ok(ws::Message::Close(_)))
+                        | Some(Err(_)) => break,
+                        Some(Ok(_)) => {}
+                    },
                 }
             }
         }
-    }
+        Ok(())
+    }))
 }
 
 // ── Remote training helpers ───────────────────

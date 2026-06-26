@@ -1,11 +1,11 @@
-import { streamBinarySSE } from "../sse.js";
+import { streamBinaryWS } from "../ws.js";
 import type { TestGraph, TestUpdateMessage } from "../types.js";
 
-// SSE frames for /testing/<id>/updates are base64-encoded binary.
+// WS binary frames for /testing/<id>/updates.
 // Layout: [1 msg_type] [2 id_len LE] [id_len id] [2 nbody LE]
 //         [nbody*3 f64 LE xpos] [nbody*4 f64 LE xquat]
-function decodeSimulFrame(b64: string): TestUpdateMessage {
-  const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+function decodeSimulFrame(buf: ArrayBuffer): TestUpdateMessage {
+  const raw = new Uint8Array(buf);
   const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
   let off = 1; // skip msg_type byte
   const idLen = view.getUint16(off, true); off += 2;
@@ -15,7 +15,7 @@ function decodeSimulFrame(b64: string): TestUpdateMessage {
   for (let i = 0; i < nbody * 3; i++) { xpos.push(view.getFloat64(off, true)); off += 8; }
   const xquat: number[] = [];
   for (let i = 0; i < nbody * 4; i++) { xquat.push(view.getFloat64(off, true)); off += 8; }
-  return { id, updates: [[{ xpos, xquat }]] };
+  return { id, simulation_state: [[{ xpos, xquat }]] };
 }
 
 export class SimulationsResource {
@@ -53,8 +53,8 @@ export class SimulationsResource {
 
   async *streamUpdates(testId: string): AsyncGenerator<TestUpdateMessage> {
     const url = `${this.baseUrl}/testing/${testId}/updates`;
-    for await (const b64 of streamBinarySSE(url)) {
-      yield decodeSimulFrame(b64);
+    for await (const buf of streamBinaryWS(url)) {
+      yield decodeSimulFrame(buf);
     }
   }
 }

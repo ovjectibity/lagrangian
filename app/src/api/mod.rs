@@ -161,7 +161,7 @@ pub struct ApiState {
         >,
     >,
     pub simul_senders: AsyncMutex<
-        HashMap<String, broadcast::Sender<String>>,
+        HashMap<String, broadcast::Sender<Vec<u8>>>,
     >,
     pub simul_tasks: AsyncMutex<
         HashMap<String, JoinHandle<()>>,
