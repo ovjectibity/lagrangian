@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROTO_DIR="$REPO_ROOT/docs/user/specs"
+PROTO_DIR="$REPO_ROOT/docs/user/async_spec"
 PROTO_FILE="$PROTO_DIR/testing_updates.proto"
 GEN_PYTHON="$REPO_ROOT/scripts/.venv/bin/python"
 

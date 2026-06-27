@@ -19,7 +19,7 @@ Adopt **Protocol Buffers** as the schema-defined wire format for the testing
 update, **end-to-end binary** (Python worker → Rust app server → TS SDK). Scope is
 **testing updates only**; training updates stay JSON text over WebSocket.
 
-The wire-contract artifact is [`docs/user/specs/testing_updates.proto`](../user/specs/testing_updates.proto).
+The wire-contract artifact is [`docs/user/async_spec/testing_updates.proto`](../user/async_spec/testing_updates.proto).
 It is the source of truth for the binary format and mirrors the Rust
 `app/src/commondef/testing.rs` types (kept in parity by convention).
 
@@ -122,11 +122,12 @@ See the `.proto` for the authoritative definition. Shapes:
 
 ## Documentation
 
-- Wire contract: [`docs/user/specs/testing_updates.proto`](../user/specs/testing_updates.proto).
-- AsyncAPI (JSON): [`docs/user/specs/testing_updates_asyncapi.json`](../user/specs/testing_updates_asyncapi.json)
-  documents the `/testing/<id>/updates` WS channel referencing the `.proto`
-  (`schemaFormat: application/vnd.google.protobuf`). OpenAPI/utoipa cannot model a
-  binary WS stream.
+- Wire contract: [`docs/user/async_spec/testing_updates.proto`](../user/async_spec/testing_updates.proto).
+- AsyncAPI (JSON): [`docs/user/async_spec/updates_asyncapi_spec.json`](../user/async_spec/updates_asyncapi_spec.json)
+  — a **consolidated** doc covering both the `/testing/<id>/updates` channel
+  (binary protobuf, referencing the `.proto`) and the
+  `/training/.../runs/<id>/updates` channel (JSON `ClientMessage`). OpenAPI/utoipa
+  cannot model either WS stream.
 
 ## Out of scope
 

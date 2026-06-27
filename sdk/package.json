@@ -15,7 +15,7 @@
   },
   "files": ["dist"],
   "scripts": {
-    "gen:proto": "mkdir -p src/proto && pbjs -t static-module -w es6 -o src/proto/testing.js ../docs/user/specs/testing_updates.proto && pbts -o src/proto/testing.d.ts src/proto/testing.js",
+    "gen:proto": "mkdir -p src/proto && pbjs -t static-module -w es6 -o src/proto/testing.js ../docs/user/async_spec/testing_updates.proto && pbts -o src/proto/testing.d.ts src/proto/testing.js",
     "build": "npm run gen:proto && tsup",
     "typecheck": "tsc --noEmit"
   },

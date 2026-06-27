@@ -1,0 +1,210 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Lagrangian Realtime Updates",
+    "version": "0.1.0",
+    "description": "WebSocket update streams for testing and training jobs. Testing frames are binary protobuf (`lagrangian.testing.TestingStreamMessage`, see testing_updates.proto); training frames are JSON `ClientMessage`. OpenAPI cannot represent these WS streams, so they are documented here. The authoritative JSON shapes are the typeshare-generated types in sdk/src/types.ts."
+  },
+  "servers": {
+    "appServer": {
+      "host": "localhost:8000",
+      "pathname": "/api",
+      "protocol": "ws",
+      "description": "Lagrangian app server (use wss in production)."
+    }
+  },
+  "channels": {
+    "testingUpdates": {
+      "address": "/testing/{testId}/updates",
+      "title": "Testing updates",
+      "description": "Per-test-run stream of simulation update frames (binary protobuf).",
+      "parameters": {
+        "testId": {
+          "description": "Test run UUID returned by POST /testing/start."
+        }
+      },
+      "messages": {
+        "testingStreamMessage": {
+          "$ref": "#/components/messages/TestingStreamMessage"
+        }
+      }
+    },
+    "trainingUpdates": {
+      "address": "/training/experiments/{experimentId}/runs/{runId}/updates",
+      "title": "Training updates",
+      "description": "Per-run stream of training updates and the terminal stop event (JSON text).",
+      "parameters": {
+        "experimentId": {
+          "description": "Training experiment ID."
+        },
+        "runId": {
+          "description": "Training run ID."
+        }
+      },
+      "messages": {
+        "clientMessage": {
+          "$ref": "#/components/messages/TrainingClientMessage"
+        }
+      }
+    }
+  },
+  "operations": {
+    "receiveTestingUpdates": {
+      "action": "receive",
+      "summary": "Receive testing update frames over the WebSocket.",
+      "channel": { "$ref": "#/channels/testingUpdates" },
+      "messages": [
+        { "$ref": "#/channels/testingUpdates/messages/testingStreamMessage" }
+      ]
+    },
+    "receiveTrainingUpdates": {
+      "action": "receive",
+      "summary": "Receive training updates and the stop event over the WebSocket.",
+      "channel": { "$ref": "#/channels/trainingUpdates" },
+      "messages": [
+        { "$ref": "#/channels/trainingUpdates/messages/clientMessage" }
+      ]
+    }
+  },
+  "components": {
+    "messages": {
+      "TestingStreamMessage": {
+        "name": "TestingStreamMessage",
+        "title": "Testing stream message",
+        "summary": "One testing update: the [env][t] matrix of body-pose forwards plus optional camera frames.",
+        "contentType": "application/vnd.google.protobuf",
+        "payload": {
+          "schemaFormat": "application/vnd.google.protobuf;version=3",
+          "schema": {
+            "$ref": "./testing_updates.proto#/lagrangian.testing.TestingStreamMessage"
+          }
+        }
+      },
+      "TrainingClientMessage": {
+        "name": "ClientMessage",
+        "title": "Training client message",
+        "summary": "A training update or the terminal stop event (the training-relevant arms of ClientMessage).",
+        "contentType": "application/json",
+        "payload": {
+          "schemaFormat": "application/schema+json;version=draft-07",
+          "schema": { "$ref": "#/components/schemas/TrainingClientMessage" }
+        }
+      }
+    },
+    "schemas": {
+      "TrainingClientMessage": {
+        "type": "object",
+        "description": "Tagged union (serde tag=type, content=content).",
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["type", "content"],
+            "properties": {
+              "type": { "const": "TrainingUpdatesMessage" },
+              "content": { "$ref": "#/components/schemas/TrainingUpdatesMessage" }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["type", "content"],
+            "properties": {
+              "type": { "const": "StopTrainingMessage" },
+              "content": { "$ref": "#/components/schemas/StopTrainingMessage" }
+            }
+          }
+        ]
+      },
+      "TrainingUpdatesMessage": {
+        "type": "object",
+        "required": ["id", "updates"],
+        "properties": {
+          "id": { "type": "string" },
+          "updates": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TrainingUpdate" }
+          }
+        }
+      },
+      "StopTrainingMessage": {
+        "type": "object",
+        "required": ["id"],
+        "properties": { "id": { "type": "string" } }
+      },
+      "TrainingUpdate": {
+        "type": "object",
+        "required": ["training_run_state", "logs", "metrics", "checkpoints"],
+        "properties": {
+          "training_run_state": { "$ref": "#/components/schemas/TrainingRunState" },
+          "logs": { "type": "array", "items": { "type": "string" } },
+          "metrics": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TrainingMetrics" }
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CheckpointReference" }
+          }
+        }
+      },
+      "TrainingRunState": {
+        "type": "object",
+        "required": ["type", "content"],
+        "properties": {
+          "type": { "const": "PPOTrainingRunState" },
+          "content": {
+            "type": "object",
+            "required": ["epoch_index", "update_index"],
+            "properties": {
+              "epoch_index": { "type": "integer" },
+              "update_index": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "TrainingMetrics": {
+        "type": "object",
+        "description": "Tagged union of named metric series.",
+        "required": ["type", "content"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "MeanReward",
+              "MeanPolicyLoss",
+              "ValueLoss",
+              "MeanEntropy",
+              "PolicyGradientNorm",
+              "ValueGradientNorm"
+            ]
+          },
+          "content": { "$ref": "#/components/schemas/MetricsData" }
+        }
+      },
+      "MetricsData": {
+        "type": "object",
+        "required": ["x_axis", "y_axis"],
+        "properties": {
+          "x_axis": { "type": "array", "items": { "type": "number" } },
+          "y_axis": { "type": "array", "items": { "type": "number" } }
+        }
+      },
+      "CheckpointReference": {
+        "type": "object",
+        "required": [
+          "created_at", "id", "path", "training_experiment_id",
+          "training_run_id", "checkpoint_type"
+        ],
+        "properties": {
+          "created_at": { "type": "string", "format": "date-time" },
+          "id": { "type": "string" },
+          "path": { "type": "string" },
+          "training_experiment_id": { "type": "string" },
+          "training_run_id": { "type": "string" },
+          "checkpoint_type": { "type": "string" },
+          "control_model_params": { "type": "object" },
+          "value_model_params": { "type": "object" }
+        }
+      }
+    }
+  }
+}
