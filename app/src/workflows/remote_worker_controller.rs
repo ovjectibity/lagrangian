@@ -25,7 +25,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use tokio::time::sleep;
 
 use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
-use crate::commondef::testing::{TestGraph, TestUpdateMessage};
+use crate::commondef::testing::TestGraph;
 use crate::commondef::training::{Checkpoint, TrainingJobController};
 use crate::workflows::common_worker_controller::{
     CommonWorkerController, CommonWorkerControllerConfig, Result,
@@ -185,7 +185,7 @@ impl RemoteWorkerController {
         on_update: F,
     ) -> Result<()>
     where
-        F: FnMut(&TestUpdateMessage) + Send,
+        F: FnMut(Vec<u8>) + Send,
     {
         self.common
             .run_test_job(test_id, test_graph, model_path, on_update)

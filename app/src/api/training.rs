@@ -32,8 +32,15 @@ use crate::commondef::training::{
     TrainingUpdatesMessage,
     ValueModel,
 };
-use crate::commondef::workermessages::TrainingTaskMessage;
 use crate::workflows::local_worker_controller::LocalWorkerController;
+
+/// Internal task→relay message for the training mpsc (API-local; carries the
+/// client-facing update with checkpoint refs already persisted).
+#[derive(Debug, Clone)]
+enum TrainingTaskMessage {
+    TrainingUpdates(TrainingUpdatesMessage),
+    StopTraining(StopTrainingMessage),
+}
 
 // ── Request / response types ─────────────────
 

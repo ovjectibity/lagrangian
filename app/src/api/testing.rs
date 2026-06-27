@@ -8,16 +8,23 @@ use uuid::Uuid;
 use rocket_ws as ws;
 
 use crate::api::{route_doc, ApiState};
-use crate::commondef::clientmessages::ClientMessage;
 use crate::commondef::record::{
     TestGraphRecord, TestRunStatus,
 };
 use crate::commondef::testing::{
-    StopTestMessage, TestGraph, TestUpdateMessage,
+    StopTestMessage, TestGraph,
 };
 use crate::commondef::training::TrainingAccelerationMode;
-use crate::commondef::workermessages::TestTaskMessage;
 use crate::workflows::local_worker_controller::LocalWorkerController;
+
+/// Internal task→relay message for the testing mpsc (API-local). Test updates
+/// are opaque protobuf `TestingStreamMessage` frames forwarded verbatim to SDK
+/// subscribers; the server never decodes them.
+#[derive(Debug, Clone)]
+enum TestTaskMessage {
+    StopTestMessage(StopTestMessage),
+    TestUpdateBytes(Vec<u8>),
+}
 
 // ── Request / response types ─────────────────
 
@@ -133,28 +140,15 @@ pub async fn start_test(
     let (tx_test, mut rx_test) =
         mpsc::channel::<TestTaskMessage>(64);
 
-    // Relay: mpsc → broadcast
+    // Relay: mpsc → broadcast. Protobuf frames are forwarded verbatim.
     let relay_sse_tx = sse_tx.clone();
-    let relay_id = test_id.clone();
     rocket::tokio::spawn(async move {
         while let Some(msg) = rx_test.recv().await {
             match msg {
-                TestTaskMessage
-                ::TestUpdateMessage(m) => {
-                    for frame in m.simulation_state {
-                        for update in frame {
-                            let binary =
-                                ClientMessage
-                                ::to_binary_simul_update(
-                                    relay_id.clone(),
-                                    update,
-                                );
-                            relay_sse_tx.send(binary).ok();
-                        }
-                    }
+                TestTaskMessage::TestUpdateBytes(bytes) => {
+                    relay_sse_tx.send(bytes).ok();
                 }
-                TestTaskMessage
-                ::StopTestMessage(_) => break,
+                TestTaskMessage::StopTestMessage(_) => break,
             }
         }
     });
@@ -326,8 +320,8 @@ async fn spawn_local_test_task(
             test_id.clone(),
             test_graph,
             model_path,
-            |update: &TestUpdateMessage| {
-                let _ = tx.try_send(TestTaskMessage::TestUpdateMessage(update.clone()));
+            |frame: Vec<u8>| {
+                let _ = tx.try_send(TestTaskMessage::TestUpdateBytes(frame));
             },
         )
         .await;
@@ -395,11 +389,9 @@ async fn spawn_remote_test_task(
             test_id.clone(),
             test_graph,
             model_path,
-            |update: &TestUpdateMessage| {
+            |frame: Vec<u8>| {
                 let _ = tx.try_send(
-                    TestTaskMessage::TestUpdateMessage(
-                        update.clone(),
-                    ),
+                    TestTaskMessage::TestUpdateBytes(frame),
                 );
             },
         )

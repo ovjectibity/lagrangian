@@ -9,6 +9,14 @@ from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 
 
+class CameraFrames(BaseModel):
+    frames: List[int]
+    nenv: int
+    ncam: int
+    t: int
+    h: int
+    w: int
+
 class ModelForward(BaseModel):
     xpos: List[float]
     xquat: List[float]
@@ -38,5 +46,5 @@ class StopTestMessage(BaseModel):
 class TestUpdateMessage(BaseModel):
     id: str
     simulation_state: List[List[ModelForward]]
-    frames: Optional[List[List[List[List[List[List[int]]]]]]] = Field(default=None)
+    frames: Optional[CameraFrames] = Field(default=None)
 

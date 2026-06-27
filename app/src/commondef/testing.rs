@@ -55,7 +55,19 @@ pub struct TestUpdateMessage {
     //The first dimension here is for the env index and 
     //the second one for the sequence of update 
     pub simulation_state: Vec<Vec<ModelForward>>,
-    pub frames: Option<Vec<Vec<Vec<Vec<Vec<Vec<u8>>>>>>>
+    pub frames: Option<CameraFrames>
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[typeshare]
+pub struct CameraFrames {
+    // Shape: [nenv, t, ncam, h, w, 3]
+    pub frames: Vec<u8>,
+    pub nenv: i32,
+    pub ncam: i32,
+    pub t: i32,
+    pub h: i32,
+    pub w: i32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]

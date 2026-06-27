@@ -15,10 +15,15 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsup",
+    "gen:proto": "mkdir -p src/proto && pbjs -t static-module -w es6 -o src/proto/testing.js ../docs/user/specs/testing_updates.proto && pbts -o src/proto/testing.d.ts src/proto/testing.js",
+    "build": "npm run gen:proto && tsup",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "protobufjs": "^7.5.4"
+  },
   "devDependencies": {
+    "protobufjs-cli": "^1.1.3",
     "tsup": "^8.5.0",
     "typescript": "~5.9.3"
   }

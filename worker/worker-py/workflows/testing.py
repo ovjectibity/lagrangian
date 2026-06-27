@@ -6,13 +6,12 @@ from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
+from commondef import testing_updates_pb2 as pb
 from commondef.remoteworkermessages import (
-    ModelForward,
     RemoteWorkerClientMessageStopTestingMessage,
-    RemoteWorkerClientMessageTestUpdatesMessage,
     StopTestMessage,
-    TestUpdateMessage,
     TrainingAccelerationMode,
 )
 from commondef.testing import TestJobController
@@ -27,9 +26,41 @@ Params = Any
 
 UPDATE_CHUNK_SIZE = 10
 
+
+def _build_stream_bytes(
+    test_id: str,
+    sim_state: list[list[tuple[Any, Any]]],
+    frames_u8: Any | None,
+) -> bytes:
+    """Build a `TestingStreamMessage` from an env-major [env][t] matrix of
+    (xpos, xquat) plus optional camera frames, and let protobuf serialize it.
+
+    `frames_u8`, if present, is a uint8 array of shape [nenv, t, ncam, h, w, c]
+    (protobuf's `bytes` field needs raw bytes, hence the `.tobytes()`).
+    See docs/user/specs/testing_updates.proto.
+    """
+    update = pb.TestUpdate(
+        id=test_id,
+        simulation_state=[
+            pb.EnvUpdates(updates=[
+                pb.ModelForward(nbody=len(xpos) // 3, xpos=xpos, xquat=xquat)
+                for xpos, xquat in env_updates
+            ])
+            for env_updates in sim_state
+        ],
+    )
+    if frames_u8 is not None:
+        nenv, t, ncam, h, w = (int(d) for d in frames_u8.shape[:5])
+        update.frames.CopyFrom(pb.CameraFrames(
+            nenv=nenv, t=t, ncam=ncam, h=h, w=w,
+            frames=np.ascontiguousarray(frames_u8).tobytes(),
+        ))
+    return pb.TestingStreamMessage(test_update=update).SerializeToString()
+
+
 class TestingTaskSink(ABC):
     @abstractmethod
-    def send_test_updates(self, message: TestUpdateMessage) -> None:
+    def send_test_updates(self, payload: bytes) -> None:
         pass
 
     @abstractmethod
@@ -38,12 +69,11 @@ class TestingTaskSink(ABC):
 
 
 class CallbackTestingTaskSink(TestingTaskSink):
-    def __init__(self, send_message: Callable[[dict[str, Any]], None]) -> None:
+    def __init__(self, send_message: Callable[[dict[str, Any] | bytes], None]) -> None:
         self._send_message = send_message
 
-    def send_test_updates(self, message: TestUpdateMessage) -> None:
-        wrapped = RemoteWorkerClientMessageTestUpdatesMessage(content=message)
-        self._send_message(wrapped.model_dump(mode="json", by_alias=True))
+    def send_test_updates(self, payload: bytes) -> None:
+        self._send_message(payload)
 
     def send_stop_testing(self, message: StopTestMessage) -> None:
         wrapped = RemoteWorkerClientMessageStopTestingMessage(content=message)
@@ -140,23 +170,18 @@ class TestingWorkflow:
             # chunk_xpos: [chunk, num_parallel_envs, nbody, 3]
             xpos_np = chunk_xpos.reshape(chunk, num_parallel_envs, -1).tolist()
             xquat_np = chunk_xquat.reshape(chunk, num_parallel_envs, -1).tolist()
-            # camera_frames: [chunk, num_parallel_envs, ncam, H, W, C] float32 in [0, 1];
-            # frames field is u8, so denormalise back to bytes per (timestep, env).
-            frames_np = (
-                (camera_frames * 255.0).round().astype(jnp.uint8)
-                .transpose(1,0,2,3,4,5).tolist()
-            )
-            # env-major [env][timestep] to match the frames layout
-            updates = [
-                [ModelForward(xpos=xpos_np[t][i], xquat=xquat_np[t][i])
-                 for t in range(chunk)]
+            # env-major [env][timestep] of (xpos, xquat) to match the frames layout
+            sim_state = [
+                [(xpos_np[t][i], xquat_np[t][i]) for t in range(chunk)]
                 for i in range(num_parallel_envs)
             ]
-            tx.send_test_updates(TestUpdateMessage(
-                id=self.id,
-                simulation_state=updates,
-                frames=frames_np,
-            ))
+            # camera_frames: [chunk, num_parallel_envs, ncam, H, W, C] float32 in
+            # [0, 1]; frames field is u8, so denormalise and reorder to env-major
+            # [nenv, t, ncam, H, W, C].
+            frames_u8 = np.asarray(
+                (camera_frames * 255.0).round().astype(jnp.uint8)
+            ).transpose(1, 0, 2, 3, 4, 5)
+            tx.send_test_updates(_build_stream_bytes(self.id, sim_state, frames_u8))
             remaining -= chunk
 
     def _run_sequential(
@@ -174,15 +199,12 @@ class TestingWorkflow:
             action = self.model.get_test_action(parts)
             self.simulator.forward_dyn(action)
             xpos, xquat = self.simulator.get_simul_update()
-            # cameras: [ncam*H*W*C] float32 in [0, 1] when requested; frames field is
-            # u8, so denormalise to bytes and wrap as [timestep][env][bytes].
+            # cameras: [ncam, H, W, C] float32 in [0, 1] when requested; frames
+            # field is u8, so denormalise and add the leading [nenv=1, t=1] dims.
             cameras = parts.get("cameras")
-            frames = (
-                [[(cameras * 255.0).round().astype(jnp.uint8).tolist()]]
+            frames_u8 = (
+                np.asarray((cameras * 255.0).round().astype(jnp.uint8))[None, None]
                 if cameras is not None else None
             )
-            tx.send_test_updates(TestUpdateMessage(
-                id=self.id,
-                simulation_state=[[ModelForward(xpos=xpos, xquat=xquat)]],
-                frames=frames,
-            ))
+            sim_state = [[(xpos, xquat)]]  # single env, single timestep
+            tx.send_test_updates(_build_stream_bytes(self.id, sim_state, frames_u8))

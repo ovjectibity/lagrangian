@@ -1,21 +1,59 @@
+import { util, configure } from "protobufjs/minimal";
 import { streamBinaryWS } from "../ws.js";
-import type { TestGraph, TestUpdateMessage } from "../types.js";
+import { lagrangian } from "../proto/testing.js";
+import type {
+  CameraFrames,
+  ModelForward,
+  TestGraph,
+  TestUpdateMessage,
+} from "../types.js";
 
-// WS binary frames for /testing/<id>/updates.
-// Layout: [1 msg_type] [2 id_len LE] [id_len id] [2 nbody LE]
-//         [nbody*3 f64 LE xpos] [nbody*4 f64 LE xquat]
+const { TestingStreamMessage } = lagrangian.testing;
+
+// Decode 64-bit protobuf ints to plain JS numbers (the dims/nbody are small).
+(util as unknown as { Long: unknown }).Long = null;
+configure();
+
+// WS binary frames for /testing/<id>/updates carry a protobuf
+// `lagrangian.testing.TestingStreamMessage` (see
+// docs/user/specs/testing_updates.proto). Decode it and map to the typeshare
+// `TestUpdateMessage` so the public SDK type is unchanged for end users.
 function decodeSimulFrame(buf: ArrayBuffer): TestUpdateMessage {
-  const raw = new Uint8Array(buf);
-  const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
-  let off = 1; // skip msg_type byte
-  const idLen = view.getUint16(off, true); off += 2;
-  const id = new TextDecoder().decode(raw.slice(off, off + idLen)); off += idLen;
-  const nbody = view.getUint16(off, true); off += 2;
-  const xpos: number[] = [];
-  for (let i = 0; i < nbody * 3; i++) { xpos.push(view.getFloat64(off, true)); off += 8; }
-  const xquat: number[] = [];
-  for (let i = 0; i < nbody * 4; i++) { xquat.push(view.getFloat64(off, true)); off += 8; }
-  return { id, simulation_state: [[{ xpos, xquat }]] };
+  const env = TestingStreamMessage.decode(new Uint8Array(buf));
+  const update = env.testUpdate;
+  if (!update) {
+    return { id: "", simulation_state: [] };
+  }
+
+  // EnvUpdates[] -> ModelForward[][]; drop the proto-only `nbody` field.
+  const simulation_state: ModelForward[][] = (
+    update.simulationState ?? []
+  ).map((envUpdates) =>
+    (envUpdates.updates ?? []).map((mf) => ({
+      xpos: mf.xpos ?? [],
+      xquat: mf.xquat ?? [],
+    })),
+  );
+
+  const result: TestUpdateMessage = {
+    id: update.id ?? "",
+    simulation_state,
+  };
+
+  if (update.frames) {
+    const f = update.frames;
+    const frames: CameraFrames = {
+      frames: Array.from(f.frames ?? new Uint8Array()),
+      nenv: Number(f.nenv ?? 0),
+      ncam: Number(f.ncam ?? 0),
+      t: Number(f.t ?? 0),
+      h: Number(f.h ?? 0),
+      w: Number(f.w ?? 0),
+    };
+    result.frames = frames;
+  }
+
+  return result;
 }
 
 export class SimulationsResource {

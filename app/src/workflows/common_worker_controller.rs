@@ -28,7 +28,7 @@ use crate::commondef::remoteworkermessages::{
     RemoteWorkerClientMessage, RemoteWorkerServerMessage, WorkerTrainingUpdatesMessage,
 };
 use crate::commondef::testing::{
-    StartTestMessage, StopTestMessage, TestGraph, TestUpdateMessage,
+    StartTestMessage, StopTestMessage, TestGraph,
 };
 use crate::commondef::training::{
     Checkpoint, StartTrainingMessage, StopTrainingMessage, TrainingGraph,
@@ -262,7 +262,7 @@ impl CommonWorkerController {
         mut on_update: F,
     ) -> Result<()>
     where
-        F: FnMut(&TestUpdateMessage) + Send,
+        F: FnMut(Vec<u8>) + Send,
     {
         self.close().await;
         self.connect_worker_wss().await?;
@@ -375,7 +375,7 @@ impl CommonWorkerController {
         on_update: &mut F,
     ) -> Result<()>
     where
-        F: FnMut(&TestUpdateMessage) + Send,
+        F: FnMut(Vec<u8>) + Send,
     {
         let ws = self
             .worker_ws
@@ -385,19 +385,18 @@ impl CommonWorkerController {
         while let Some(msg) = ws.next().await {
             let msg = msg?;
             match msg {
+                // Protobuf `TestingStreamMessage` frame — forwarded verbatim to
+                // SDK subscribers; the server never decodes it.
+                Message::Binary(payload) => {
+                    on_update(payload.to_vec());
+                }
+                // Control messages (e.g. StopTesting) stay JSON text.
                 Message::Text(text) => {
-                    let parsed = serde_json::from_str::<RemoteWorkerClientMessage>(&text);
-                    if let Ok(ev) = parsed {
-                        match ev {
-                            RemoteWorkerClientMessage::TestUpdatesMessage(update) => {
-                                on_update(&update);
-                            }
-                            RemoteWorkerClientMessage::StopTestingMessage(stop) => {
-                                if stop.id == test_id {
-                                    return Ok(());
-                                }
-                            }
-                            _ => {}
+                    if let Ok(RemoteWorkerClientMessage::StopTestingMessage(stop)) =
+                        serde_json::from_str::<RemoteWorkerClientMessage>(&text)
+                    {
+                        if stop.id == test_id {
+                            return Ok(());
                         }
                     }
                 }

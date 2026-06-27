@@ -1,6 +1,7 @@
 jax[cuda13]
 websockets
 pydantic
+protobuf
 mujoco==3.9.0
 mujoco-mjx==3.9.0
 mujoco-warp

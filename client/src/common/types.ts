@@ -34,6 +34,15 @@ export interface Body {
 	geoms?: Geom[];
 }
 
+export interface CameraFrames {
+	frames: number[];
+	nenv: number;
+	ncam: number;
+	t: number;
+	h: number;
+	w: number;
+}
+
 export type ModelType = 
 	| { type: "Checkpoint", content: CheckpointType }
 	| { type: "New", content?: undefined };
@@ -268,7 +277,7 @@ export interface TestRun {
 export interface TestUpdateMessage {
 	id: string;
 	simulation_state: ModelForward[][];
-	frames?: number[][][][][][];
+	frames?: CameraFrames;
 }
 
 export interface TrainingExperiment {

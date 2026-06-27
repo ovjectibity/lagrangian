@@ -272,10 +272,15 @@ def _log_message_payload(msg: str, training_id: str = "system") -> dict[str, Any
 
 async def _sender_loop(
     websocket: Any,
-    send_queue: asyncio.Queue[dict[str, Any]],
+    send_queue: asyncio.Queue[dict[str, Any] | bytes],
 ) -> None:
     while True:
         payload = await send_queue.get()
+        # Pre-serialized protobuf updates are sent as raw binary frames; JSON
+        # control/log messages are sent as text frames.
+        if isinstance(payload, (bytes, bytearray)):
+            await websocket.send(payload)
+            continue
         logger.debug("Sending payload: type=%s", payload.get("type"))
         await websocket.send(json.dumps(payload))
 
@@ -294,11 +299,11 @@ async def handle_connection(
 
     training_tasks: dict[str, TrainingTaskState] = {}
     testing_tasks: dict[str, TestingTaskState] = {}
-    send_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    send_queue: asyncio.Queue[dict[str, Any] | bytes] = asyncio.Queue()
     sender_task = asyncio.create_task(_sender_loop(websocket, send_queue))
     loop = asyncio.get_running_loop()
 
-    def thread_safe_send(payload: dict[str, Any]) -> None:
+    def thread_safe_send(payload: dict[str, Any] | bytes) -> None:
         loop.call_soon_threadsafe(send_queue.put_nowait, payload)
 
     try:
