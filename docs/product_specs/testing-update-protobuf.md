@@ -94,11 +94,17 @@ See the `.proto` for the authoritative definition. Shapes:
 - `workflows/common_worker_controller.rs` `monitor_testing_until_stop`: new
   `Message::Binary(bytes)` arm forwards bytes via the `on_update` callback; the
   `Message::Text` arm still handles the JSON `StopTesting`.
-- `run_test_job`'s callback is `FnMut(Vec<u8>)` (the envelope frame).
-- `commondef/workermessages.rs` `TestTaskMessage::TestUpdateBytes(Vec<u8>)`.
-- `api/testing.rs`: the relay broadcasts the bytes directly; the per-`ModelForward`
-  loop and `ClientMessage::to_binary_simul_update` are deleted. The SDK-facing
-  WS already sends `ws::Message::Binary`.
+- `run_test_job`'s callback is `FnMut(Vec<u8>)` (the envelope frame) — in
+  `common_worker_controller.rs` and both wrapper controllers.
+- The legacy `commondef/workermessages.rs` is **deleted**; its two internal
+  task→relay enums were API-local concerns, so they now live in their API
+  modules: `TestTaskMessage { StopTestMessage, TestUpdateBytes(Vec<u8>) }` in
+  `api/testing.rs` and `TrainingTaskMessage` in `api/training.rs`. `commondef`
+  is otherwise untouched (`RemoteWorkerClientMessage`/`ClientMessage` unchanged).
+- `api/testing.rs`: the mpsc carries `TestUpdateBytes(Vec<u8>)`; the relay
+  broadcasts the bytes directly; the per-`ModelForward` loop and
+  `ClientMessage::to_binary_simul_update` are deleted. The SDK-facing WS already
+  sends `ws::Message::Binary`.
 - `commondef/testing.rs` `CameraFrames` fields made `pub`.
 
 ### TypeScript SDK (consumer)

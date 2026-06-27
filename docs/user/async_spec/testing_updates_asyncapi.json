@@ -1,0 +1,63 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Lagrangian Testing Updates Stream",
+    "version": "0.1.0",
+    "description": "Binary WebSocket stream of testing/simulation updates. Each frame is a protobuf `lagrangian.testing.TestingStreamMessage` defined in testing_updates.proto. Control messages (e.g. stop) are out of band. OpenAPI cannot represent this binary WS stream, so it is documented here."
+  },
+  "servers": {
+    "appServer": {
+      "host": "localhost:8000",
+      "pathname": "/api",
+      "protocol": "ws",
+      "description": "Lagrangian app server (use wss in production)."
+    }
+  },
+  "channels": {
+    "testingUpdates": {
+      "address": "/testing/{testId}/updates",
+      "title": "Testing updates",
+      "description": "Per-test-run stream of simulation update frames.",
+      "parameters": {
+        "testId": {
+          "description": "Test run UUID returned by POST /testing/start."
+        }
+      },
+      "messages": {
+        "testingStreamMessage": {
+          "$ref": "#/components/messages/TestingStreamMessage"
+        }
+      }
+    }
+  },
+  "operations": {
+    "receiveTestingUpdates": {
+      "action": "receive",
+      "summary": "Receive testing update frames over the WebSocket.",
+      "channel": {
+        "$ref": "#/channels/testingUpdates"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/testingUpdates/messages/testingStreamMessage"
+        }
+      ]
+    }
+  },
+  "components": {
+    "messages": {
+      "TestingStreamMessage": {
+        "name": "TestingStreamMessage",
+        "title": "Testing stream message",
+        "summary": "One testing update: the [env][t] matrix of body-pose forwards plus optional camera frames.",
+        "contentType": "application/vnd.google.protobuf",
+        "payload": {
+          "schemaFormat": "application/vnd.google.protobuf;version=3",
+          "schema": {
+            "$ref": "./testing_updates.proto#/lagrangian.testing.TestingStreamMessage"
+          }
+        }
+      }
+    }
+  }
+}
