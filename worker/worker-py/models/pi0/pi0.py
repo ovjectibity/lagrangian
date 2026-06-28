@@ -64,6 +64,7 @@ def compute_flow_noise_log_prob(
     """
     log_two_pi = jnp.log(2.0 * jnp.pi)
     total_log_prob = jnp.zeros(())
+    ## Convert this to a jax scan call
     for (a_tau, a_tau_next), mu in zip(denoising_steps, euler_steps):
         log_std = noise_model_fn(noise_model_params, obs, a_tau)
         std = jnp.exp(log_std)
