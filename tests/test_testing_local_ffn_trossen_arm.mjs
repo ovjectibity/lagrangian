@@ -84,17 +84,19 @@ async function runTest(client, testGraph, label) {
   const { id: testId } = await client.simulations.start(testGraph);
   console.log(`  test_id=${testId}`);
 
+  // Each update is a TestUpdateMessage: simulation_state is [env][timestep] of
+  // ModelForward { xpos, xquat }; frames (cameras) is absent here (all_cameras=false).
   const frames = [];
   for await (const frame of client.simulations.streamUpdates(testId)) {
     frames.push(frame);
-    const update = frame.updates[0][0];
+    const update = frame.simulation_state[0][0];
     console.log(`    frame[${frames.length - 1}]: xpos[:3]=${update.xpos.slice(0, 3)}`);
     if (frames.length >= MAX_FRAMES) break;
   }
 
-  if (!frames.length)                      throw new Error(`[${label}] no frames received`);
-  if (!frames[0].updates[0][0].xpos.length)  throw new Error(`[${label}] empty xpos`);
-  if (!frames[0].updates[0][0].xquat.length) throw new Error(`[${label}] empty xquat`);
+  if (!frames.length)                                  throw new Error(`[${label}] no frames received`);
+  if (!frames[0].simulation_state[0][0].xpos.length)   throw new Error(`[${label}] empty xpos`);
+  if (!frames[0].simulation_state[0][0].xquat.length)  throw new Error(`[${label}] empty xquat`);
   console.log(`  ${label}: OK (${frames.length} frames)`);
 
   await client.simulations.stop(testId);

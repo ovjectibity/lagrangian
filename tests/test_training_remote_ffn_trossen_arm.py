@@ -11,6 +11,8 @@ import os
 import zipfile
 
 import requests
+from websockets.exceptions import ConnectionClosed
+from websockets.sync.client import connect
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000/api")
 MODEL_PATH = os.environ.get("MODEL_PATH", "")
@@ -179,17 +181,24 @@ def build_training_graph(model_id: str) -> dict:
     }
 
 
-def stream_sse(exp_id: str, run_id: str, max_events: int = 3) -> None:
-    url = f"{BASE_URL}/training/experiments/{exp_id}/runs/{run_id}/updates"
-    with requests.get(url, stream=True, timeout=300) as resp:
+def stream_updates(exp_id: str, run_id: str, max_events: int = 3) -> None:
+    # Training updates are JSON text frames over a WebSocket (migrated from SSE).
+    http_url = f"{BASE_URL}/training/experiments/{exp_id}/runs/{run_id}/updates"
+    ws_url = http_url.replace("http", "ws", 1)
+    with connect(ws_url, open_timeout=300) as ws:
         count = 0
-        for line in resp.iter_lines():
-            if line and line.startswith(b"data:"):
-                data = line[5:].strip()
-                print(f"    SSE[{count}]: {data[:120].decode()}")
-                count += 1
-                if count >= max_events:
-                    break
+        while count < max_events:
+            try:
+                message = ws.recv(timeout=300)
+            except TimeoutError:
+                print("    (no further events within timeout)")
+                break
+            except ConnectionClosed:
+                break
+            if isinstance(message, (bytes, bytearray)):
+                continue
+            print(f"    WS[{count}]: {message[:120]}")
+            count += 1
 
 
 def main() -> None:
@@ -208,8 +217,8 @@ def main() -> None:
     )
     print(f"  start_training status: {r.status_code}")
     assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
-    print("  Streaming SSE events:")
-    stream_sse(exp_id, run_id, max_events=3)
+    print("  Streaming WS events:")
+    stream_updates(exp_id, run_id, max_events=3)
 
     print("\n=== All tests passed ===")
 

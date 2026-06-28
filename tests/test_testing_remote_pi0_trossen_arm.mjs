@@ -91,17 +91,29 @@ async function runTest(client, testGraph) {
   const { id: testId } = await client.simulations.start(testGraph);
   console.log(`  test_id=${testId}`);
 
+  // Each update is a TestUpdateMessage: simulation_state is [env][timestep] of
+  // ModelForward { xpos, xquat }; frames is the flattened CameraFrames.
   const frames = [];
   for await (const frame of client.simulations.streamUpdates(testId)) {
     frames.push(frame);
-    const update = frame.updates[0][0];
+    const update = frame.simulation_state[0][0];
     console.log(`    frame[${frames.length - 1}]: xpos[:3]=${update.xpos.slice(0, 3)}`);
     if (frames.length >= MAX_FRAMES) break;
   }
 
-  if (!frames.length)                      throw new Error("no frames received");
-  if (!frames[0].updates[0][0].xpos.length)  throw new Error("empty xpos in first frame");
-  if (!frames[0].updates[0][0].xquat.length) throw new Error("empty xquat in first frame");
+  if (!frames.length)                                  throw new Error("no frames received");
+  if (!frames[0].simulation_state[0][0].xpos.length)   throw new Error("empty xpos in first frame");
+  if (!frames[0].simulation_state[0][0].xquat.length)  throw new Error("empty xquat in first frame");
+
+  // all_cameras is enabled, so each update must carry camera frames.
+  const cf = frames[0].frames;
+  if (!cf)                throw new Error("expected camera frames (all_cameras=true) but none received");
+  if (!cf.frames.length)  throw new Error("camera frames buffer is empty");
+  const expectedLen = cf.nenv * cf.t * cf.ncam * cf.h * cf.w * 3;
+  if (cf.frames.length !== expectedLen) {
+    throw new Error(`camera frames length ${cf.frames.length} != nenv*t*ncam*h*w*3 = ${expectedLen}`);
+  }
+  console.log(`    cameras: ${cf.ncam}x${cf.h}x${cf.w} (nenv=${cf.nenv}, t=${cf.t}) = ${cf.frames.length} bytes`);
   console.log(`  Pi-0 remote test: OK (${frames.length} frames)`);
 
   await client.simulations.stop(testId);

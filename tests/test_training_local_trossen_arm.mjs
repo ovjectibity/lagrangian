@@ -192,11 +192,11 @@ async function main() {
   await client.experiments.startTraining(expId, runId, graph);
   console.log("  start_training: ok");
 
-  console.log("  Streaming SSE events:");
+  console.log("  Streaming WS events:");
   let count = 0;
   for await (const event of client.experiments.streamTrainingUpdates(expId, runId)) {
     const preview = JSON.stringify(event).slice(0, 120);
-    console.log(`    SSE[${count}]: ${preview}`);
+    console.log(`    WS[${count}]: ${preview}`);
     count++;
     if (count >= 3) break;
   }
