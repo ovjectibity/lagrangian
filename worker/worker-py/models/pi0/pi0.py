@@ -201,7 +201,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         val = self._value_fn(self._value_store, flat)
         return float(jnp.squeeze(val))
 
-    def get_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
+    def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
         pi0 = self._pi0
         frozen = self._frozen_store
         task = self._last_task
@@ -213,10 +213,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
             return actions[0]
         return _policy
 
-    def get_pure_policy_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
-        return self.get_policy()
-
-    def get_value_func(self) -> Callable[[Params, dict[str, Array]], Array]:
+    def get_value_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
         # value MLP takes a flat tensor; assemble the parts dict internally.
         return lambda store, parts: self._value_fn(store, self._assemble_value(parts))
 
@@ -259,7 +256,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         return self.get_policy_output(parts)
 
     def get_test_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
-        return self.get_policy()
+        return self.get_policy_fn()
 
     def get_test_params(self) -> Params:
         return self.get_policy_store()

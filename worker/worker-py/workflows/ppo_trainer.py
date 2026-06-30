@@ -219,7 +219,7 @@ class PPOTrainer:
         return pure_compute_gae(
             traj.value_wstates,
             rewards,
-            self.model.get_value_func(),
+            self.model.get_value_fn(),
             self.model.get_value_store(),
             self.gamma_lambda[0],
             self.gamma_lambda[1],
@@ -265,7 +265,7 @@ class PPOTrainer:
         )
         if policy_store is None:
             policy_store = self.model.get_policy_store()
-        action_gaussian_params = self.model.get_policy()(policy_store, wstates)
+        action_gaussian_params = self.model.get_policy_fn()(policy_store, wstates)
         action_log_probs = self.compute_action_log_probs(action_samples, action_gaussian_params)
         ratio = jnp.exp(action_log_probs - start_log_probs)
         clipped = jnp.clip(ratio, 1.0 - self.epsilon, 1.0 + self.epsilon) * gaes
@@ -283,7 +283,7 @@ class PPOTrainer:
         )
         if value_store is None:
             value_store = self.model.get_value_store()
-        values = self.model.get_value_func()(value_store, wstates)
+        values = self.model.get_value_fn()(value_store, wstates)
         values = jnp.asarray(values)
         if values.ndim > 0 and values.shape[-1] == 1:
             values = jnp.squeeze(values, axis=-1)
@@ -413,8 +413,8 @@ class PPOTrainer:
         control_state_fn = self.simulator.make_state_fn(self.model.get_control_input_spec())  # type: ignore[attr-defined]
         value_state_fn = self.simulator.make_state_fn(self.model.get_value_input_spec())  # type: ignore[attr-defined]
         reward_state_fn = self.simulator.make_state_fn(self.model.get_reward_input_spec())  # type: ignore[attr-defined]
-        reward_fn = self.model.get_pure_reward_fn()
-        policy_fn = self.model.get_pure_policy_fn()
+        reward_fn = self.model.get_policy_fn()
+        policy_fn = self.model.get_policy_fn()
         if policy_store is None:
             policy_store = self.model.get_policy_store()
         output_mode = self.model.get_control_policy_output_mode()
@@ -568,8 +568,8 @@ class PPOTrainer:
             self.traj_depth,
             self.get_action_output_size(),
         )
-        policy_fn = self.model.get_pure_policy_fn()
-        value_fn = self.model.get_value_func()
+        policy_fn = self.model.get_policy_fn()
+        value_fn = self.model.get_value_fn()
         action_size = self.get_action_output_size()
         gamma, lam = self.gamma_lambda
 

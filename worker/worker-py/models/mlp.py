@@ -152,23 +152,58 @@ class MLPModel(PPOTrainedModel, TestingModel):
         return self._reward_fn
 
     # --- Policy / value inference ---
+    
+    def get_policy_output(self, policy_input: dict[str, Array]) -> tuple[Array, dict[str,Array]]:
+        return self.get_policy_fn()(self.policy_store, policy_input)
 
-    def get_policy_output(self, parts: dict[str, Array]) -> Array:
-        return self.get_policy()(self.policy_store, parts)
+    # Outputs the output action sample, the process state and the log prob for that action
+    def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], tuple[Array, dict[str,Array]]]:
+        #     # MLP net takes a flat tensor; assemble the labeled parts dict (concat on
+        #     # the feature axis, batch-safe over leading [num_trajs, T, ...] dims).
+        _, subkey = jax.random.split(self.key)
+        policy = self.policy
+        def policy_fn(store, policy_input):
+            action_gaussian_params = policy(store, jnp.concatenate(list(policy_input.values()), axis=-1))
+            action_mean, action_log_std = jnp.split(action_gaussian_params,2)
+            action_std = jnp.exp(action_log_std)
+            eps = jnp.random.normal(subkey, shape=action_mean.shape[0])
+            sampled_action = action_mean + eps * action_std
+            # Calculate the log prob of the sampled action: 
+            normalized = (sampled_action - action_mean) / action_std
+            log_two_pi = jnp.log(2.0 * jnp.pi)
+            log_prob = -0.5 * (normalized ** 2 + action_std * 2.0 + log_two_pi)
+            # Return the sampled action as well the process state towards the output sample
+            return (sampled_action,{
+                "action_mean": action_mean,
+                "action_log_std_dev": action_log_std,
+                "log_prob": log_prob
+            })
+        return policy_fn
+
+    def get_policy_output_log_prob(self, policy_input: dict[str, Array], policy_output: tuple[Array, dict[str,Array]]) -> Array: 
+        return self.get_policy_output_log_prob_fn()(self.policy_store, policy_input, policy_output)
+
+    def get_policy_output_log_prob_fn(self) -> Callable[[Params, dict[str, Array], tuple[Array, dict[str,Array]]], Array]: 
+        policy = self.policy
+        def log_prob_fn(params: Params, input: dict[str, Array], output: tuple[Array, dict[str,Array]]) -> Array:
+            action_gaussian_params = policy(params, jnp.concatenate(list(input.values()), axis=-1))
+            action_mean, action_log_std = jnp.split(action_gaussian_params,2)
+            action_std = jnp.exp(action_log_std)
+            # Calculate the log prob of the action passed as the argument; output[1] remains unused for this model: 
+            normalized = (output[0] - action_mean) / action_std
+            log_two_pi = jnp.log(2.0 * jnp.pi)
+            log_prob = -0.5 * (normalized ** 2 + action_std * 2.0 + log_two_pi)
+            return log_prob
+        return log_prob_fn
 
     def get_value_output(self, parts: dict[str, Array]) -> float:
-        val = self.get_value_func()(self.value_store, parts)
+        val = self.get_value_fn()(self.value_store, parts)
         val_arr = np.asarray(jax.device_get(val), dtype=np.float64).reshape(-1)
         if val_arr.size == 0:
             raise ValueError("Expected non-empty value output")
         return float(val_arr[0])
 
-    def get_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
-        # MLP net takes a flat tensor; assemble the labeled parts dict (concat on
-        # the feature axis, batch-safe over leading [num_trajs, T, ...] dims).
-        return lambda store, parts: self.policy(store, jnp.concatenate(list(parts.values()), axis=-1))
-
-    def get_value_func(self) -> Callable[[Params, dict[str, Array]], Array]:
+    def get_value_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
         return lambda store, parts: self.value(store, jnp.concatenate(list(parts.values()), axis=-1))
 
     def get_policy_store(self) -> Params:
@@ -186,16 +221,13 @@ class MLPModel(PPOTrainedModel, TestingModel):
     def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
         return self.control_output_mode
 
-    def get_pure_policy_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
-        return self.get_policy()
-
     # --- TestingModel interface ---
 
     def get_test_action(self, parts: dict[str, Array]) -> Array:
         return self.get_policy_output(parts)
 
     def get_test_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
-        return self.get_policy()
+        return self.get_policy_fn()
 
     def get_test_params(self) -> Params:
         return self.policy_store

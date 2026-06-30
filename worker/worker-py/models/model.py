@@ -79,9 +79,30 @@ class PPOTrainedModel(ABC):
         pass
 
     # --- Policy / value inference ---
+    # --- The following methods move the action sampling & action 
+    # --- sample log prob calculation logic to the model instead of 
+    # --- Gaussian output assumption in ppo_trainer.py 
+    # --- For flow matching VLAs like Pi-0 this might also 
+    # --- require some additional state such as that generated during the unrolling process 
 
     @abstractmethod
-    def get_policy_output(self, parts: dict[str, Array]) -> Array:
+    def get_policy_output(self, policy_input: dict[str, Array]) -> tuple[Array, dict[str,Array], Array]:
+        pass
+
+    @abstractmethod
+    def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], tuple[Array, dict[str,Array], Array]]:
+        pass
+    
+    # --- The get_policy_output_log_prob function recomputes what it would take to generate the output sample
+    # --- given the input & the sample process state with the current model & not with the model 
+    # --- which generated that output process ----------------
+
+    @abstractmethod
+    def get_policy_output_log_prob(self, policy_input: dict[str, Array], policy_output: dict[str, Array]) -> Array: 
+        pass
+
+    @abstractmethod
+    def get_policy_output_log_prob_fn(self) -> Callable[[Params, dict[str, Array], dict[str, Array]], Array]: 
         pass
 
     @abstractmethod
@@ -89,11 +110,7 @@ class PPOTrainedModel(ABC):
         pass
 
     @abstractmethod
-    def get_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
-        pass
-
-    @abstractmethod
-    def get_value_func(self) -> Callable[[Params, dict[str, Array]], Array]:
+    def get_value_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
         pass
 
     @abstractmethod
@@ -116,6 +133,4 @@ class PPOTrainedModel(ABC):
     def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
         pass
 
-    @abstractmethod
-    def get_pure_policy_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
-        pass
+    
