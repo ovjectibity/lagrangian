@@ -34,7 +34,7 @@ class Trajectory:
     # value_wstates leaves:   [traj_depth + 1, ...]  — value estimation incl. terminal (value spec)
     control_wstates: dict[str, Array]
     value_wstates: dict[str, Array]
-    model_outputs: list[Array]
+    model_outputs: dict[str,Array]
     model_output_samples: list[Array]
     model_output_sample_log_probs: list[float]
     rewards: list[float]
@@ -135,7 +135,7 @@ class PPOTrainer:
 
     def gen_trajectory(self) -> Trajectory:
         logger.info("gen_trajectory: start (traj_depth=%s)", self.traj_depth)
-        action_output_size = self.get_action_output_size()
+        # action_output_size = self.get_action_output_size()
         control_input_spec = self.model.get_control_input_spec()
         value_input_spec = self.model.get_value_input_spec()
         reward_input_spec = self.model.get_reward_input_spec()
@@ -143,6 +143,7 @@ class PPOTrainer:
         value_wstates: list[dict[str, Array]] = []
         model_outputs: list[Array] = []
         model_output_samples: list[Array] = []
+        model_output_samples_log_prob: list[float] = []
         rewards: list[float] = []
         self.simulator.reset_state()
         logger.info("gen_trajectory: reset_state done, entering step loop")
@@ -151,12 +152,13 @@ class PPOTrainer:
             control_parts = self.simulator.get_model_state(control_input_spec)
             value_parts = self.simulator.get_model_state(value_input_spec)
             reward_parts_pre = self.simulator.get_model_state(reward_input_spec)
-            action_gaussian_params = jnp.asarray(self.model.get_policy_output(control_parts))
-            action_gaussian_mean = action_gaussian_params[:action_output_size]
-            action_gaussian_stdev = jnp.exp(action_gaussian_params[action_output_size:])
-            self._rng_key, eps_key = random.split(self._rng_key)
-            eps = random.normal(eps_key, shape=(action_output_size,))
-            sampled_action = action_gaussian_mean + eps * action_gaussian_stdev
+            pol_output = self.model.get_policy_output(control_parts)
+            logger.debug("Got the pol_output in gen_trajectory: {pol_output}")
+            sampled_action = pol_output["sampled_action"]
+            sampled_action_log_prob = pol_output["sampled_action_log_prob"][0]
+            # del pol_output["sampled_action"]
+            # del pol_output["sampled_action_log_prob"]
+
             output_mode = self.model.get_control_policy_output_mode()
             if output_mode == ControlPolicyOutputMode.TARGETTORQUES:
                 controls = sampled_action
@@ -174,8 +176,9 @@ class PPOTrainer:
             # Store labeled parts dicts; policy/value fns assemble their own inputs.
             control_wstates.append(control_parts)
             value_wstates.append(value_parts)
-            model_outputs.append(action_gaussian_params)
+            model_outputs.append(pol_output)
             model_output_samples.append(sampled_action)
+            model_output_samples_log_prob.append(sampled_action_log_prob)
         logger.info("gen_trajectory: step loop done, computing terminal state")
         # Only the value path needs the terminal state (for GAE/RTG); control does not.
         terminal_value_parts = self.simulator.get_model_state(value_input_spec)
@@ -183,22 +186,17 @@ class PPOTrainer:
         v_terminal = float(self.model.get_value_output(value_wstates[-1]))
         logger.info("gen_trajectory: computing rtg and log probs")
         rtgs = self.compute_rtg(rewards, v_terminal)
-        action_sample_log_probs = self.compute_action_log_probs(
-            jnp.stack(model_output_samples),
-            jnp.stack(model_outputs),
-        )
         # Stack per-step lists into time-leading dicts (control: [T,...], value: [T+1,...]).
         control_wstates_d = _tree_stack(control_wstates)
         value_wstates_d = _tree_stack(value_wstates)
+        model_outputs_d = _tree_stack(model_outputs)
         logger.info("gen_trajectory: done")
         return Trajectory(
             control_wstates=control_wstates_d,
             value_wstates=value_wstates_d,
-            model_outputs=model_outputs,
+            model_outputs=model_outputs_d,
             model_output_samples=model_output_samples,
-            model_output_sample_log_probs=[
-                float(x) for x in jnp.asarray(action_sample_log_probs)
-            ],
+            model_output_sample_log_probs=model_output_samples_log_prob,
             rewards=rewards,
             rtgs=rtgs,
         )
@@ -233,22 +231,6 @@ class PPOTrainer:
             rtgs[i] = float(running_rtg)
         return rtgs
 
-    def compute_action_log_probs(
-        self,
-        model_output_sample: Array,
-        model_output: Array,
-    ) -> Array:
-        action_output_size = self.get_action_output_size()
-        action_gaussian_mean = model_output[..., :action_output_size]
-        action_gaussian_log_stddev = model_output[..., action_output_size:]
-        action_gaussian_stddev = jnp.exp(action_gaussian_log_stddev)
-        normalized = (model_output_sample - action_gaussian_mean) / action_gaussian_stddev
-        log_two_pi = jnp.log(2.0 * jnp.pi)
-        log_probs = -0.5 * (
-            normalized**2 + (action_gaussian_log_stddev * 2.0) + log_two_pi
-        )
-        return jnp.sum(log_probs, axis=-1)
-
     def get_ppo_clip_objective(
         self,
         trajs: Sequence[Trajectory],
@@ -260,13 +242,13 @@ class PPOTrainer:
         )
         # Each traj.control_wstates is already a [T, ...] dict — stack over trajs → [num_trajs, T, ...].
         wstates = _tree_stack([traj.control_wstates for traj in trajs])
-        action_samples = jnp.stack(
-            [jnp.stack(traj.model_output_samples) for traj in trajs]
-        )
+        model_outputs = _tree_stack([traj.model_outputs for traj in trajs])
+
         if policy_store is None:
             policy_store = self.model.get_policy_store()
-        action_gaussian_params = self.model.get_policy_fn()(policy_store, wstates)
-        action_log_probs = self.compute_action_log_probs(action_samples, action_gaussian_params)
+        logger.debug("wstates shape in get_ppo_clip_objective {wstates.shape}")
+        ## get_policy_output_log_prob should be batch friendly already across mlp & vla implementations
+        action_log_probs = self.model.get_policy_output_log_prob(wstates,model_outputs)
         ratio = jnp.exp(action_log_probs - start_log_probs)
         clipped = jnp.clip(ratio, 1.0 - self.epsilon, 1.0 + self.epsilon) * gaes
         return jnp.mean(jnp.minimum(ratio * gaes, clipped))
@@ -364,6 +346,7 @@ class PPOTrainer:
             total_norm_sq += float(jnp.sum(grad**2))
         return total_norm_sq**0.5
 
+    ## TO FIX: Move part of this logic to the models themselves given statistical requirements 
     def get_rollout_mean_entropy(self, trajs: Sequence[Trajectory]) -> float:
         if not trajs:
             return 0.0
@@ -388,7 +371,7 @@ class PPOTrainer:
         mjx_data: Any,
         rng_key: Array,
         policy_store: Params | None = None,
-    ) -> tuple[dict[str, Array], dict[str, Array], Array, Array, Array]:
+    ) -> tuple[dict[str, Array], dict[str, Array], dict[str, Array], Array, Array]:
         """Generate a single trajectory on GPU using lax.scan.
 
         The simulator must be an MjxSimulator. Uses pure functions throughout
@@ -427,19 +410,15 @@ class PPOTrainer:
         def scan_body(
             carry: tuple[Any, Array],
             _: None,
-        ) -> tuple[tuple[Any, Array], tuple[Array, Array, Array, Array, Array]]:
+        ) -> tuple[tuple[Any, Array], tuple[Array, Array, dict[str,Array], Array, Array]]:
             data, rng = carry
 
             control_parts = control_state_fn(data)
             value_parts = value_state_fn(data)
             reward_parts_pre = reward_state_fn(data)
 
-            action_gaussian_params = jnp.asarray(policy_fn(policy_store, control_parts))
-            action_mean = action_gaussian_params[:action_output_size]
-            action_std = jnp.exp(action_gaussian_params[action_output_size:])
-            rng, eps_key = random.split(rng)
-            eps = random.normal(eps_key, shape=(action_output_size,))
-            sampled_action = action_mean + eps * action_std
+            pol_output = policy_fn(policy_store, control_parts)
+            sampled_action = pol_output["sampled_action"]
 
             if output_mode == ControlPolicyOutputMode.TARGETTORQUES:
                 controls = sampled_action
@@ -456,7 +435,7 @@ class PPOTrainer:
 
             # control_parts / value_parts are labeled dicts; the policy/value fns
             # assemble their own inputs, so we carry the dicts through the scan.
-            return (data_next, rng), (control_parts, value_parts, action_gaussian_params, sampled_action, reward)
+            return (data_next, rng), (control_parts, value_parts, pol_output, sampled_action, reward)
 
         (data_final, _), (control_states_t, value_states_t, model_outputs, action_samples, rewards) = (
             jax.lax.scan(scan_body, (mjx_data, rng_key), None, length=self.traj_depth)
@@ -482,7 +461,7 @@ class PPOTrainer:
         num_trajs: int,
         mjx_data: Any,
         rng_key: Array,
-    ) -> tuple[dict[str, Array], dict[str, Array], Array, Array, Array]:
+    ) -> tuple[dict[str, Array], dict[str, Array], dict[str, Array], Array, Array]:
         """Generate num_trajs trajectories in parallel via vmap on GPU.
 
         Args:
@@ -507,7 +486,7 @@ class PPOTrainer:
         policy_store = self.model.get_policy_store()
         logger.info("gen_trajectories_gpu: split %s RNG keys, launching jit(vmap)", num_trajs)
 
-        def single_traj(ps: Params, md: Any, key: Array) -> tuple[dict[str, Array], dict[str, Array], Array, Array, Array]:
+        def single_traj(ps: Params, md: Any, key: Array) -> tuple[dict[str, Array], dict[str, Array], dict[str, Array], Array, Array]:
             return self.gen_trajectory_gpu(md, key, ps)
 
         all_trajs = jax.vmap(single_traj, in_axes=(None, None, 0))
@@ -545,9 +524,9 @@ class PPOTrainer:
         self,
         control_wstates: dict[str, Array],
         value_wstates: dict[str, Array],
-        action_samples: Array,
+        policy_output: dict[str,Array],
         rewards: Array,
-        model_outputs: Array,
+        model_outputs: dict[str,Array],
     ) -> PPOTrainerRuntimeInfo:
         """GPU training epoch using pure learning_step.
 
@@ -568,9 +547,8 @@ class PPOTrainer:
             self.traj_depth,
             self.get_action_output_size(),
         )
-        policy_fn = self.model.get_policy_fn()
+        policy_log_prob_fn = self.model.get_policy_output_log_prob_fn()
         value_fn = self.model.get_value_fn()
-        action_size = self.get_action_output_size()
         gamma, lam = self.gamma_lambda
 
         logger.info("train_an_epoch_gpu: computing RTGs for %s trajs", num_trajs_in)
@@ -596,9 +574,7 @@ class PPOTrainer:
         logger.info("train_an_epoch_gpu: GAE mean=%.4f std=%.4f (shape=%s)", float(gae_mean), float(gae_std), gaes.shape)
 
         logger.info("train_an_epoch_gpu: computing start log probs")
-        start_log_probs = jax.vmap(
-            lambda mo, sa: pure_action_log_probs(sa, mo, action_size)
-        )(model_outputs, action_samples)   # [num_trajs, traj_depth]
+        start_log_probs = model_outputs["sampled_action_log_prob"]
         logger.info("train_an_epoch_gpu: start log probs computed (shape=%s)", start_log_probs.shape)
 
         # control_wstates is already a dict of [num_trajs, traj_depth, ...] — no terminal to strip
@@ -613,7 +589,7 @@ class PPOTrainer:
             carry: tuple[Params, Params, dict, dict],
             control_wstates_a: Array,
             value_wstates_a: Array,
-            action_samples_a: Array,
+            policy_outout: dict[str,Array],
             start_log_probs_a: Array,
             gaes_a: Array,
             rtgs_a: Array,
@@ -637,16 +613,15 @@ class PPOTrainer:
                     value_store_c,
                     policy_opt_c,
                     value_opt_c,
-                    policy_fn,
+                    policy_log_prob_fn,
                     value_fn,
                     control_wstates_a,
                     value_wstates_a,
-                    action_samples_a,
+                    policy_outout,
                     start_log_probs_a,
                     gaes_a,
                     rtgs_a,
                     epsilon,
-                    action_size,
                     learning_rate,
                 )
                 return (policy_store_next, value_store_next, policy_opt_next, value_opt_next), (
@@ -667,7 +642,7 @@ class PPOTrainer:
         if self._jit_train_epoch is None:
             ##DEBUG TRACING & COMPILE:
             lowered = jax.jit(update_all_steps_fn).lower(
-                init_carry, control_wstates, value_wstates_t, action_samples, start_log_probs, gaes, rtgs
+                init_carry, control_wstates, value_wstates_t, policy_output, start_log_probs, gaes, rtgs
             )
             compiled = lowered.compile()
             print(compiled.cost_analysis())  # FLOPs, memory estimates per op
@@ -676,7 +651,7 @@ class PPOTrainer:
 
         (policy_store_final, value_store_final, policy_opt_final, value_opt_final), (
             p_losses, v_losses, p_grad_norms, v_grad_norms,
-        ) = self._jit_train_epoch(init_carry, control_wstates, value_wstates_t, action_samples, start_log_probs, gaes, rtgs)
+        ) = self._jit_train_epoch(init_carry, control_wstates, value_wstates_t, policy_output, start_log_probs, gaes, rtgs)
 
         self.policy_opt = policy_opt_final
         self.value_opt = value_opt_final
@@ -791,39 +766,38 @@ def pure_compute_gae(
     return jnp.flip(gaes_reversed, axis=0)
 
 
-def pure_action_log_probs(
-    action_samples: Array,
-    model_outputs: Array,
-    action_size: int,
-) -> Array:
-    """Compute per-step log probs of sampled actions under the gaussian policy.
+# def pure_action_log_probs(
+#     action_samples: Array,
+#     model_outputs: Array,
+#     action_size: int,
+# ) -> Array:
+#     """Compute per-step log probs of sampled actions under the gaussian policy.
 
-    Args:
-        action_samples: [..., nu]
-        model_outputs:  [..., nu*2] (mean concat log_std)
-        action_size:    nu
+#     Args:
+#         action_samples: [..., nu]
+#         model_outputs:  [..., nu*2] (mean concat log_std)
+#         action_size:    nu
 
-    Returns:
-        log_probs: [...] (summed over action dims)
-    """
-    mean = model_outputs[..., :action_size]
-    log_std = model_outputs[..., action_size:]
-    std = jnp.exp(log_std)
-    normalized = (action_samples - mean) / std
-    log_two_pi = jnp.log(2.0 * jnp.pi)
-    log_probs = -0.5 * (normalized ** 2 + log_std * 2.0 + log_two_pi)
-    return jnp.sum(log_probs, axis=-1)
+#     Returns:
+#         log_probs: [...] (summed over action dims)
+#     """
+#     mean = model_outputs[..., :action_size]
+#     log_std = model_outputs[..., action_size:]
+#     std = jnp.exp(log_std)
+#     normalized = (action_samples - mean) / std
+#     log_two_pi = jnp.log(2.0 * jnp.pi)
+#     log_probs = -0.5 * (normalized ** 2 + log_std * 2.0 + log_two_pi)
+#     return jnp.sum(log_probs, axis=-1)
 
 
 def pure_ppo_clip_loss(
     policy_store: Params,
-    policy_fn: Callable[[Params, dict[str, Array]], Array],
+    policy_fn_log_prob: Callable[[Params, dict[str, Array], dict[str, Array]], Array],
     wstates: dict[str, Array],
-    action_samples: Array,
+    policy_output: dict[str,Array],
     start_log_probs: Array,
     gaes: Array,
     epsilon: float,
-    action_size: int,
 ) -> Array:
     """PPO clipped surrogate loss (negated for gradient ascent via minimisation).
 
@@ -840,8 +814,9 @@ def pure_ppo_clip_loss(
     Returns:
         scalar loss (negated clip objective)
     """
-    model_outputs = policy_fn(policy_store, wstates)
-    log_probs = pure_action_log_probs(action_samples, model_outputs, action_size)
+    log_probs = policy_fn_log_prob(policy_store,wstates,policy_output)
+    # model_outputs = policy_fn(policy_store, wstates)
+    # log_probs = pure_action_log_probs(action_samples, model_outputs, action_size)
     ratio = jnp.exp(log_probs - start_log_probs)
     clipped = jnp.clip(ratio, 1.0 - epsilon, 1.0 + epsilon) * gaes
     return -jnp.mean(jnp.minimum(ratio * gaes, clipped))
@@ -876,16 +851,15 @@ def learning_step(
     value_store: Params,
     policy_opt: dict,
     value_opt: dict,
-    policy_fn: Callable[[Params, dict[str, Array]], Array],
+    policy_fn_log_prob: Callable[[Params, dict[str, Array], dict[str, Array]], Array],
     value_fn: Callable[[Params, dict[str, Array]], Array],
     control_wstates: dict[str, Array],
     value_wstates: dict[str, Array],
-    action_samples: Array,
+    policy_output: dict[str,Array],
     start_log_probs: Array,
     gaes: Array,
     rtgs: Array,
     epsilon: float,
-    action_size: int,
     learning_rate: float,
 ) -> tuple[Params, Params, dict, dict, Array, Array, Array, Array]:
     """Single pure parameter update step for policy and value networks.
@@ -941,7 +915,7 @@ def learning_step(
         return new_params, {"m": m, "v": v, "t": t}
 
     policy_loss_fn = lambda p: pure_ppo_clip_loss(
-        p, policy_fn, control_wstates, action_samples, start_log_probs, gaes, epsilon, action_size,
+        p, policy_fn_log_prob, control_wstates, policy_output, start_log_probs, gaes, epsilon
     )
     policy_loss, policy_grads = jax.value_and_grad(policy_loss_fn)(policy_store)
     policy_grad_norm = pure_gradient_norm(policy_grads)

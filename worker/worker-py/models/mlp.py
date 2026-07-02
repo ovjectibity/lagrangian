@@ -153,44 +153,48 @@ class MLPModel(PPOTrainedModel, TestingModel):
 
     # --- Policy / value inference ---
     
-    def get_policy_output(self, policy_input: dict[str, Array]) -> tuple[Array, dict[str,Array]]:
+    def get_policy_output(self, policy_input: dict[str, Array]) -> dict[str,Array]:
         return self.get_policy_fn()(self.policy_store, policy_input)
 
     # Outputs the output action sample, the process state and the log prob for that action
-    def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], tuple[Array, dict[str,Array]]]:
+    def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], dict[str,Array]]:
         #     # MLP net takes a flat tensor; assemble the labeled parts dict (concat on
         #     # the feature axis, batch-safe over leading [num_trajs, T, ...] dims).
         _, subkey = jax.random.split(self.key)
         policy = self.policy
         def policy_fn(store, policy_input):
             action_gaussian_params = policy(store, jnp.concatenate(list(policy_input.values()), axis=-1))
-            action_mean, action_log_std = jnp.split(action_gaussian_params,2)
+            ## -1 to make this function batch friendly
+            action_mean, action_log_std = jnp.split(action_gaussian_params,2,axis=-1)
             action_std = jnp.exp(action_log_std)
-            eps = jnp.random.normal(subkey, shape=action_mean.shape[0])
+            ## Get the action mean end dimension shape, -1 to make this function batch friendly
+            eps = jnp.random.normal(subkey, shape=action_mean.shape[-1])
             sampled_action = action_mean + eps * action_std
             # Calculate the log prob of the sampled action: 
             normalized = (sampled_action - action_mean) / action_std
             log_two_pi = jnp.log(2.0 * jnp.pi)
             log_prob = -0.5 * (normalized ** 2 + action_std * 2.0 + log_two_pi)
             # Return the sampled action as well the process state towards the output sample
-            return (sampled_action,{
+            return ({
                 "action_mean": action_mean,
                 "action_log_std_dev": action_log_std,
-                "log_prob": log_prob
+                "sampled_action_log_prob": log_prob,
+                "sampled_action": sampled_action
             })
         return policy_fn
 
-    def get_policy_output_log_prob(self, policy_input: dict[str, Array], policy_output: tuple[Array, dict[str,Array]]) -> Array: 
+    def get_policy_output_log_prob(self, policy_input: dict[str, Array], policy_output: dict[str,Array]) -> Array: 
         return self.get_policy_output_log_prob_fn()(self.policy_store, policy_input, policy_output)
 
-    def get_policy_output_log_prob_fn(self) -> Callable[[Params, dict[str, Array], tuple[Array, dict[str,Array]]], Array]: 
+    def get_policy_output_log_prob_fn(self) -> Callable[[Params, dict[str, Array], dict[str,Array]], Array]: 
         policy = self.policy
-        def log_prob_fn(params: Params, input: dict[str, Array], output: tuple[Array, dict[str,Array]]) -> Array:
+        def log_prob_fn(params: Params, input: dict[str, Array], output: dict[str,Array]) -> Array:
+            ## -1 to make this function batch friendly
             action_gaussian_params = policy(params, jnp.concatenate(list(input.values()), axis=-1))
-            action_mean, action_log_std = jnp.split(action_gaussian_params,2)
+            action_mean, action_log_std = jnp.split(action_gaussian_params,2,axis=-1)
             action_std = jnp.exp(action_log_std)
             # Calculate the log prob of the action passed as the argument; output[1] remains unused for this model: 
-            normalized = (output[0] - action_mean) / action_std
+            normalized = (output["sampled_action"] - action_mean) / action_std
             log_two_pi = jnp.log(2.0 * jnp.pi)
             log_prob = -0.5 * (normalized ** 2 + action_std * 2.0 + log_two_pi)
             return log_prob

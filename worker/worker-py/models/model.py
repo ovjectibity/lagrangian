@@ -86,11 +86,11 @@ class PPOTrainedModel(ABC):
     # --- require some additional state such as that generated during the unrolling process 
 
     @abstractmethod
-    def get_policy_output(self, policy_input: dict[str, Array]) -> tuple[Array, dict[str,Array], Array]:
+    def get_policy_output(self, policy_input: dict[str, Array]) -> dict[str,Array]:
         pass
 
     @abstractmethod
-    def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], tuple[Array, dict[str,Array], Array]]:
+    def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], dict[str,Array]]:
         pass
     
     # --- The get_policy_output_log_prob function recomputes what it would take to generate the output sample
