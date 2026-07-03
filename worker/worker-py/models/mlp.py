@@ -24,6 +24,7 @@ class MLPModel(PPOTrainedModel, TestingModel):
         value_input_spec: ModelInputSpec,
         reward_input_spec: ModelInputSpec,
         reward_fn: Callable[[dict[str, Array], dict[str, Array]], float] | None = None,
+        rng_key: Array | None = None,
     ) -> None:
         self.control_output_mode = ControlPolicyOutputMode.TARGETPOSITIONS
         self.policy = policy
@@ -34,6 +35,9 @@ class MLPModel(PPOTrainedModel, TestingModel):
         self._value_input_spec = value_input_spec
         self._reward_input_spec = reward_input_spec
         self._reward_fn = reward_fn
+        # Held key for eager sampling (get_policy_output); the scan threads fresh
+        # per-step keys via policy_input["rng_key"] instead.
+        self._rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
 
     @staticmethod
     def _init_linear_params(key: Array, in_dim: int, out_dim: int) -> dict[str, Array]:
@@ -110,6 +114,7 @@ class MLPModel(PPOTrainedModel, TestingModel):
         value_input_spec: ModelInputSpec,
         reward_input_spec: ModelInputSpec,
         reward_fn: Callable[[dict[str, Array], dict[str, Array]], float] | None = None,
+        rng_key: Array | None = None,
     ) -> MLPModel:
         return cls(
             policy=policy,
@@ -120,6 +125,7 @@ class MLPModel(PPOTrainedModel, TestingModel):
             value_input_spec=value_input_spec,
             reward_input_spec=reward_input_spec,
             reward_fn=reward_fn,
+            rng_key=rng_key,
         )
 
     # --- Input spec ownership ---
@@ -154,26 +160,31 @@ class MLPModel(PPOTrainedModel, TestingModel):
     # --- Policy / value inference ---
     
     def get_policy_output(self, policy_input: dict[str, Array]) -> dict[str,Array]:
-        return self.get_policy_fn()(self.policy_store, policy_input)
+        # Eager path: split the held key in place and thread it in via the dict.
+        self._rng_key, subkey = jax.random.split(self._rng_key)
+        return self.get_policy_fn()(self.policy_store, {**policy_input, "rng_key": subkey})
 
-    # Outputs the output action sample, the process state and the log prob for that action
+    # Outputs the output action sample, the process state and the log prob for that action.
+    # The per-call sampling key is read from policy_input["rng_key"] (popped before
+    # assembling the network input), so the scan can thread a fresh key each step.
     def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], dict[str,Array]]:
-        #     # MLP net takes a flat tensor; assemble the labeled parts dict (concat on
-        #     # the feature axis, batch-safe over leading [num_trajs, T, ...] dims).
-        _, subkey = jax.random.split(self.key)
         policy = self.policy
         def policy_fn(store, policy_input):
-            action_gaussian_params = policy(store, jnp.concatenate(list(policy_input.values()), axis=-1))
+            key = policy_input["rng_key"]
+            features = {k: v for k, v in policy_input.items() if k != "rng_key"}
+            action_gaussian_params = policy(store, jnp.concatenate(list(features.values()), axis=-1))
             ## -1 to make this function batch friendly
             action_mean, action_log_std = jnp.split(action_gaussian_params,2,axis=-1)
             action_std = jnp.exp(action_log_std)
-            ## Get the action mean end dimension shape, -1 to make this function batch friendly
-            eps = jnp.random.normal(subkey, shape=action_mean.shape[-1])
+            eps = jax.random.normal(key, shape=action_mean.shape)
             sampled_action = action_mean + eps * action_std
-            # Calculate the log prob of the sampled action: 
+            # Joint log prob of the sampled action under the diagonal Gaussian:
+            # per-dim -0.5*(z^2 + 2*log_std + log(2pi)), summed over action dims.
             normalized = (sampled_action - action_mean) / action_std
             log_two_pi = jnp.log(2.0 * jnp.pi)
-            log_prob = -0.5 * (normalized ** 2 + action_std * 2.0 + log_two_pi)
+            log_prob = jnp.sum(
+                -0.5 * (normalized ** 2 + 2.0 * action_log_std + log_two_pi), axis=-1
+            )
             # Return the sampled action as well the process state towards the output sample
             return ({
                 "action_mean": action_mean,
@@ -193,10 +204,13 @@ class MLPModel(PPOTrainedModel, TestingModel):
             action_gaussian_params = policy(params, jnp.concatenate(list(input.values()), axis=-1))
             action_mean, action_log_std = jnp.split(action_gaussian_params,2,axis=-1)
             action_std = jnp.exp(action_log_std)
-            # Calculate the log prob of the action passed as the argument; output[1] remains unused for this model: 
+            # Recompute the joint log prob of output["sampled_action"] under the
+            # current params (deterministic; no sampling key needed).
             normalized = (output["sampled_action"] - action_mean) / action_std
             log_two_pi = jnp.log(2.0 * jnp.pi)
-            log_prob = -0.5 * (normalized ** 2 + action_std * 2.0 + log_two_pi)
+            log_prob = jnp.sum(
+                -0.5 * (normalized ** 2 + 2.0 * action_log_std + log_two_pi), axis=-1
+            )
             return log_prob
         return log_prob_fn
 

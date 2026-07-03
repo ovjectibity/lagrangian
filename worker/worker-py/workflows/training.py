@@ -76,12 +76,16 @@ class TrainingWorkflow:
         training_controller: TrainingJobController,
         simulator: Simulator,
         model: PPOTrainedModel,
+        rng_key: jax.Array | None = None,
     ) -> None:
         self.id = training_id
         self.simulator = simulator
         self.model = model
         self.training_controller = training_controller
         self.params: PPOTrainingMethod = training_controller.training_method.content
+        # Single seed threaded from main.py; split one sub-key for the trainer.
+        self._rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
+        self._rng_key, trainer_key = jax.random.split(self._rng_key)
         self.trainer = PPOTrainer(
             simulator=simulator,
             model=model,
@@ -90,6 +94,7 @@ class TrainingWorkflow:
             num_updates=self.params.num_updates,
             epsilon=self.params.epsilon,
             gamma_lambda=(self.params.gamma, self.params.lambda_),
+            rng_key=trainer_key,
         )
         self._ckpt_dir = f"/tmp/checkpoints/{training_id}"
         os.makedirs(self._ckpt_dir, exist_ok=True)
@@ -194,7 +199,6 @@ class TrainingWorkflow:
             mjx_sim: MjxSimulator = self.simulator  # type: ignore[assignment]
             mjx_sim.reset_state()
             base_mjx_data = mjx_sim._mjx_data
-            base_rng = jax.random.PRNGKey(0)
 
         last_epoch_run = -1
         for i in range(self.params.num_epochs):
@@ -212,7 +216,7 @@ class TrainingWorkflow:
 
             if use_gpu:
                 logger.info("Getting trajectories for epoch=%s",i)
-                base_rng, epoch_rng = jax.random.split(base_rng)
+                self._rng_key, epoch_rng = jax.random.split(self._rng_key)
                 control_wstates, value_wstates, model_outputs, policy_output, rewards = (
                     self.trainer.gen_trajectories_gpu(
                         self.params.num_trajs,

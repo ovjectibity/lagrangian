@@ -104,6 +104,7 @@ def _build_model_for_training(
     simulator: Simulator,
     params: PPOTrainingMethod,
     reward_fn: Any,
+    rng_key: Any = None,
 ) -> PPOTrainedModel:
     if isinstance(params.control_model, ControlModelVLA):
         if not isinstance(params.control_output_mode, ControlOutputModeFlowMatchingAction):
@@ -143,8 +144,11 @@ def _build_model_for_training(
         val_estimator=value,
         pol_store=policy_store,
         val_estimator_store=value_store,
-        nbody=simulator.nbody(),
+        control_input_spec=control_mlp.input_spec,
+        value_input_spec=value_mlp.input_spec,
+        reward_input_spec=params.reward_function.input_spec,
         reward_fn=reward_fn,
+        rng_key=rng_key,
     )
 
 
@@ -367,8 +371,15 @@ async def handle_connection(
                 else:
                     simulator = MjxSimulator(model_path=model_path, mjcf=None)
 
+                # Single RNG seed originates here and is split downstream: one
+                # sub-key seeds the model (eager sampling), one the workflow
+                # (which further splits for the trainer / per-epoch rollouts).
+                model_rng, workflow_rng = jax.random.split(jax.random.PRNGKey(0))
+
                 try:
-                    trained_model = _build_model_for_training(simulator, ppo_params, user_reward_fn)
+                    trained_model = _build_model_for_training(
+                        simulator, ppo_params, user_reward_fn, rng_key=model_rng
+                    )
                 except Exception as exc:
                     logger.exception("Failed to build model for training_id=%s", training_id)
                     await send_queue.put(_log_message_payload(
@@ -393,7 +404,7 @@ async def handle_connection(
                     training_controller=training_controller,
                     simulator=simulator,
                     model=trained_model,
-                    user_reward_fn=user_reward_fn,
+                    rng_key=workflow_rng,
                 )
                 stop_event = threading.Event()
                 sink = CallbackTrainingTaskSink(thread_safe_send)

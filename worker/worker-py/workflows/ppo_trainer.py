@@ -78,6 +78,7 @@ class PPOTrainer:
         epsilon: float,
         learning_rate: float = 1e-3,
         gamma_lambda: tuple[float, float] = (0.99, 0.95),
+        rng_key: Array | None = None,
         seed: int = 0,
     ) -> None:
         self.num_trajs = num_trajs
@@ -88,7 +89,7 @@ class PPOTrainer:
         self.simulator = simulator
         self.model = model
         self.learning_rate = learning_rate
-        self._rng_key = random.PRNGKey(seed)
+        self._rng_key = rng_key if rng_key is not None else random.PRNGKey(seed)
         self.policy_opt = self._init_adam_state(self.model.get_policy_store())
         self.value_opt = self._init_adam_state(self.model.get_value_store())
         self._jit_gen_trajs: Any = None
@@ -139,6 +140,8 @@ class PPOTrainer:
         control_input_spec = self.model.get_control_input_spec()
         value_input_spec = self.model.get_value_input_spec()
         reward_input_spec = self.model.get_reward_input_spec()
+        policy_fn = self.model.get_policy_fn()
+        policy_store = self.model.get_policy_store()
         control_wstates: list[dict[str, Array]] = []
         value_wstates: list[dict[str, Array]] = []
         model_outputs: list[Array] = []
@@ -152,12 +155,11 @@ class PPOTrainer:
             control_parts = self.simulator.get_model_state(control_input_spec)
             value_parts = self.simulator.get_model_state(value_input_spec)
             reward_parts_pre = self.simulator.get_model_state(reward_input_spec)
-            pol_output = self.model.get_policy_output(control_parts)
+            self._rng_key, step_key = jax.random.split(self._rng_key)
+            pol_output = policy_fn(policy_store, {**control_parts, "rng_key": step_key})
             logger.debug("Got the pol_output in gen_trajectory: {pol_output}")
             sampled_action = pol_output["sampled_action"]
-            sampled_action_log_prob = pol_output["sampled_action_log_prob"][0]
-            # del pol_output["sampled_action"]
-            # del pol_output["sampled_action_log_prob"]
+            sampled_action_log_prob = pol_output["sampled_action_log_prob"]
 
             output_mode = self.model.get_control_policy_output_mode()
             if output_mode == ControlPolicyOutputMode.TARGETTORQUES:
@@ -247,8 +249,11 @@ class PPOTrainer:
         if policy_store is None:
             policy_store = self.model.get_policy_store()
         logger.debug("wstates shape in get_ppo_clip_objective {wstates.shape}")
-        ## get_policy_output_log_prob should be batch friendly already across mlp & vla implementations
-        action_log_probs = self.model.get_policy_output_log_prob(wstates,model_outputs)
+        ## Use the PURE log-prob fn with the passed policy_store so value_and_grad
+        ## differentiates w.r.t. it (the bound get_policy_output_log_prob uses the
+        ## model's stored params → zero gradient). Batch-friendly across mlp & vla.
+        log_prob_fn = self.model.get_policy_output_log_prob_fn()
+        action_log_probs = log_prob_fn(policy_store, wstates, model_outputs)
         ratio = jnp.exp(action_log_probs - start_log_probs)
         clipped = jnp.clip(ratio, 1.0 - self.epsilon, 1.0 + self.epsilon) * gaes
         return jnp.mean(jnp.minimum(ratio * gaes, clipped))
@@ -346,16 +351,19 @@ class PPOTrainer:
             total_norm_sq += float(jnp.sum(grad**2))
         return total_norm_sq**0.5
 
-    ## TO FIX: Move part of this logic to the models themselves given statistical requirements 
+    ## TODO: fully move this statistic into the model (mirrors the sampling/log-prob
+    ## move) so the Gaussian assumption doesn't live here.
     def get_rollout_mean_entropy(self, trajs: Sequence[Trajectory]) -> float:
         if not trajs:
             return 0.0
-        action_output_size = self.get_action_output_size()
-        model_outputs = jnp.stack([jnp.stack(traj.model_outputs) for traj in trajs])
-        action_gaussian_log_stddev = model_outputs[..., action_output_size:]
+        # traj.model_outputs is a time-leading dict; use the per-dim log-std.
+        # Diagonal-Gaussian differential entropy = sum_i (log_std_i + 0.5*(1+log 2pi)).
+        log_stds = jnp.stack(
+            [traj.model_outputs["action_log_std_dev"] for traj in trajs]
+        )  # [num_trajs, T, nu]
         log_two_pi = jnp.log(2.0 * jnp.pi)
         entropy = jnp.mean(
-            jnp.sum(action_gaussian_log_stddev + 0.5 * (1.0 + log_two_pi), axis=-1)
+            jnp.sum(log_stds + 0.5 * (1.0 + log_two_pi), axis=-1)
         )
         return float(entropy)
 
@@ -396,7 +404,8 @@ class PPOTrainer:
         control_state_fn = self.simulator.make_state_fn(self.model.get_control_input_spec())  # type: ignore[attr-defined]
         value_state_fn = self.simulator.make_state_fn(self.model.get_value_input_spec())  # type: ignore[attr-defined]
         reward_state_fn = self.simulator.make_state_fn(self.model.get_reward_input_spec())  # type: ignore[attr-defined]
-        reward_fn = self.model.get_policy_fn()
+        ## BUG/TO FIX: reward fn is not correct
+        reward_fn = self.model.get_pure_reward_fn()
         policy_fn = self.model.get_policy_fn()
         if policy_store is None:
             policy_store = self.model.get_policy_store()
@@ -412,12 +421,15 @@ class PPOTrainer:
             _: None,
         ) -> tuple[tuple[Any, Array], tuple[Array, Array, dict[str,Array], Array, Array]]:
             data, rng = carry
+            rng, step_key = jax.random.split(rng)
 
             control_parts = control_state_fn(data)
             value_parts = value_state_fn(data)
             reward_parts_pre = reward_state_fn(data)
 
-            pol_output = policy_fn(policy_store, control_parts)
+            # Thread a fresh per-step key in via the dict; control_parts itself is
+            # stored without it (log-prob recompute is deterministic).
+            pol_output = policy_fn(policy_store, {**control_parts, "rng_key": step_key})
             sampled_action = pol_output["sampled_action"]
 
             if output_mode == ControlPolicyOutputMode.TARGETTORQUES:

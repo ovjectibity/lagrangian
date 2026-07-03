@@ -85,6 +85,10 @@ class PPOTrainedModel(ABC):
     # --- For flow matching VLAs like Pi-0 this might also 
     # --- require some additional state such as that generated during the unrolling process 
 
+    # policy_input carries the per-call sampling key under "rng_key"; the model
+    # pops it before assembling the network input. The held key (from the
+    # constructor) is used by eager get_policy_output; the scan threads fresh
+    # per-step keys in via the dict.
     @abstractmethod
     def get_policy_output(self, policy_input: dict[str, Array]) -> dict[str,Array]:
         pass
