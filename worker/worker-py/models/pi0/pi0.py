@@ -3,6 +3,13 @@
 Loads the Pi-0 pre-trained checkpoint using the pure JAX/Flax Pi0Jax implementation
 (no lerobot or PyTorch required). The VLM backbone (SigLIP + PaliGemma LM) is frozen;
 the action expert and projection layers are updated by PPO.
+
+Training uses the FlowNoise scheme (Formula 5, arxiv:2510.25889): each Euler
+denoising step A_τ → A_{τ+δ} is made stochastic by injecting Gaussian noise with
+per-dim std σ_φ(obs, A_τ) from a small noise MLP, so the trajectory log-prob is
+a sum of per-step Gaussian log-probs. The policy store is a composite
+{"pi0": <action-expert params>, "noise": <noise MLP params>} so PPO updates both.
+Test-time inference keeps the deterministic Euler ODE (Pi0Jax.infer, no noise model).
 """
 from __future__ import annotations
 
@@ -16,70 +23,79 @@ from jax import random
 
 from commondef.training import ControlPolicyOutputMode, ModelInputSpec, VLAModel
 from commondef.training import MLPModel as MLPModelSpec
-from models.mlp import MLPModel
+from models.base import FlaxMLP
 from models.model import PPOTrainedModel, TestingModel
 from models.pi0.pi0_jax import Pi0Jax
+from models.pi0.pi0_jax.model import _pad_to
 
 logger = logging.getLogger(__name__)
 
 Array = jax.Array
 Params = Any
 
+_LOG_TWO_PI = jnp.log(2.0 * jnp.pi)
 
-def _init_mlp(mlp_spec: MLPModelSpec, seed: int = 42) -> tuple[Callable, Params]:
-    policy_fn, params = MLPModel.init_policy(
-        input_dimension=mlp_spec.input_dim,
-        output_dimension=mlp_spec.output_dim,
-        hidden_layer_dimension=mlp_spec.hidden_layer_dim,
-        num_layers=mlp_spec.num_hidden_layers,
-        add_softmax=False,
-        control_policy=False,
-        seed=seed,
+
+def _init_mlp(mlp_spec: MLPModelSpec, seed: int = 42) -> tuple[Callable[[Params, Array], Array], Params]:
+    module = FlaxMLP(
+        num_hidden_layers=mlp_spec.num_hidden_layers,
+        hidden_layer_dim=mlp_spec.hidden_layer_dim,
+        output_dim=mlp_spec.output_dim,
     )
-    return policy_fn, params
+    params = module.init(
+        random.PRNGKey(seed),
+        jnp.zeros((mlp_spec.input_dim,), dtype=jnp.float32),
+    )
+    return module.apply, params
 
-def compute_flow_noise_log_prob(
-    noise_model_fn: Callable[[Params, Array, Array], Array],
-    noise_model_params: Params,
-    obs: Array,
-    denoising_steps: list[tuple[Array, Array]],
-    euler_steps: list[Array],
-) -> Array:
-    """Compute log π(A | obs) via FlowNoise (Formula 5, arxiv:2510.25889).
 
-    Each discrete ODE step from A_τ → A_{τ+δ} is modelled as a Gaussian:
-        A_{τ+δ} | A_τ, obs  ~  N( euler_step(A_τ, τ),  diag(σ_φ(A_τ, obs)²) )
+def _prep_pi0_inputs(
+    pi0: Pi0Jax,
+    frozen: Params,
+    parts: dict[str, Array],
+    task_tokens: Array,
+) -> tuple[tuple[Array, Array], Array]:
+    """Single-sample: parts dict → (LM KV cache, normalised+padded state).
 
-    The total log-prob is the sum of per-step Gaussian log-probs.
-
-    Args:
-        noise_model_fn: pure fn (params, obs, A_tau) -> per-dim log std devs
-        noise_model_params: trainable params of the noise model σ_φ
-        obs: observation fed to the noise model
-        denoising_steps: list of (A_tau, A_tau_next) pairs for each ODE step
-        euler_steps: deterministic Euler ODE predictions μ_τ for each step
-
-    Returns:
-        Scalar total log-probability of the denoising sequence.
+    Mirrors the observation preprocessing of Pi0Jax.infer so the training
+    denoise loop and the log-prob recompute see identical conditioning.
+    Pure/traceable (task tokens are pre-encoded by the caller).
     """
-    log_two_pi = jnp.log(2.0 * jnp.pi)
-    total_log_prob = jnp.zeros(())
-    ## Convert this to a jax scan call
-    for (a_tau, a_tau_next), mu in zip(denoising_steps, euler_steps):
-        log_std = noise_model_fn(noise_model_params, obs, a_tau)
-        std = jnp.exp(log_std)
-        normalized = (a_tau_next - mu) / (std + 1e-8)
-        step_log_prob = jnp.sum(
-            -0.5 * (normalized**2 + 2.0 * log_std + log_two_pi)
-        )
-        total_log_prob = total_log_prob + step_log_prob
-    return total_log_prob
+    images, proprio = Pi0Model._split_observation(parts)
+    norm_dim = frozen["norm_state"]["mean"].shape[0]
+    dim = min(proprio.shape[0], norm_dim)
+    norm_state = pi0._normalize(
+        proprio[:dim],
+        {"mean": frozen["norm_state"]["mean"][:dim], "std": frozen["norm_state"]["std"][:dim]},
+    )
+    state_pad = _pad_to(norm_state, pi0._arch.get("state_dim", 32))
+    lm_kv = pi0.encode_prefix(frozen, images[None], task_tokens[None])
+    return lm_kv, state_pad
+
+
+def _noise_log_std(
+    noise_fn: Callable[[Params, Array], Array],
+    noise_store: Params,
+    obs: Array,
+    a_tau: Array,
+) -> Array:
+    """FlowNoise σ_φ: (obs, A_τ) → per-dim log std devs, shaped like A_τ.
+
+    obs is the normalised+padded proprio state (the same conditioning the
+    action expert sees). log-std clip range matches the MLPModel control
+    policy convention.
+    """
+    flat = jnp.concatenate([obs, a_tau.reshape(-1)])
+    log_std = noise_fn(noise_store, flat)
+    return jnp.clip(log_std, -5.2, -4.2).reshape(a_tau.shape)
+
 
 class Pi0Model(PPOTrainedModel, TestingModel):
     """PPO-trainable wrapper for the Pi-0 flow-matching VLA.
 
-    Policy store: trainable_params from Pi0Jax (action expert + projections).
-    Value store:  a small MLP initialised from value_mlp_spec.
+    Policy store: {"pi0": trainable action-expert/projection params,
+                   "noise": FlowNoise σ_φ MLP params (training only)}.
+    Value store:  a small Flax MLP initialised from value_mlp_spec.
     """
 
     _STATE_KEY_ORDER = ("cameras", "qdof", "qpos", "qvel", "xpos", "xquat")
@@ -87,7 +103,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     def __init__(
         self,
         vla_spec: VLAModel,
-        noise_mlp_spec: MLPModelSpec,
+        noise_mlp_spec: MLPModelSpec | None,
         control_input_spec: ModelInputSpec,
         value_input_spec: ModelInputSpec,
         reward_input_spec: ModelInputSpec,
@@ -101,8 +117,16 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         logger.info("Pi0Model: checkpoint loaded")
 
         self._vla_spec = vla_spec
-        self._policy_store: Params = self._pi0.get_policy_store()
         self._frozen_store: Params = self._pi0.get_frozen_store()
+        self._policy_store: Params = {"pi0": self._pi0.get_policy_store()}
+
+        # FlowNoise σ_φ: only wired for training; the test path uses the
+        # deterministic Euler ODE and never touches the noise model.
+        if noise_mlp_spec is not None:
+            self._noise_fn, noise_store = _init_mlp(noise_mlp_spec, seed + 2)
+            self._policy_store["noise"] = noise_store
+        else:
+            self._noise_fn = None
 
         self._control_input_spec = control_input_spec
         self._value_input_spec = value_input_spec
@@ -115,7 +139,8 @@ class Pi0Model(PPOTrainedModel, TestingModel):
             self._value_fn = None
             self._value_store = None
 
-        self._last_log_prob: float | None = None
+        # Held key for eager sampling (get_policy_output / get_test_action); the
+        # scan threads fresh per-step keys via policy_input["rng_key"] instead.
         self._rng_key = random.PRNGKey(seed)
         self._last_task: str = ""
 
@@ -170,48 +195,157 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     def init_ppo_trained_model(cls, *args, **kwargs) -> "Pi0Model":
         raise NotImplementedError("Construct Pi0Model directly.")
 
-    def get_policy_output(self, parts: dict[str, Array]) -> Array:
-        """Run Pi-0 inference on a labeled parts dict.
+    def get_policy_output(self, policy_input: dict[str, Array]) -> dict[str, Array]:
+        # Eager path: split the held key in place and thread it in via the dict.
+        self._rng_key, subkey = random.split(self._rng_key)
+        return self.get_policy_fn()(self._policy_store, {**policy_input, "rng_key": subkey})
 
-        The camera frames ("cameras") are used as the image input and the
-        remaining proprio parts are concatenated (in _STATE_KEY_ORDER) into the
-        proprio state vector.
-        """
-        self._rng_key, key = random.split(self._rng_key)
-        task = getattr(self, "_last_task", "")
-        images, proprio = self._split_observation(parts)
-        actions = self._pi0.infer(
-            self._policy_store,
-            self._frozen_store,
-            images,
-            proprio,
-            task,
-            key,
-        )
-        return actions[0]
+    # Outputs the sampled action chunk, the denoising process state and the
+    # log prob for that trajectory. The per-call sampling key is read from
+    # policy_input["rng_key"] (popped before assembling the network input),
+    # so the scan can thread a fresh key each step.
+    def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], dict[str, Array]]:
+        if self._noise_fn is None:
+            raise RuntimeError(
+                "Pi0Model was built without a noise model spec; the FlowNoise "
+                "training path is unavailable (test inference uses get_test_policy)."
+            )
+        pi0 = self._pi0
+        frozen = self._frozen_store
+        noise_fn = self._noise_fn
+        task_tokens = pi0._encode_task(self._last_task)
+        n_steps = pi0._num_inference_steps
+        chunk = pi0._chunk_size
+        max_action_dim = pi0._max_action_dim
+        n_action_steps = pi0._n_action_steps
+        dt = 1.0 / n_steps
 
-    def get_policy_output_log_prob(self) -> float:
-        if self._last_log_prob is None:
-            raise RuntimeError("Call get_policy_output before get_policy_output_log_prob.")
-        return self._last_log_prob
+        def _policy(policy_store: Params, policy_input: dict[str, Array]) -> dict[str, Array]:
+            key = policy_input["rng_key"]
+            parts = {k: v for k, v in policy_input.items() if k != "rng_key"}
+            trainable = policy_store["pi0"]
+            noise_store = policy_store["noise"]
+            lm_kv, state_pad = _prep_pi0_inputs(pi0, frozen, parts, task_tokens)
+
+            init_key, steps_key = random.split(key)
+            x0 = random.normal(init_key, (chunk, max_action_dim))
+            ts = 1.0 - jnp.arange(n_steps, dtype=jnp.float32) * dt
+            step_keys = random.split(steps_key, n_steps)
+
+            def denoise_step(
+                x: Array, inp: tuple[Array, Array]
+            ) -> tuple[Array, tuple[Array, Array, Array, Array]]:
+                t, step_key = inp
+                vel = pi0.forward(trainable, lm_kv, state_pad[None], x[None], t)[0]
+                mu = x - dt * vel
+                log_std = _noise_log_std(noise_fn, noise_store, state_pad, x)
+                std = jnp.exp(log_std)
+                x_next = mu + std * random.normal(step_key, x.shape)
+                normalized = (x_next - mu) / std
+                step_log_prob = jnp.sum(
+                    -0.5 * (normalized**2 + 2.0 * log_std + _LOG_TWO_PI)
+                )
+                return x_next, (x, mu, log_std, step_log_prob)
+
+            x_final, (xs, mus, log_stds, step_log_probs) = jax.lax.scan(
+                denoise_step, x0, (ts, step_keys)
+            )
+            # Full denoising trajectory [n_steps + 1, chunk, max_action_dim]:
+            # only the realized states are stored — the log-prob recompute
+            # re-derives mu/log_std from them under the updated params.
+            trajectory = jnp.concatenate([xs, x_final[None]], axis=0)
+
+            actual_dim = frozen["unnorm_action"]["mean"].shape[0]
+            actions = pi0._unnormalize(
+                x_final[:n_action_steps, :actual_dim], frozen["unnorm_action"]
+            )
+            # action_mean / action_log_std_dev are the sampling-time per-step
+            # Gaussian stats ([n_steps, chunk, max_action_dim]) — diagnostics
+            # only (entropy), matching the MLPModel stats-dict convention.
+            return {
+                "sampled_action": actions,
+                "sampled_action_log_prob": jnp.sum(step_log_probs),
+                "denoising_trajectory": trajectory,
+                "action_mean": mus,
+                "action_log_std_dev": log_stds,
+            }
+
+        return _policy
+
+    def get_policy_output_log_prob(
+        self, policy_input: dict[str, Array], policy_output: dict[str, Array]
+    ) -> Array:
+        return self.get_policy_output_log_prob_fn()(self._policy_store, policy_input, policy_output)
+
+    def get_policy_output_log_prob_fn(
+        self,
+    ) -> Callable[[Params, dict[str, Array], dict[str, Array]], Array]:
+        if self._noise_fn is None:
+            raise RuntimeError(
+                "Pi0Model was built without a noise model spec; the FlowNoise "
+                "training path is unavailable (test inference uses get_test_policy)."
+            )
+        pi0 = self._pi0
+        frozen = self._frozen_store
+        noise_fn = self._noise_fn
+        task_tokens = pi0._encode_task(self._last_task)
+        n_steps = pi0._num_inference_steps
+        dt = 1.0 / n_steps
+
+        def _single(
+            policy_store: Params,
+            policy_input: dict[str, Array],
+            policy_output: dict[str, Array],
+        ) -> Array:
+            parts = {k: v for k, v in policy_input.items() if k != "rng_key"}
+            trainable = policy_store["pi0"]
+            noise_store = policy_store["noise"]
+            lm_kv, state_pad = _prep_pi0_inputs(pi0, frozen, parts, task_tokens)
+
+            # Recompute the FlowNoise log prob of the recorded denoising
+            # trajectory under the *current* params (Formula 5, arxiv:2510.25889):
+            # each recorded A_τ → A_{τ+δ} step is Gaussian around the current
+            # Euler prediction with the current σ_φ.
+            trajectory = policy_output["denoising_trajectory"]
+            ts = 1.0 - jnp.arange(n_steps, dtype=jnp.float32) * dt
+
+            def step(total: Array, inp: tuple[Array, Array, Array]) -> tuple[Array, None]:
+                x, x_next, t = inp
+                vel = pi0.forward(trainable, lm_kv, state_pad[None], x[None], t)[0]
+                mu = x - dt * vel
+                log_std = _noise_log_std(noise_fn, noise_store, state_pad, x)
+                normalized = (x_next - mu) / jnp.exp(log_std)
+                step_log_prob = jnp.sum(
+                    -0.5 * (normalized**2 + 2.0 * log_std + _LOG_TWO_PI)
+                )
+                return total + step_log_prob, None
+
+            total, _ = jax.lax.scan(
+                step, jnp.zeros(()), (trajectory[:-1], trajectory[1:], ts)
+            )
+            return total
+
+        def log_prob_fn(
+            policy_store: Params,
+            policy_input: dict[str, Array],
+            policy_output: dict[str, Array],
+        ) -> Array:
+            # The trainer calls this with [num_trajs, T, ...] (or [T, ...])
+            # leading axes on every leaf; vmap over each extra leading axis
+            # (cameras is always present for a VLA and is [ncam, H, W, C]
+            # unbatched).
+            fn = _single
+            for _ in range(policy_input["cameras"].ndim - 4):
+                fn = jax.vmap(fn, in_axes=(None, 0, 0))
+            return fn(policy_store, policy_input, policy_output)
+
+        return log_prob_fn
 
     def get_value_output(self, parts: dict[str, Array]) -> float:
         flat = self._assemble_value(parts)
         self._ensure_value_store(flat)
         val = self._value_fn(self._value_store, flat)
         return float(jnp.squeeze(val))
-
-    def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
-        pi0 = self._pi0
-        frozen = self._frozen_store
-        task = self._last_task
-        rng = self._rng_key
-
-        def _policy(policy_store: Params, parts: dict[str, Array]) -> Array:
-            imgs, proprio = Pi0Model._split_observation(parts)
-            actions = pi0.infer(policy_store, frozen, imgs, proprio, task, rng)
-            return actions[0]
-        return _policy
 
     def get_value_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
         # value MLP takes a flat tensor; assemble the parts dict internally.
@@ -249,17 +383,29 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         return self._reward_fn
 
     # ------------------------------------------------------------------
-    # TestingModel interface
+    # TestingModel interface — deterministic Euler ODE (no noise model)
     # ------------------------------------------------------------------
 
     def get_test_action(self, parts: dict[str, Array]) -> Array:
-        return self.get_policy_output(parts)
+        self._rng_key, key = random.split(self._rng_key)
+        return self.get_test_policy()(self._policy_store, {**parts, "rng_key": key})
 
     def get_test_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
-        return self.get_policy_fn()
+        pi0 = self._pi0
+        frozen = self._frozen_store
+        task = self._last_task
+
+        def _test_policy(params: Params, parts: dict[str, Array]) -> Array:
+            key = parts["rng_key"]
+            feats = {k: v for k, v in parts.items() if k != "rng_key"}
+            images, proprio = Pi0Model._split_observation(feats)
+            actions = pi0.infer(params["pi0"], frozen, images, proprio, task, key)
+            return actions[0]
+
+        return _test_policy
 
     def get_test_params(self) -> Params:
-        return self.get_policy_store()
+        return self._policy_store
 
     # ------------------------------------------------------------------
     # Internal
@@ -267,11 +413,6 @@ class Pi0Model(PPOTrainedModel, TestingModel):
 
     def _ensure_value_store(self, state: Array) -> None:
         if self._value_store is None:
-            obs_dim = int(state.shape[-1])
-            spec = MLPModelSpec(
-                num_hidden_layers=2,
-                hidden_layer_dim=256,
-                output_dim=1,
-                input_dim=obs_dim,
-            )
-            self._value_fn, self._value_store = _init_mlp(spec, seed=99)
+            module = FlaxMLP(num_hidden_layers=2, hidden_layer_dim=256, output_dim=1)
+            self._value_fn = module.apply
+            self._value_store = module.init(random.PRNGKey(99), jnp.zeros_like(state))
