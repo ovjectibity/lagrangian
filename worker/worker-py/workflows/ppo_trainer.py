@@ -144,7 +144,7 @@ class PPOTrainer:
         policy_store = self.model.get_policy_store()
         control_wstates: list[dict[str, Array]] = []
         value_wstates: list[dict[str, Array]] = []
-        model_outputs: list[Array] = []
+        model_outputs: list[dict[str, Array]] = []
         model_output_samples: list[Array] = []
         model_output_samples_log_prob: list[float] = []
         rewards: list[float] = []
@@ -351,8 +351,6 @@ class PPOTrainer:
             total_norm_sq += float(jnp.sum(grad**2))
         return total_norm_sq**0.5
 
-    ## TODO: fully move this statistic into the model (mirrors the sampling/log-prob
-    ## move) so the Gaussian assumption doesn't live here.
     def get_rollout_mean_entropy(self, trajs: Sequence[Trajectory]) -> float:
         if not trajs:
             return 0.0
@@ -814,21 +812,19 @@ def pure_ppo_clip_loss(
     """PPO clipped surrogate loss (negated for gradient ascent via minimisation).
 
     Args:
-        policy_store:    policy network parameters
-        policy_fn:       callable (params, [num_trajs, T, state_dim]) -> [num_trajs, T, nu*2]
-        wstates:         [num_trajs, T, state_dim]
-        action_samples:  [num_trajs, T, nu]
-        start_log_probs: [num_trajs, T]
-        gaes:            [num_trajs, T] normalised advantages
-        epsilon:         PPO clip ratio
-        action_size:     nu
+        policy_store:       policy network parameters
+        policy_fn_log_prob: pure fn (params, wstates, policy_output) -> per-step
+                            joint log-probs [num_trajs, T] of the recorded actions
+        wstates:            control parts dict, leaves [num_trajs, T, ...]
+        policy_output:      recorded policy stats dict (incl. "sampled_action")
+        start_log_probs:    [num_trajs, T] log-probs at sampling time
+        gaes:               [num_trajs, T] normalised advantages
+        epsilon:            PPO clip ratio
 
     Returns:
         scalar loss (negated clip objective)
     """
-    log_probs = policy_fn_log_prob(policy_store,wstates,policy_output)
-    # model_outputs = policy_fn(policy_store, wstates)
-    # log_probs = pure_action_log_probs(action_samples, model_outputs, action_size)
+    log_probs = policy_fn_log_prob(policy_store, wstates, policy_output)
     ratio = jnp.exp(log_probs - start_log_probs)
     clipped = jnp.clip(ratio, 1.0 - epsilon, 1.0 + epsilon) * gaes
     return -jnp.mean(jnp.minimum(ratio * gaes, clipped))
@@ -882,19 +878,19 @@ def learning_step(
     Args:
         policy_store:    current policy parameters
         value_store:     current value parameters
-        policy_opt:      Adam state for policy {"m", "v", "t"}
-        value_opt:       Adam state for value  {"m", "v", "t"}
-        policy_fn:       callable (params, control_wstates) -> model_outputs
-        value_fn:        callable (params, value_wstates) -> values
-        control_wstates: [num_trajs, T, control_state_dim]  — for policy loss
-        value_wstates:   [num_trajs, T, value_state_dim]    — for value loss
-        action_samples:  [num_trajs, T, nu]
-        start_log_probs: [num_trajs, T]
-        gaes:            [num_trajs, T] normalised advantages
-        rtgs:            [num_trajs, T]
-        epsilon:         PPO clip ratio
-        action_size:     nu
-        learning_rate:   Adam learning rate
+        policy_opt:         Adam state for policy {"m", "v", "t"}
+        value_opt:          Adam state for value  {"m", "v", "t"}
+        policy_fn_log_prob: pure fn (params, control_wstates, policy_output) ->
+                            per-step joint log-probs [num_trajs, T]
+        value_fn:           callable (params, value_wstates) -> values
+        control_wstates:    control parts dict, leaves [num_trajs, T, ...]  — policy loss
+        value_wstates:      value parts dict, leaves [num_trajs, T, ...]    — value loss
+        policy_output:      recorded policy stats dict (incl. "sampled_action")
+        start_log_probs:    [num_trajs, T] log-probs at sampling time
+        gaes:               [num_trajs, T] normalised advantages
+        rtgs:               [num_trajs, T]
+        epsilon:            PPO clip ratio
+        learning_rate:      Adam learning rate
 
     Returns:
         (policy_store_next, value_store_next, policy_opt_next, value_opt_next,

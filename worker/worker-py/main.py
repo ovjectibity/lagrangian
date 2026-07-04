@@ -155,13 +155,14 @@ def _build_model_for_training(
 def _build_model_for_testing(
     simulator: Simulator,
     control_model: Any,
+    rng_key: Any = None,
 ) -> TestingModel:
+    _null_spec = ModelInputSpec(
+        all_cameras=False, qpos_state=False, qvel_state=False,
+        xpos_state=False, xquat_state=False, qdof_state=False, contact_pairs=False,
+    )
     if isinstance(control_model, ControlModelVLA):
         vla_spec = control_model.content
-        _null_spec = ModelInputSpec(
-            all_cameras=False, qpos_state=False, qvel_state=False,
-            xpos_state=False, xquat_state=False, qdof_state=False, contact_pairs=False,
-        )
         return Pi0Model(
             vla_spec,
             noise_mlp_spec=None,
@@ -192,8 +193,11 @@ def _build_model_for_testing(
         val_estimator=value,
         pol_store=policy_store,
         val_estimator_store=value_store,
-        nbody=simulator.nbody(),
+        control_input_spec=control_mlp.input_spec,
+        value_input_spec=_null_spec,
+        reward_input_spec=_null_spec,
         reward_fn=None,
+        rng_key=rng_key,
     )
 
 
@@ -514,8 +518,14 @@ async def handle_connection(
                         test_model_tmpdir.cleanup()
                     continue
 
+                # Single RNG seed for testing, split for the model (eager
+                # sequential sampling) and the workflow (batched scan).
+                test_model_rng, test_workflow_rng = jax.random.split(jax.random.PRNGKey(0))
+
                 try:
-                    test_model = _build_model_for_testing(test_simulator, test_params.control_model)
+                    test_model = _build_model_for_testing(
+                        test_simulator, test_params.control_model, rng_key=test_model_rng
+                    )
                 except Exception as exc:
                     logger.exception("Model build failed for test_id=%s", test_id)
                     await send_queue.put(_log_message_payload(
@@ -530,6 +540,7 @@ async def handle_connection(
                     test_controller=test_controller,
                     simulator=test_simulator,
                     model=test_model,
+                    rng_key=test_workflow_rng,
                 )
                 stop_event = threading.Event()
                 sink = CallbackTestingTaskSink(thread_safe_send)

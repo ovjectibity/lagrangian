@@ -28,3 +28,4 @@ sdk/dist
 scripts/gen_mongo_schema/target
 app/proc_macros/target
 tests/__pycache__
+**/__pycache__/

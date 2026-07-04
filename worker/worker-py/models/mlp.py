@@ -240,12 +240,18 @@ class MLPModel(PPOTrainedModel, TestingModel):
         return self.control_output_mode
 
     # --- TestingModel interface ---
+    # get_policy_output / get_policy_fn now return a stats dict; test-time
+    # inference wants just the action, so we extract "sampled_action".
 
     def get_test_action(self, parts: dict[str, Array]) -> Array:
-        return self.get_policy_output(parts)
+        # Eager: get_policy_output splits the held key and injects it as "rng_key".
+        return self.get_policy_output(parts)["sampled_action"]
 
     def get_test_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
-        return self.get_policy_fn()
+        # Pure fn for vmap/scan batched testing. The caller must supply the
+        # per-call sampling key in parts["rng_key"] (as the trainer/testing scan does).
+        policy_fn = self.get_policy_fn()
+        return lambda store, parts: policy_fn(store, parts)["sampled_action"]
 
     def get_test_params(self) -> Params:
         return self.policy_store

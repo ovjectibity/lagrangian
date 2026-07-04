@@ -87,12 +87,17 @@ class TestingWorkflow:
         test_controller: TestJobController,
         simulator: Simulator,
         model: TestingModel,
+        rng_key: Any | None = None,
     ) -> None:
         self.id = test_id
         self.simulator = simulator
         self.model = model
         self.test_controller = test_controller
         self.params = test_controller.test_params
+        # Single seed threaded from main.py; the batched scan splits fresh
+        # per-step, per-env keys from it. Sequential inference uses the model's
+        # own held key (via get_test_action).
+        self._rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
         logger.info(
             "TestingWorkflow initialized: id=%s num_timesteps=%s num_parallel_envs=%s acceleration=%s",
             self.id,
@@ -149,13 +154,19 @@ class TestingWorkflow:
 
         state_fn = mjx_sim.make_state_fn(self.model.get_control_input_spec())
 
-        def scan_body(bd: Any, _: Any) -> tuple[Any, tuple[Any, Any]]:
+        def scan_body(carry: Any, _: Any) -> tuple[Any, tuple[Any, Any, Any]]:
+            bd, rng = carry
+            rng, step_key = jax.random.split(rng)
+            env_keys = jax.random.split(step_key, num_parallel_envs)
             parts_batched = jax.vmap(state_fn)(bd)
-            # Pass the labeled parts dict straight to the policy; it splits
-            # cameras (images) from proprio internally.
-            actions = jax.vmap(lambda p: pure_fn(params, p))(parts_batched)
+            # Pass the labeled parts dict straight to the policy (it splits
+            # cameras from proprio internally); thread a fresh per-env sampling
+            # key in via "rng_key".
+            actions = jax.vmap(
+                lambda p, k: pure_fn(params, {**p, "rng_key": k})
+            )(parts_batched, env_keys)
             bd_next = jax.vmap(lambda d, a: mjx_sim.forward_dyn_pure(d, a)[0])(bd, actions)
-            return bd_next, (parts_batched["cameras"], bd_next.xpos[:, :nbody], bd_next.xquat[:, :nbody])
+            return (bd_next, rng), (parts_batched["cameras"], bd_next.xpos[:, :nbody], bd_next.xquat[:, :nbody])
 
         remaining = num_timesteps
         while remaining > 0:
@@ -164,8 +175,8 @@ class TestingWorkflow:
                 break
             logger.info("Running the first loop of batched rollout for _run_mjx_batched in testing.py %s", remaining)
             chunk = min(UPDATE_CHUNK_SIZE, remaining)
-            batched_data, (camera_frames, chunk_xpos, chunk_xquat) = jax.lax.scan(
-                scan_body, batched_data, None, length=chunk
+            (batched_data, self._rng_key), (camera_frames, chunk_xpos, chunk_xquat) = jax.lax.scan(
+                scan_body, (batched_data, self._rng_key), None, length=chunk
             )
             # chunk_xpos: [chunk, num_parallel_envs, nbody, 3]
             xpos_np = chunk_xpos.reshape(chunk, num_parallel_envs, -1).tolist()

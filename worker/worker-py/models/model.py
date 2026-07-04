@@ -19,7 +19,10 @@ class TestingModel(ABC):
         """Single-step inference: labeled state parts dict → control action.
 
         parts keys: "cameras", "qdof", "qpos", "qvel", "xpos", "xquat" (only flags set).
-        The model assembles its own model-specific input from these parts.
+        The model assembles its own model-specific input from these parts and
+        returns just the action (the underlying policy produces a stats dict;
+        this extracts the action from it). Eager path — the model supplies its
+        own sampling key.
         """
         ...
 
@@ -27,8 +30,10 @@ class TestingModel(ABC):
     def get_test_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
         """Pure (params, parts) -> action for vmap-able MJX batched testing.
 
-        Receives the labeled parts dict and assembles the model input internally.
-        Must be a pure JAX function (safe to jax.vmap over batched pytree dicts).
+        Receives the labeled parts dict (which must include the per-call sampling
+        key under "rng_key"), assembles the model input internally, and returns
+        just the action. Must be a pure JAX function (safe to jax.vmap over
+        batched pytree dicts).
         """
         ...
 
