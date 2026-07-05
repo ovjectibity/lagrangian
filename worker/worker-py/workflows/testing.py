@@ -152,13 +152,23 @@ class TestingWorkflow:
             mjx_sim._mjx_data,
         )
 
-        state_fn = mjx_sim.make_state_fn(self.model.get_control_input_spec())
+        control_spec = self.model.get_control_input_spec()
+        state_fn = mjx_sim.make_state_fn(control_spec)
+
+        # Built once (if needed) and kept alive for the whole rollout — see
+        # Simulator._get_render_context's lifecycle contract. Sized for the
+        # actual vmap batch (num_parallel_envs); broadcast (in_axes=None) into
+        # the per-world state_fn below.
+        render_ctx = None
+        if control_spec.all_cameras and mjx_sim._model.ncam > 0:
+            render_ctx = mjx_sim._get_render_context(nworld=num_parallel_envs)
+        render_ctx_pytree = render_ctx.pytree() if render_ctx is not None else None
 
         def scan_body(carry: Any, _: Any) -> tuple[Any, tuple[Any, Any, Any]]:
             bd, rng = carry
             rng, step_key = jax.random.split(rng)
             env_keys = jax.random.split(step_key, num_parallel_envs)
-            parts_batched = jax.vmap(state_fn)(bd)
+            parts_batched = jax.vmap(state_fn, in_axes=(0, None))(bd, render_ctx_pytree)
             # Pass the labeled parts dict straight to the policy (it splits
             # cameras from proprio internally); thread a fresh per-env sampling
             # key in via "rng_key".
@@ -201,21 +211,43 @@ class TestingWorkflow:
         should_stop: Callable[[], bool] | None,
         num_timesteps: int,
     ) -> None:
-        for _ in range(num_timesteps):
-            if should_stop is not None and should_stop():
-                logger.info("Test run stop requested: id=%s", self.id)
-                break
-            parts = self.simulator.get_model_state(self.model.get_control_input_spec())
-            # Pass the labeled parts dict; get_policy_output splits cameras from proprio.
-            action = self.model.get_test_action(parts)
-            self.simulator.forward_dyn(action)
-            xpos, xquat = self.simulator.get_simul_update()
-            # cameras: [ncam, H, W, C] float32 in [0, 1] when requested; frames
-            # field is u8, so denormalise and add the leading [nenv=1, t=1] dims.
-            cameras = parts.get("cameras")
-            frames_u8 = (
-                np.asarray((cameras * 255.0).round().astype(jnp.uint8))[None, None]
-                if cameras is not None else None
+        control_spec = self.model.get_control_input_spec()
+        is_mjx = isinstance(self.simulator, MjxSimulator)
+
+        # Built once (if needed) and kept alive/closed for the whole rollout —
+        # see Simulator._get_render_context / _get_renderer's lifecycle
+        # contracts. MJX path passes ctx.pytree() into get_model_state; the CPU
+        # (MujocoSimulator) path passes the mujoco.Renderer directly.
+        raw_render_ctx = None
+        if control_spec.all_cameras and self.simulator._model.ncam > 0:  # type: ignore[attr-defined]
+            raw_render_ctx = (
+                self.simulator._get_render_context(nworld=1)  # type: ignore[attr-defined]
+                if is_mjx
+                else self.simulator._get_renderer()  # type: ignore[attr-defined]
             )
-            sim_state = [[(xpos, xquat)]]  # single env, single timestep
-            tx.send_test_updates(_build_stream_bytes(self.id, sim_state, frames_u8))
+        render_ctx_arg = (
+            raw_render_ctx.pytree() if (is_mjx and raw_render_ctx is not None) else raw_render_ctx
+        )
+
+        try:
+            for _ in range(num_timesteps):
+                if should_stop is not None and should_stop():
+                    logger.info("Test run stop requested: id=%s", self.id)
+                    break
+                parts = self.simulator.get_model_state(control_spec, render_ctx_arg)
+                # Pass the labeled parts dict; get_policy_output splits cameras from proprio.
+                action = self.model.get_test_action(parts)
+                self.simulator.forward_dyn(action)
+                xpos, xquat = self.simulator.get_simul_update()
+                # cameras: [ncam, H, W, C] float32 in [0, 1] when requested; frames
+                # field is u8, so denormalise and add the leading [nenv=1, t=1] dims.
+                cameras = parts.get("cameras")
+                frames_u8 = (
+                    np.asarray((cameras * 255.0).round().astype(jnp.uint8))[None, None]
+                    if cameras is not None else None
+                )
+                sim_state = [[(xpos, xquat)]]  # single env, single timestep
+                tx.send_test_updates(_build_stream_bytes(self.id, sim_state, frames_u8))
+        finally:
+            if not is_mjx and raw_render_ctx is not None:
+                raw_render_ctx.close()

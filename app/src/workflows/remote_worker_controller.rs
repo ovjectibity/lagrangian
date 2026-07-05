@@ -393,10 +393,10 @@ impl RemoteWorkerController {
 
         let scripts_root = env::var("LAGRANGIAN_SCRIPTS_ROOT")
             .map_err(|_| "Missing required env var LAGRANGIAN_SCRIPTS_ROOT")?;
-        let script_path = PathBuf::from(scripts_root).join("bootstrap_training_worker.sh");
+        let script_path = PathBuf::from(scripts_root).join("bootstrap_remote_worker.sh");
         let script_template = fs::read_to_string(&script_path).map_err(|e| {
             format!(
-                "Couldn't read bootstrap training worker script at {}: {e}",
+                "Couldn't read bootstrap remote worker script at {}: {e}",
                 script_path.display()
             )
         })?;

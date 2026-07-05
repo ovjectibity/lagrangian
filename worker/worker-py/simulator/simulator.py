@@ -55,7 +55,12 @@ class Simulator(ABC):
         pass
 
     @abstractmethod
-    def get_model_state(self, input_spec: ModelInputSpec) -> dict[str, Array]:
+    def get_model_state(
+        self, input_spec: ModelInputSpec, render_ctx: Any = None,
+    ) -> dict[str, Array]:
+        """render_ctx: caller-managed camera render handle, required only when
+        input_spec.all_cameras is set. See Simulator._get_render_context /
+        Simulator._get_renderer (impl-specific) for how to build one."""
         pass
 
     @abstractmethod
@@ -92,8 +97,15 @@ class Simulator(ABC):
     ) -> Array:
         pass
 
-    def make_state_fn(self, input_spec: ModelInputSpec) -> Callable[[Any], dict[str, Array]]:
-        """Return a pure (mjx_data → dict[str, Array]) closure for use in lax.scan / vmap.
+    def make_state_fn(
+        self, input_spec: ModelInputSpec,
+    ) -> Callable[[Any, Any], dict[str, Array]]:
+        """Return a pure (mjx_data, render_ctx) -> dict[str, Array] closure for
+        use in lax.scan / vmap. The closure only ever renders a single world;
+        batching over nworld is achieved by the caller vmapping this function
+        (render_ctx broadcast via in_axes=None, sized for that same nworld —
+        see Simulator._get_render_context). render_ctx is ignored if
+        input_spec.all_cameras is not set.
 
         Only MjxSimulator implements this. MujocoSimulator raises NotImplementedError.
         contact_pairs is not supported in this path (JAX requires fixed-size arrays in scan).
@@ -190,6 +202,24 @@ class MjxSimulator(Simulator):
         self.target_position: list[float] = self._get_actuated_qpos_targets()
         self._actuated_qpos_idx: list[int] = self._compute_actuated_qpos_indices()
         self._actuated_qpos_idx_jnp: Array = jnp.array(self._actuated_qpos_idx, dtype=jnp.int32)
+
+    def _get_render_context(self, nworld: int) -> Any:
+        """Builds a fresh Warp render context sized for `nworld` worlds.
+
+        Stateless — the Simulator does not own or cache this. Building it is
+        expensive (mesh BVHs, Warp buffer allocation), so the caller should
+        build it once (sized for its actual batch — e.g. num_parallel_envs)
+        and reuse it for the whole rollout.
+
+        Lifecycle: the returned RenderContext must be kept alive by the
+        caller for as long as it's used — its __del__ frees the underlying
+        buffers, and RenderContextPytree (from .pytree()) holds only a lookup
+        key, not a reference back to this object. Call .pytree() to get the
+        JAX-traceable/vmappable handle to pass into mjx.render/get_rgb.
+        """
+        return mjx.create_render_context(
+            self._model, nworld=nworld, cam_res=(_CAM_WIDTH, _CAM_HEIGHT)
+        )
 
     def _sync_cpu_from_mjx(self) -> None:
         self._data = mjx.get_data(self._model, self._mjx_data)
@@ -389,7 +419,9 @@ class MjxSimulator(Simulator):
         mujoco.mj_inverse(self._model, self._data)
         return jnp.asarray(np.asarray(self._data.qfrc_inverse[: self.nv()], dtype=np.float64))
 
-    def get_model_state(self, input_spec: ModelInputSpec) -> dict[str, Array]:
+    def get_model_state(
+        self, input_spec: ModelInputSpec, render_ctx: Any = None,
+    ) -> dict[str, Array]:
         self._sync_cpu_from_mjx()
         result: dict[str, Array] = {}
         if input_spec.qdof_state:
@@ -408,14 +440,26 @@ class MjxSimulator(Simulator):
                 np.asarray(self._data.xquat[: self.nbody()], dtype=np.float64).reshape(-1)
             )
         if input_spec.all_cameras and self._model.ncam > 0:
-            ncam = int(self._model.ncam)
-            frames = jax.vmap(
-                lambda cam_id: mjx.render(
-                    self._mjx_model, self._mjx_data,
-                    camera=cam_id, width=_CAM_WIDTH, height=_CAM_HEIGHT,
+            # Shape [ncam, H, W, 3] float32 in [0, 1] — see testing.py's
+            # _run_sequential, which relies on this exact shape.
+            # render_ctx is caller-managed: built via
+            # Simulator._get_render_context(nworld=1).pytree() and kept alive
+            # by the caller for the lifetime of the rollout — see that method's
+            # docstring for the lifecycle contract.
+            if render_ctx is None:
+                raise ValueError(
+                    "all_cameras requested but no render_ctx was provided "
+                    "(build one via _get_render_context(nworld=1).pytree())"
                 )
-            )(jnp.arange(ncam))
-            result["cameras"] = (frames.astype(jnp.float32) / 255.0).reshape(-1)
+            ncam = int(self._model.ncam)
+            # render() expects an explicit leading world axis matching nworld,
+            # even for nworld=1 — self._mjx_data has none (single instance).
+            batched = jax.tree_util.tree_map(lambda x: x[None], self._mjx_data)
+            rgb_packed, _ = mjx.render(self._mjx_model, batched, render_ctx)
+            result["cameras"] = jnp.stack(
+                [mjx.get_rgb(render_ctx, cam_id, rgb_packed) for cam_id in range(ncam)],
+                axis=0,
+            ).reshape(ncam, _CAM_HEIGHT, _CAM_WIDTH, 3)
         if input_spec.contact_pairs:
             geom_bodyid = np.asarray(self._model.geom_bodyid)
             pairs: list[float] = []
@@ -435,7 +479,20 @@ class MjxSimulator(Simulator):
             result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
         return result
 
-    def make_state_fn(self, input_spec: ModelInputSpec) -> Callable[[Any], dict[str, Array]]:
+    def make_state_fn(
+        self, input_spec: ModelInputSpec,
+    ) -> Callable[[Any, Any], dict[str, Array]]:
+        """Builds a pure per-world state_fn(data, render_ctx), meant to be
+        called under an external jax.vmap (e.g. over parallel envs/trajectories).
+
+        state_fn only ever renders a single world — batching over nworld is
+        achieved entirely by the caller vmapping this function (data varying
+        per lane, render_ctx broadcast via in_axes=None). The caller is
+        responsible for building render_ctx via
+        Simulator._get_render_context(nworld=<the vmap batch size>).pytree(),
+        keeping it alive for the rollout, and passing it into every call.
+        render_ctx is ignored (may be None) if input_spec.all_cameras is unset.
+        """
         actuated_idx = self._actuated_qpos_idx_jnp
         nq = self.nq()
         nv = self.nv()
@@ -449,7 +506,7 @@ class MjxSimulator(Simulator):
         xpos_state = bool(input_spec.xpos_state)
         xquat_state = bool(input_spec.xquat_state)
 
-        def state_fn(data: Any) -> dict[str, Array]:
+        def state_fn(data: Any, render_ctx: Any = None) -> dict[str, Array]:
             result: dict[str, Array] = {}
             if qdof_state:
                 result["qdof"] = data.qpos[actuated_idx]
@@ -462,14 +519,17 @@ class MjxSimulator(Simulator):
             if xquat_state:
                 result["xquat"] = data.xquat[:nbody].reshape(-1)
             if all_cameras and ncam > 0:
-                frames = jax.vmap(
-                    lambda cam_id: mjx.render(
-                        mjx_model, data,
-                        camera=cam_id, width=_CAM_WIDTH, height=_CAM_HEIGHT,
-                    )
-                )(jnp.arange(ncam))
-                # Output expected [ncam, H, W, 3]
-                result["cameras"] = (frames.astype(jnp.float32) / 255.0)
+                # Shape [ncam, H, W, 3] float32 in [0, 1]. `data` here is the
+                # unbatched per-world pytree from this function's own
+                # perspective; the caller's jax.vmap (with render_ctx
+                # broadcast via in_axes=None) maps this onto the batched Warp
+                # kernel via render()'s custom vmap rule.
+                rgb_packed, _ = mjx.render(mjx_model, data, render_ctx)
+                # get_rgb already returns float32 in [0, 1] — no /255 needed.
+                result["cameras"] = jnp.stack(
+                    [mjx.get_rgb(render_ctx, cam_id, rgb_packed) for cam_id in range(ncam)],
+                    axis=0,
+                ).reshape(ncam, _CAM_HEIGHT, _CAM_WIDTH, 3)
             if not result:
                 result["qpos"] = data.qpos[:nq]
                 result["qvel"] = data.qvel[:nv]
@@ -788,7 +848,19 @@ class MujocoSimulator(Simulator):
     def qvel(self) -> list[float]:
         return np.asarray(self._data.qvel[:self.nv()], dtype=np.float64).tolist()
 
-    def get_model_state(self, input_spec: ModelInputSpec) -> dict[str, Array]:
+    def _get_renderer(self) -> mujoco.Renderer:
+        """Builds a fresh mujoco.Renderer for this model.
+
+        Stateless — the Simulator does not own or cache this. Construction is
+        non-trivial (OpenGL/EGL context), so the caller should build one once
+        (e.g. before a per-timestep loop) and reuse/close it themselves,
+        rather than reconstructing it on every get_model_state call.
+        """
+        return mujoco.Renderer(self._model, height=_CAM_HEIGHT, width=_CAM_WIDTH)
+
+    def get_model_state(
+        self, input_spec: ModelInputSpec, render_ctx: Any = None,
+    ) -> dict[str, Array]:
         result: dict[str, Array] = {}
         if input_spec.qdof_state:
             qpos_all = np.asarray(self._data.qpos, dtype=np.float64)
@@ -806,16 +878,20 @@ class MujocoSimulator(Simulator):
                 np.asarray(self._data.xquat[: self.nbody()], dtype=np.float64).reshape(-1)
             )
         if input_spec.all_cameras and self._model.ncam > 0:
+            # Shape [ncam, H, W, 3] float32 in [0, 1] — see testing.py's
+            # _run_sequential, which relies on this exact shape. render_ctx
+            # here is a caller-managed mujoco.Renderer (see _get_renderer).
+            if render_ctx is None:
+                raise ValueError(
+                    "all_cameras requested but no renderer was provided "
+                    "(build one via _get_renderer())"
+                )
             ncam = int(self._model.ncam)
             frames: list[np.ndarray] = []
-            with mujoco.Renderer(self._model, height=_CAM_HEIGHT, width=_CAM_WIDTH) as renderer:
-                for cam_id in range(ncam):
-                    renderer.update_scene(self._data, camera=cam_id)
-                    frames.append(renderer.render().astype(np.float32) / 255.0)
-            result["cameras"] = jnp.asarray(
-                np.concatenate([f.reshape(-1) for f in frames], axis=0)
-                if frames else np.zeros((_CAM_HEIGHT * _CAM_WIDTH * 3,), dtype=np.float32)
-            )
+            for cam_id in range(ncam):
+                render_ctx.update_scene(self._data, camera=cam_id)
+                frames.append(render_ctx.render().astype(np.float32) / 255.0)
+            result["cameras"] = jnp.asarray(np.stack(frames, axis=0))
         if input_spec.contact_pairs:
             geom_bodyid = np.asarray(self._model.geom_bodyid)
             pairs: list[float] = []

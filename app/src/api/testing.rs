@@ -191,6 +191,7 @@ pub async fn start_test(
         let id_c = test_id.clone();
         let worker_slot =
             crate::remote_worker_slot().clone();
+        print!("Spawning remote test task for start_test");
         let h = rocket::tokio::spawn(async move {
             spawn_remote_test_task(
                 id_c,

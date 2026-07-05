@@ -158,6 +158,13 @@ impl CommonWorkerController {
         }
         let url = format!("ws://{}:{}{}", self.config.host, self.config.port, path);
 
+        // Cap each individual connect attempt so a blackholed SYN (e.g. a
+        // security group silently dropping packets rather than sending RST)
+        // can't block past the loop's own deadline check — without this, a
+        // single hung attempt can exceed websocket_connect_timeout entirely
+        // since the deadline is only re-checked *between* attempts.
+        const PER_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
+
         let deadline = tokio::time::Instant::now() + self.config.websocket_connect_timeout;
         loop {
             if tokio::time::Instant::now() > deadline {
@@ -169,13 +176,21 @@ impl CommonWorkerController {
             req.headers_mut()
                 .insert("Authorization", HeaderValue::from_str(&auth)?);
 
-            match connect_async(req).await {
-                Ok((ws, _)) => {
+            match tokio::time::timeout(PER_ATTEMPT_TIMEOUT, connect_async(req)).await {
+                Ok(Ok((ws, _))) => {
+                    println!("Successfully connected to worker node at {url}");
                     self.worker_ws = Some(ws);
                     return Ok(());
                 }
-                Err(_) => {
+                Ok(Err(e)) => {
+                    println!("Connect attempt to {url} failed: {e:?}");
                     sleep(Duration::from_secs(3)).await;
+                }
+                Err(_) => {
+                    println!(
+                        "Connect attempt to {url} did not complete within {:?} (likely network/firewall issue)",
+                        PER_ATTEMPT_TIMEOUT
+                    );
                 }
             }
         }
@@ -292,6 +307,7 @@ impl CommonWorkerController {
             simulation_models.insert(sim_model_id, zip_b64.clone());
         }
 
+        println!("Sending StartTestingMessage to remote worker {:?}",self.config);
         self.send_to_worker(&RemoteWorkerServerMessage::StartTestingMessage(
             StartTestMessage {
                 id: test_id.clone(),
