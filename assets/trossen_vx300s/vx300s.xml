@@ -147,7 +147,7 @@
              back down at the workspace (boxes/cube around x=0.3-0.35). It
              turns with the waist joint as the arm reorients. -->
         <camera name="shoulder_cam" pos="-0.15 0.45 0.5"
-          quat="0.3464538 0.1625312 -0.3923849 -0.8364134"/>
+          quat="0.3464538 0.1625312 -0.3923849 -0.8364134" resolution="224 224"/>
         <body name="upper_arm_link" pos="0 0 0.04805">
           <inertial pos="0.0206949 4e-10 0.226459" quat="0 0.0728458 0 0.997343" mass="0.792592"
             diaginertia="0.00911338 0.008925 0.000759317"/>
@@ -185,7 +185,7 @@
                        +x is the grasp/forward direction (see the pinch site
                        above), so this points toward the grasp point, tilted
                        ~20 deg down for a clearer view between the fingers. -->
-                  <camera name="wrist_cam" pos="0.02 0 0.03" quat="0.8192 0 -0.5736 0" fovy="60"/>
+                  <camera name="wrist_cam" pos="0.02 0 0.03" quat="0.8192 0 -0.5736 0" fovy="60" resolution="224 224"/>
                   <body name="gripper_prop_link" pos="0.0485 0 0">
                     <inertial pos="0.002378 2.85e-08 0" quat="0 0 0.897698 0.440611" mass="0.008009"
                       diaginertia="4.2979e-06 2.8868e-06 1.5314e-06"/>

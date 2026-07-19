@@ -175,9 +175,9 @@ class MjxSimulator(Simulator):
             self._data.ncon, self._data.contact.dist.shape[0],
         )
         logger.info("MjxSimulator: calling mjx.put_model")
-        self._mjx_model = mjx.put_model(self._model)
+        self._mjx_model = mjx.put_model(self._model, impl="warp")
         logger.info("MjxSimulator: calling mjx.put_data")
-        self._mjx_data = mjx.put_data(self._model, self._data)
+        self._mjx_data = mjx.put_data(self._model, self._data, impl="warp")
         logger.info("MjxSimulator: init complete")
 
         # Benchmark: isolate mjx.step timing
@@ -225,7 +225,7 @@ class MjxSimulator(Simulator):
         self._data = mjx.get_data(self._model, self._mjx_data)
 
     def _sync_mjx_from_cpu(self) -> None:
-        self._mjx_data = mjx.put_data(self._model, self._data)
+        self._mjx_data = mjx.put_data(self._model, self._data, impl="warp")
 
     def qpos(self) -> list[float]:
         self._sync_cpu_from_mjx()
@@ -452,10 +452,15 @@ class MjxSimulator(Simulator):
                     "(build one via _get_render_context(nworld=1).pytree())"
                 )
             ncam = int(self._model.ncam)
-            # render() expects an explicit leading world axis matching nworld,
-            # even for nworld=1 — self._mjx_data has none (single instance).
-            batched = jax.tree_util.tree_map(lambda x: x[None], self._mjx_data)
-            rgb_packed, _ = mjx.render(self._mjx_model, batched, render_ctx)
+            # Pass self._mjx_data unmodified: marshal_jax_warp_callable's
+            # wrapper (mujoco/mjx/warp/ffi.py) does its own per-field
+            # dimension expansion against an internal _NDIM spec — manually
+            # pre-expanding every leaf here (e.g. via a blanket leading-axis
+            # add) breaks fields that aren't supposed to gain one (e.g.
+            # contact__dim), since the wrapper only pads (never squeezes) and
+            # asserts an exact ndim match afterward.
+            rgb_packed, _ = mjx.render(self._mjx_model, self._mjx_data, render_ctx)
+            logger.info("Shape of rgb_packed in %s",rgb_packed.shape)
             result["cameras"] = jnp.stack(
                 [mjx.get_rgb(render_ctx, cam_id, rgb_packed) for cam_id in range(ncam)],
                 axis=0,

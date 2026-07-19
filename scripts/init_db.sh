@@ -61,7 +61,7 @@ if ! pg_isready -h "$POSTGRES_HOST" \
                 -q 2>/dev/null; then
   log "Starting Postgres..."
   if command -v brew >/dev/null 2>&1; then
-    brew services start postgresql@17 \
+    brew services start postgresql@18 \
       || brew services start postgresql
   else
     pg_ctl start

@@ -2,9 +2,13 @@ jax[cuda13]
 websockets
 pydantic
 protobuf
-mujoco==3.9.0
-mujoco-mjx==3.9.0
-mujoco-warp
+# mujoco==3.9.0
+mujoco
+# mujoco-mjx[warp]==3.9.0
+mujoco-mjx
+mujoco-mjx[warp]
+# mujoco-warp
+# warp-lang
 orbax-checkpoint
 flax
 huggingface_hub

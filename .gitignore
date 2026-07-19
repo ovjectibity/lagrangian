@@ -30,3 +30,4 @@ app/proc_macros/target
 tests/__pycache__
 **/__pycache__/
 tests/node_modules/
+tmp

@@ -55,7 +55,7 @@ echo "${CHANGED_FILES}" | sed 's/^/  /'
 echo ""
 
 # Local: worker/worker-py/<rel>  →  Container: /opt/lagrangian/worker/<rel>
-while IFS= read -r local_path; do
+while IFS= read -r local_path <&3; do
   rel="${local_path#worker/worker-py/}"
   container_path="/opt/lagrangian/worker/${rel}"
   container_dir="$(dirname "${container_path}")"
@@ -70,8 +70,13 @@ while IFS= read -r local_path; do
   ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
     "sudo docker exec ${CONTAINER_NAME} mkdir -p ${container_dir} \
      && sudo docker cp ${remote_tmp} ${CONTAINER_NAME}:${container_path} \
-     && rm -f ${remote_tmp}"
-done <<< "${CHANGED_FILES}"
+     && rm -f ${remote_tmp}" </dev/null
+done 3<<< "${CHANGED_FILES}"
+# ^ Both changes matter: `ssh` inside the loop must not read stdin (</dev/null),
+# and the loop must read from fd 3 (not 0), so even a stdin-consuming command
+# that slips in later can't silently truncate the file list. Without these, ssh
+# eats the remaining lines of CHANGED_FILES via stdin, causing the loop to
+# process only the first file and exit early with no error.
 
 echo ""
 echo "Restarting container ${CONTAINER_NAME} ..."

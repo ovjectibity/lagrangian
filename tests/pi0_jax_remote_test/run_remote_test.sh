@@ -59,7 +59,7 @@ ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
   "sudo docker exec \
   -w /tmp \
   -e PYTHONPATH=/opt/lagrangian/worker \
-  -e TF_GPU_ALLOCATOR=cuda_malloc_async \
+   -e XLA_PYTHON_CLIENT_PREALLOCATE=false \
   ${CONTAINER_NAME} python3 ${CONTAINER_PATH}"
 TEST_EXIT=$?
 set -e
