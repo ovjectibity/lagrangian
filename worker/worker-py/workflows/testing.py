@@ -125,7 +125,7 @@ class TestingWorkflow:
             num_parallel_envs,
         )
 
-        self.simulator.reset_state()
+        # self.simulator.reset_state()
 
         if use_mjx and num_parallel_envs > 1 and isinstance(self.simulator, MjxSimulator):
             self._run_mjx_batched(tx, should_stop, num_timesteps, num_parallel_envs)
@@ -162,13 +162,13 @@ class TestingWorkflow:
         render_ctx = None
         if control_spec.all_cameras and mjx_sim._model.ncam > 0:
             render_ctx = mjx_sim._get_render_context(nworld=num_parallel_envs)
-        render_ctx_pytree = render_ctx.pytree() if render_ctx is not None else None
+        # render_ctx_pytree = render_ctx.pytree() if render_ctx is not None else None
 
         def scan_body(carry: Any, _: Any) -> tuple[Any, tuple[Any, Any, Any]]:
             bd, rng = carry
             rng, step_key = jax.random.split(rng)
             env_keys = jax.random.split(step_key, num_parallel_envs)
-            parts_batched = jax.vmap(state_fn, in_axes=(0, None))(bd, render_ctx_pytree)
+            parts_batched = jax.vmap(state_fn, in_axes=(0, None))(bd, render_ctx)
             # Pass the labeled parts dict straight to the policy (it splits
             # cameras from proprio internally); thread a fresh per-env sampling
             # key in via "rng_key".
@@ -225,16 +225,17 @@ class TestingWorkflow:
                 if is_mjx
                 else self.simulator._get_renderer()  # type: ignore[attr-defined]
             )
-        render_ctx_arg = (
-            raw_render_ctx.pytree() if (is_mjx and raw_render_ctx is not None) else raw_render_ctx
-        )
+        # render_ctx_arg = (
+        #     raw_render_ctx.pytree() if (is_mjx and raw_render_ctx is not None) else raw_render_ctx
+        # )
 
         try:
-            for _ in range(num_timesteps):
+            for i in range(num_timesteps):
                 if should_stop is not None and should_stop():
                     logger.info("Test run stop requested: id=%s", self.id)
                     break
-                parts = self.simulator.get_model_state(control_spec, render_ctx_arg)
+                logger.info("Running the _run_sequential loop at timestep: %s",i)
+                parts = self.simulator.get_model_state(control_spec, raw_render_ctx)
                 # Pass the labeled parts dict; get_policy_output splits cameras from proprio.
                 action = self.model.get_test_action(parts)
                 self.simulator.forward_dyn(action)

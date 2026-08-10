@@ -5,10 +5,10 @@ protobuf
 # mujoco==3.9.0
 mujoco
 # mujoco-mjx[warp]==3.9.0
-mujoco-mjx
-mujoco-mjx[warp]
+mujoco-mjx==3.11.0
+mujoco-mjx[warp]==3.11.0
 # mujoco-warp
-# warp-lang
+# warp-lang==1.16.0
 orbax-checkpoint
 flax
 huggingface_hub

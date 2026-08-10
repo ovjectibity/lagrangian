@@ -17,9 +17,11 @@ from commondef.training import ModelInputSpec
 try:
     import mujoco
     from mujoco import mjx
+    import warp
 except ModuleNotFoundError:
     mujoco = None
     mjx = None
+    warp = None
 
 
 Array = jax.Array
@@ -139,8 +141,8 @@ class Simulator(ABC):
 
 
 # Camera render resolution (hardcoded; to be standardised in training graph later).
-_CAM_HEIGHT = 244
-_CAM_WIDTH = 244
+_CAM_HEIGHT = 224
+_CAM_WIDTH = 224
 
 
 class MjxSimulator(Simulator):
@@ -175,30 +177,55 @@ class MjxSimulator(Simulator):
             self._data.ncon, self._data.contact.dist.shape[0],
         )
         logger.info("MjxSimulator: calling mjx.put_model")
-        self._mjx_model = mjx.put_model(self._model, impl="warp")
+        # print(dir(mujoco.mjx.warp.types.GraphMode))
+        graph_mode = mujoco.mjx.warp.types.GraphMode.NONE
+        self._mjx_model = mjx.put_model(
+            self._model,
+            impl="warp",
+            graph_mode=graph_mode,
+        )
+        self._mjx_model = self._mjx_model.replace(
+            opt=self._mjx_model.opt.replace(
+                _impl=self._mjx_model.opt._impl.replace(
+                    graph_mode=graph_mode,
+                ),
+            ),
+        )
+        logger.info(
+            "MjxSimulator: requested graph mode: %r (%s)",
+            graph_mode,
+            int(graph_mode),
+        )
+        logger.info(
+            "MjxSimulator: stored graph mode: %r (%s)",
+            self._mjx_model.opt._impl.graph_mode,
+            int(self._mjx_model.opt._impl.graph_mode),
+        )
         logger.info("MjxSimulator: calling mjx.put_data")
-        self._mjx_data = mjx.put_data(self._model, self._data, impl="warp")
+        # self._mjx_data = mjx.put_data(self._model, self._data, impl="warp")
+        self._mjx_data = mjx.make_data(self._model, impl="warp")
         logger.info("MjxSimulator: init complete")
 
         # Benchmark: isolate mjx.step timing
-        logger.info("MjxSimulator: running mjx.step benchmark...")
-        _bench_step = jax.jit(lambda d: mjx.step(self._mjx_model, d))
-        t0 = time.time()
-        _bench_lowered = _bench_step.lower(self._mjx_data)
-        t1 = time.time()
-        logger.info("MjxSimulator: bench — lowering took %.2fs", t1 - t0)
-        _bench_compiled = _bench_lowered.compile()
-        t2 = time.time()
-        logger.info("MjxSimulator: bench — XLA compile took %.2fs", t2 - t1)
-        _bench_result = _bench_compiled(self._mjx_data)
-        jax.block_until_ready(_bench_result)
-        t3 = time.time()
-        logger.info("MjxSimulator: bench — first execution took %.2fs", t3 - t2)
-        for _ in range(10):
-            _bench_result = _bench_compiled(_bench_result)
-        jax.block_until_ready(_bench_result)
-        t4 = time.time()
-        logger.info("MjxSimulator: bench — 10 steps took %.2fs (%.4fs/step)", t4 - t3, (t4 - t3) / 10)
+        # logger.info("MjxSimulator: running mjx.step benchmark...")
+        # _bench_step = jax.jit(lambda d: mjx.step(self._mjx_model, d))
+        # t0 = time.time()
+        # _bench_lowered = _bench_step.lower(self._mjx_data)
+        # t1 = time.time()
+        # logger.info("MjxSimulator: bench — lowering took %.2fs", t1 - t0)
+        # _bench_compiled = _bench_lowered.compile()
+        # t2 = time.time()
+        # logger.info("MjxSimulator: bench — XLA compile took %.2fs", t2 - t1)
+        # _bench_result = _bench_compiled(self._mjx_data)
+        # jax.block_until_ready(_bench_result)
+        # t3 = time.time()
+        # logger.info("MjxSimulator: bench — first execution took %.2fs", t3 - t2)
+        # for _ in range(10):
+        #     _bench_result = _bench_compiled(_bench_result)
+        # jax.block_until_ready(_bench_result)
+        # t4 = time.time()
+        # logger.info("MjxSimulator: bench — 10 steps took %.2fs (%.4fs/step)", t4 - t3, (t4 - t3) / 10)
+
         self.target_position: list[float] = self._get_actuated_qpos_targets()
         self._actuated_qpos_idx: list[int] = self._compute_actuated_qpos_indices()
         self._actuated_qpos_idx_jnp: Array = jnp.array(self._actuated_qpos_idx, dtype=jnp.int32)
@@ -218,14 +245,14 @@ class MjxSimulator(Simulator):
         JAX-traceable/vmappable handle to pass into mjx.render/get_rgb.
         """
         return mjx.create_render_context(
-            self._model, nworld=nworld, cam_res=(_CAM_WIDTH, _CAM_HEIGHT)
-        )
+            self._model, nworld=nworld) #, cam_res=(_CAM_WIDTH, _CAM_HEIGHT)
 
     def _sync_cpu_from_mjx(self) -> None:
         self._data = mjx.get_data(self._model, self._mjx_data)
 
     def _sync_mjx_from_cpu(self) -> None:
         self._mjx_data = mjx.put_data(self._model, self._data, impl="warp")
+        # self._mjx_data = mjx.make_data(self._model, impl="warp")
 
     def qpos(self) -> list[float]:
         self._sync_cpu_from_mjx()
@@ -459,10 +486,48 @@ class MjxSimulator(Simulator):
             # add) breaks fields that aren't supposed to gain one (e.g.
             # contact__dim), since the wrapper only pads (never squeezes) and
             # asserts an exact ndim match afterward.
-            rgb_packed, _ = mjx.render(self._mjx_model, self._mjx_data, render_ctx)
+
+            logger.info(
+                "MjxSimulator: render graph mode: %r (%s)",
+                self._mjx_model.opt._impl.graph_mode,
+                int(self._mjx_model.opt._impl.graph_mode),
+            )
+            logger.info(
+                "MJX render inputs: data.nworld=%s "
+                "cam_xpos=%s cam_xmat=%s geom_xpos=%s geom_xmat=%s",
+                self._mjx_data.nworld,
+                self._mjx_data.cam_xpos.shape,
+                self._mjx_data.cam_xmat.shape,
+                self._mjx_data.geom_xpos.shape,
+                self._mjx_data.geom_xmat.shape,
+            )
+            logger.info(
+                "Render context: nworld=%s total_rays=%s "
+                "cam_res=%s cam_id_map=%s rgb_adr=%s ",
+                # "rgb_data=%s",
+                render_ctx.nworld,
+                render_ctx.total_rays,
+                render_ctx.cam_res.numpy(),
+                render_ctx.cam_id_map.numpy(),
+                render_ctx.rgb_adr.numpy(),
+                # render_ctx.rgb_data.shape,
+            )
+            rgb_packed, _ = mjx.render(self._mjx_model, self._mjx_data, render_ctx.pytree())
             logger.info("Shape of rgb_packed in %s",rgb_packed.shape)
+            logger.info("Number of cameras available %s %s",ncam, range(ncam))
+            logger.info("Render context: %s %s", render_ctx, render_ctx.pytree())
+            ## TODO: Fix this after debugging: 
+            # from mujoco.mjx.warp import render_context
+            # warp_rc = render_context.get(render_ctx.pytree())
+            # logger.info("Logging the wrap_rc rgb_adr: %s",warp_rc.rgb_adr)
+
+            # result["cameras"] = jnp.stack(
+            #     [mjx.get_rgb(render_ctx.pytree(), 0, rgb_packed)],
+            #     axis=0,
+            # ).reshape(ncam, _CAM_HEIGHT, _CAM_WIDTH, 3)
+            # result["cameras"] = jnp.ones([ncam, _CAM_HEIGHT, _CAM_WIDTH, 3])
             result["cameras"] = jnp.stack(
-                [mjx.get_rgb(render_ctx, cam_id, rgb_packed) for cam_id in range(ncam)],
+                [mjx.get_rgb(render_ctx.pytree(), cam_id, rgb_packed) for cam_id in range(ncam)],
                 axis=0,
             ).reshape(ncam, _CAM_HEIGHT, _CAM_WIDTH, 3)
         if input_spec.contact_pairs:

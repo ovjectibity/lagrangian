@@ -45,6 +45,9 @@ SCRIPT_BASENAME="$(basename "${TEST_SCRIPT}")"
 REMOTE_TMP="/tmp/${SCRIPT_BASENAME}"
 CONTAINER_PATH="/tmp/${SCRIPT_BASENAME}"
 PROFILE_NAME="memory_abc.prof"
+REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
+REMOTE_REQUIREMENTS_TMP="/tmp/requirements.txt"
+CONTAINER_REQUIREMENTS_PATH="/tmp/requirements.txt"
 
 echo "Transferring ${TEST_SCRIPT} to ${REMOTE_IP}:${REMOTE_TMP} ..."
 scp "${SSH_ARGS[@]}" "${TEST_SCRIPT}" "${SSH_USER}@${REMOTE_IP}:${REMOTE_TMP}"
@@ -52,6 +55,19 @@ scp "${SSH_ARGS[@]}" "${TEST_SCRIPT}" "${SSH_USER}@${REMOTE_IP}:${REMOTE_TMP}"
 echo "Copying into container ${CONTAINER_NAME} ..."
 ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
   "sudo docker cp ${REMOTE_TMP} ${CONTAINER_NAME}:${CONTAINER_PATH} && rm -f ${REMOTE_TMP}"
+
+if [[ -f "${REQUIREMENTS_FILE}" ]]; then
+  echo "Transferring requirements.txt to ${REMOTE_IP}:${REMOTE_REQUIREMENTS_TMP} ..."
+  scp "${SSH_ARGS[@]}" "${REQUIREMENTS_FILE}" "${SSH_USER}@${REMOTE_IP}:${REMOTE_REQUIREMENTS_TMP}"
+
+  echo "Copying requirements.txt into container ${CONTAINER_NAME} ..."
+  ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
+    "sudo docker cp ${REMOTE_REQUIREMENTS_TMP} ${CONTAINER_NAME}:${CONTAINER_REQUIREMENTS_PATH} && rm -f ${REMOTE_REQUIREMENTS_TMP}"
+
+  echo "Installing requirements inside container ${CONTAINER_NAME} ..."
+  ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
+    "sudo docker exec ${CONTAINER_NAME} python3 -m pip install -r ${CONTAINER_REQUIREMENTS_PATH}"
+fi
 
 echo "Running test inside container ..."
 set +e

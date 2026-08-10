@@ -5,8 +5,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     DEBIAN_FRONTEND=noninteractive \
     XLA_FLAGS=--xla_dump_to=/tmp/xla_dump \
+    XLA_PYTHON_CLIENT_PREALLOCATE=false \
     WS_PING_TIMEOUT_SECONDS=none \
-    PI0_CHECKPOINT_DIR=/opt/lagrangian/pi0
+    PI0_CHECKPOINT_DIR=/opt/lagrangian/pi0 \
+    #Jax specific flags: 
+    XLA_PYTHON_CLIENT_PREALLOCATE=false
+    # CUDA_LAUNCH_BLOCKING=1
     # JAX_COMPILATION_CACHE_DIR=/tmp/jax_cache
 
 RUN apt-get update \
