@@ -11,13 +11,15 @@ print(warp.__version__)
 # wp.config.jax_callable_graph_mode = 0
 
 # Enable before the affected module is compiled/first launched.
-# warp.config.mode = "debug"
+warp.config.mode = "debug"
 
 # # Attribute asynchronous CUDA errors to the launch that caused them.
 warp.config.verify_cuda = True
 
 # # # Print every Warp kernel launch and its arguments.
-# warp.config.print_launches = True
+warp.config.print_launches = True
+
+# warp.config.cache_kernels = False
 
 # # # Warp compiler, codegen, module-loading, and cache diagnostics.
 # warp.config.log_level = warp.LOG_DEBUG
@@ -180,7 +182,6 @@ def _build_model_for_training(
 
 
 def _build_model_for_testing(
-    simulator: Simulator,
     control_model: Any,
     rng_key: Any = None,
 ) -> TestingModel:
@@ -530,6 +531,24 @@ async def handle_connection(
                         continue
 
                 use_mjx = test_acceleration != TrainingAccelerationMode.MLCPUSIMULATIONCPU
+
+                # Single RNG seed for testing, split for the model (eager
+                # sequential sampling) and the workflow (batched scan).
+                test_model_rng, test_workflow_rng = jax.random.split(jax.random.PRNGKey(0))
+
+                try:
+                    test_model = _build_model_for_testing(
+                        test_params.control_model, rng_key=test_model_rng
+                    )
+                except Exception as exc:
+                    logger.exception("Model build failed for test_id=%s", test_id)
+                    await send_queue.put(_log_message_payload(
+                        f"Test not started: model build failed: {exc}"
+                    ))
+                    if test_model_tmpdir is not None:
+                        test_model_tmpdir.cleanup()
+                    continue
+
                 try:
                     test_simulator: Simulator = (
                         MjxSimulator(model_path=test_model_path, mjcf=None)
@@ -540,23 +559,6 @@ async def handle_connection(
                     logger.exception("Simulator creation failed for test_id=%s", test_id)
                     await send_queue.put(_log_message_payload(
                         f"Test not started: simulator creation failed: {exc}"
-                    ))
-                    if test_model_tmpdir is not None:
-                        test_model_tmpdir.cleanup()
-                    continue
-
-                # Single RNG seed for testing, split for the model (eager
-                # sequential sampling) and the workflow (batched scan).
-                test_model_rng, test_workflow_rng = jax.random.split(jax.random.PRNGKey(0))
-
-                try:
-                    test_model = _build_model_for_testing(
-                        test_simulator, test_params.control_model, rng_key=test_model_rng
-                    )
-                except Exception as exc:
-                    logger.exception("Model build failed for test_id=%s", test_id)
-                    await send_queue.put(_log_message_payload(
-                        f"Test not started: model build failed: {exc}"
                     ))
                     if test_model_tmpdir is not None:
                         test_model_tmpdir.cleanup()

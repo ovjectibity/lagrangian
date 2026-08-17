@@ -168,6 +168,21 @@ class MjxSimulator(Simulator):
             self._model.nq, self._model.nu, self._model.nv,
             self._model.ngeom, self._model.nbody, self._model.nconmax, self._model.npair,
         )
+        logger.info("Tracing mjModel's texture coordinates %s",
+                    self._model.mesh_texcoord, 
+                    self._model.mesh_texcoordadr,
+                    self._model.mesh_texcoordnum,
+                    self._model.mesh_facetexcoord)
+
+        ## Fix for the render megakernel crash issue, 
+        # STLs don't have mesh texture coordinates but 
+        # still get textures enabled (causing the crash) if not 
+        # handled as follows
+        if len(self._model.mesh_texcoord) == 0: 
+            self._use_textures = False
+        else: 
+            self._use_textures = True
+
         logger.info("MjxSimulator: creating MjData")
         self._data = mujoco.MjData(self._model)
         logger.info("MjxSimulator: running mj_forward")
@@ -204,6 +219,7 @@ class MjxSimulator(Simulator):
         logger.info("MjxSimulator: calling mjx.put_data")
         # self._mjx_data = mjx.put_data(self._model, self._data, impl="warp")
         self._mjx_data = mjx.make_data(self._model, impl="warp")
+        mjx.forward(self._mjx_model,self._mjx_data)
         logger.info("MjxSimulator: init complete")
 
         # Benchmark: isolate mjx.step timing
@@ -244,8 +260,11 @@ class MjxSimulator(Simulator):
         key, not a reference back to this object. Call .pytree() to get the
         JAX-traceable/vmappable handle to pass into mjx.render/get_rgb.
         """
-        return mjx.create_render_context(
-            self._model, nworld=nworld) #, cam_res=(_CAM_WIDTH, _CAM_HEIGHT)
+        ctx = mjx.create_render_context(
+            self._model, nworld=nworld,
+            use_textures=self._use_textures) #, cam_res=(_CAM_WIDTH, _CAM_HEIGHT)
+        # self._mjx_data = mjx.refit_bvh(self._mjx_model,self._mjx_data,ctx.pytree())
+        return ctx
 
     def _sync_cpu_from_mjx(self) -> None:
         self._data = mjx.get_data(self._model, self._mjx_data)
@@ -403,6 +422,7 @@ class MjxSimulator(Simulator):
         print("Controls dtype & shape is: ",controls.dtype,controls.shape)
         self._mjx_data = self._mjx_data.replace(ctrl=controls.reshape(self.nu()))
         self._mjx_data = mjx.step(self._mjx_model, self._mjx_data)
+        # self._mjx_data = mjx.refit_bvh(self._mjx_model, self._mjx_data, render_ctx.pytree())
 
     def forward_dyn_pure(
         self,
@@ -487,6 +507,18 @@ class MjxSimulator(Simulator):
             # contact__dim), since the wrapper only pads (never squeezes) and
             # asserts an exact ndim match afterward.
 
+            ##TODO: Remove if not being used; refit_bvh was just a 
+            # check to see if it solved the render kernel crashing issue. 
+            ## Check if refit_bhv fixes the issue: 
+            # render_ctx = self._get_render_context(1)
+            ##Sharing the expanded mjx data to account for nworld=1 
+            # expanded_mjx_data = jax.tree.map(
+            #     lambda x: jnp.expand_dims(x,axis=0),
+            #     self._mjx_data
+            # )
+            # self._mjx_data = mjx.refit_bvh(self._mjx_model, expanded_mjx_data, render_ctx.pytree())
+            # self._mjx_data = mjx.refit_bvh(self._mjx_model, self._mjx_data, render_ctx.pytree())
+
             logger.info(
                 "MjxSimulator: render graph mode: %r (%s)",
                 self._mjx_model.opt._impl.graph_mode,
@@ -516,7 +548,8 @@ class MjxSimulator(Simulator):
             logger.info("Shape of rgb_packed in %s",rgb_packed.shape)
             logger.info("Number of cameras available %s %s",ncam, range(ncam))
             logger.info("Render context: %s %s", render_ctx, render_ctx.pytree())
-            ## TODO: Fix this after debugging: 
+            ## TODO: Remove if not needed, originally added as 
+            # test logging for the render kernel crashing issue
             # from mujoco.mjx.warp import render_context
             # warp_rc = render_context.get(render_ctx.pytree())
             # logger.info("Logging the wrap_rc rgb_adr: %s",warp_rc.rgb_adr)
