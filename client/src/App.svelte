@@ -32,6 +32,9 @@
     buildTrainingController,
     buildSimulationParams,
   } from './workflows/workflowgraph';
+  import { LagrangianClient } from "lagrangian-sdk";
+  import type { LagrangianClientConfig } from "lagrangian-sdk";
+
 
   // ── SSE handles + simulation ID ──────────────
   let trainingEventSource: EventSource | null = null;

@@ -1,23 +1,23 @@
 import os
+
 os.environ["JAX_LOG_COMPILES"] = "0"
 # os.environ["XLA_FLAGS"] = "--xla_gpu_enable_cuda_malloc_async=false"
 
 import warp
-# import mujoco.mjx.third_party.mujoco_warp as wp
-# print(dir(wp))
-print(dir(warp))
-print(warp.__path__)
-print(warp.__version__)
-# wp.config.jax_callable_graph_mode = 0
 
-# Enable before the affected module is compiled/first launched.
-warp.config.mode = "debug"
+if os.getenv("CUDA_DEBUG_MODE") == "1":
+    print(dir(warp))
+    print(warp.__path__)
+    print(warp.__version__)
 
-# # Attribute asynchronous CUDA errors to the launch that caused them.
-warp.config.verify_cuda = True
+    # Enable before the affected module is compiled/first launched.
+    warp.config.mode = "debug"
 
-# # # Print every Warp kernel launch and its arguments.
-warp.config.print_launches = True
+    # Attribute asynchronous CUDA errors to the launch that caused them.
+    warp.config.verify_cuda = True
+
+    # Print every Warp kernel launch and its arguments.
+    warp.config.print_launches = True
 
 # warp.config.cache_kernels = False
 

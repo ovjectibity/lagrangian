@@ -24,7 +24,8 @@
   },
   "dependencies": {
     "@types/three": "^0.182.0",
-    "three": "^0.182.0",
-    "sass-embedded": "^1.98.0"
+    "lagrangian-sdk": "file:../sdk",
+    "sass-embedded": "^1.98.0",
+    "three": "^0.182.0"
   }
 }
