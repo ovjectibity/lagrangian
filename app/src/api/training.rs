@@ -262,7 +262,7 @@ pub async fn start_training(
     experiment_id: String,
     run_id: String,
     body: Json<StartTrainingBody>,
-    state: &State<ApiState>,
+    state: &State<Arc<ApiState>>,
 ) -> Result<Json<TrainingStartedResponse>, Status>
 {
     let training_graph =
@@ -319,12 +319,12 @@ pub async fn start_training(
     };
     let _ = relay_senders_guard;
 
-    let run_id_cleanup = run_id.clone();
+    // let run_id_cleanup = run_id.clone();
     // Spawn cleanup task that removes the sender
     // from the map once the relay finishes.
-    let training_senders_ptr =
-        state.inner() as *const ApiState as usize;
-    let _ = training_senders_ptr;
+    // let training_senders_ptr =
+    //     state.inner() as *const ApiState as usize;
+    // let _ = training_senders_ptr;
 
     rocket::tokio::spawn(async move {
         run_training_relay(
@@ -482,7 +482,7 @@ pub async fn start_training(
 pub async fn stop_training(
     experiment_id: String,
     run_id: String,
-    state: &State<ApiState>,
+    state: &State<Arc<ApiState>>,
 ) -> Result<Json<TrainingStoppedResponse>, Status>
 {
     if let Some((h, flag)) = state
@@ -521,7 +521,7 @@ pub async fn stop_training(
 pub async fn training_updates(
     _experiment_id: String,
     run_id: String,
-    state: &State<ApiState>,
+    state: &State<Arc<ApiState>>,
     ws: ws::WebSocket,
 ) -> ws::Channel<'static>
 {

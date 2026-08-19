@@ -97,7 +97,8 @@ async function runTest(client, testGraph) {
   for await (const frame of client.simulations.streamUpdates(testId)) {
     frames.push(frame);
     const update = frame.simulation_state[0][0];
-    console.log(`    frame[${frames.length - 1}]: xpos[:3]=${update.xpos.slice(0, 3)}`);
+    const camera_frames = frame.frames;
+    console.log(`    frame[${frames.length - 1}]: xpos[]=${update.xpos} frames=${camera_frames}`);
     if (frames.length >= MAX_FRAMES) break;
   }
 

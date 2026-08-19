@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 use rocket_ws as ws;
+use std::sync::{Arc};
 
 use crate::api::{route_doc, ApiState};
 use crate::commondef::record::{
@@ -58,7 +59,7 @@ pub struct TestStoppedResponse {
 )]
 pub async fn start_test(
     body: Json<StartTestBody>,
-    state: &State<ApiState>,
+    state: &State<Arc<ApiState>>,
 ) -> Result<
     Json<TestStartedResponse>,
     Status,
@@ -142,13 +143,34 @@ pub async fn start_test(
 
     // Relay: mpsc → broadcast. Protobuf frames are forwarded verbatim.
     let relay_sse_tx = sse_tx.clone();
+    let test_id_c = test_id.clone();
+    let state_c = Arc::clone(state);
+    // let state_c = Arc::clone(state.
     rocket::tokio::spawn(async move {
         while let Some(msg) = rx_test.recv().await {
             match msg {
                 TestTaskMessage::TestUpdateBytes(bytes) => {
                     relay_sse_tx.send(bytes).ok();
                 }
-                TestTaskMessage::StopTestMessage(_) => break,
+                //TODO: This needs to be handled.
+                TestTaskMessage::StopTestMessage(_) => {
+                    if let Some(x) = state_c
+                        .simul_senders.lock()
+                        .await
+                        .remove(&test_id_c) {
+                            drop(x);
+                    }
+                    state_c
+                        .simul_tasks.lock()
+                        .await
+                        .remove(&test_id_c);
+                    let _ = crate::postgres_orm()
+                            .update_test_run_status(
+                                &test_id_c,
+                                &TestRunStatus::Completed,
+                            )
+                            .await;
+                },
             }
         }
     });
@@ -224,7 +246,7 @@ pub async fn start_test(
 #[post("/testing/<test_id>/stop")]
 pub async fn stop_test(
     test_id: String,
-    state: &State<ApiState>,
+    state: &State<Arc<ApiState>>,
 ) -> Result<
     Json<TestStoppedResponse>,
     Status,
@@ -256,7 +278,7 @@ pub async fn stop_test(
 #[get("/testing/<test_id>/updates")]
 pub async fn test_updates(
     test_id: String,
-    state: &State<ApiState>,
+    state: &State<Arc<ApiState>>,
     ws: ws::WebSocket,
 ) -> ws::Channel<'static>
 {
@@ -278,7 +300,11 @@ pub async fn test_updates(
                                 break;
                             }
                         }
-                        Err(broadcast::error::RecvError::Closed) => break,
+                        Err(broadcast::error::RecvError::Closed) => {
+                            //Close the websocket connection
+                            let _ = stream.close(None).await;
+                            break;
+                        },
                         Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     },
                     incoming = stream.next() => match incoming {

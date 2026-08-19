@@ -253,7 +253,7 @@ fn rocket() -> _ {
                 }
             }),
         ))
-        .manage(api::ApiState::new())
+        .manage(Arc::new(api::ApiState::new()))
         .mount("/api", routes![
             api_hello,
             api::openapi_json,
