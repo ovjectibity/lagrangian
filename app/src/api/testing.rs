@@ -301,7 +301,7 @@ pub async fn test_updates(
                             }
                         }
                         Err(broadcast::error::RecvError::Closed) => {
-                            //Close the websocket connection
+                            //Close the websocket
                             let _ = stream.close(None).await;
                             break;
                         },

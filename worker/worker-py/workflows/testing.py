@@ -144,7 +144,7 @@ class TestingWorkflow:
     ) -> None:
         mjx_sim: MjxSimulator = self.simulator  # type: ignore[assignment]
         nbody = mjx_sim.nbody()
-        pure_fn = self.model.get_test_policy()
+        test_policy_fn = self.model.get_test_policy()
         params = self.model.get_test_params()
 
         batched_data = jax.tree_util.tree_map(
@@ -173,7 +173,7 @@ class TestingWorkflow:
             # cameras from proprio internally); thread a fresh per-env sampling
             # key in via "rng_key".
             actions = jax.vmap(
-                lambda p, k: pure_fn(params, {**p, "rng_key": k})
+                lambda p, k: test_policy_fn(params, {**p, "rng_key": k})
             )(parts_batched, env_keys)
             bd_next = jax.vmap(lambda d, a: mjx_sim.forward_dyn_pure(d, a)[0])(bd, actions)
             return (bd_next, rng), (parts_batched["cameras"], bd_next.xpos[:, :nbody], bd_next.xquat[:, :nbody])

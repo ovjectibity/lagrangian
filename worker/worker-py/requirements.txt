@@ -15,3 +15,5 @@ huggingface_hub
 safetensors
 sentencepiece
 torch
+##For CUDA profiling 
+cupti-python

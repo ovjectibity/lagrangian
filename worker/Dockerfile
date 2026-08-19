@@ -1,4 +1,6 @@
-FROM nvidia/cuda:13.3.0-cudnn-runtime-ubuntu24.04
+# https://hub.docker.com/r/nvidia/cuda
+# FROM nvidia/cuda:13.3.0-cudnn-runtime-ubuntu24.04
+FROM nvidia/cuda:13.3.1-tensorrt-devel-ubuntu24.04
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
