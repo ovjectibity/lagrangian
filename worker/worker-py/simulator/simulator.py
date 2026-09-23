@@ -153,7 +153,7 @@ class MjxSimulator(Simulator):
     ) -> None:
         if mujoco is None or mjx is None:
             raise ModuleNotFoundError(
-                "mujoco/mjx is not installed. Install dependencies from requirements.txt."
+                "mujoco/mjx is not installed. Install dependencies with `uv sync`."
             )
         if (model_path is None and mjcf is None) or (model_path is not None and mjcf is not None):
             raise ValueError("Provide exactly one of model_path or mjcf")
@@ -781,7 +781,7 @@ class MujocoSimulator(Simulator):
     ) -> None:
         if mujoco is None:
             raise ModuleNotFoundError(
-                "mujoco is not installed. Install dependencies from requirements.txt."
+                "mujoco is not installed. Install dependencies with `uv sync`."
             )
         if (model_path is None and mjcf is None) or (model_path is not None and mjcf is not None):
             raise ValueError("Provide exactly one of model_path or mjcf")

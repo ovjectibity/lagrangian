@@ -1,0 +1,22 @@
+[project]
+name = "lagrangian-worker"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "cupti-python",
+    "flax",
+    "huggingface-hub",
+    "jax[cuda13]",
+    "mujoco",
+    "mujoco-mjx[warp]==3.11.0",
+    "orbax-checkpoint",
+    "protobuf",
+    "pydantic",
+    "safetensors",
+    "sentencepiece",
+    "torch",
+    "websockets",
+]
+
+[tool.uv]
+package = false

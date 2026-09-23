@@ -28,6 +28,11 @@ if [[ -f "${AWS_ENV_FILE}" ]]; then
   set +a
 fi
 
+if [[ -z "${REPO_BASE:-}" ]]; then
+  echo "error: REPO_BASE must be set" >&2
+  exit 1
+fi
+
 SSH_USER="${REMOTE_WORKER_SSH_USER:-ec2-user}"
 KEY_FILE="${REMOTE_WORKER_KEY_FILE:-}"
 CONTAINER_NAME="${REMOTE_WORKER_CONTAINER_NAME:-lagrangian-worker-py}"
@@ -44,10 +49,10 @@ fi
 SCRIPT_BASENAME="$(basename "${TEST_SCRIPT}")"
 REMOTE_TMP="/tmp/${SCRIPT_BASENAME}"
 CONTAINER_PATH="/tmp/${SCRIPT_BASENAME}"
-PROFILE_NAME="memory_abc.prof"
 REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
 REMOTE_REQUIREMENTS_TMP="/tmp/requirements.txt"
 CONTAINER_REQUIREMENTS_PATH="/tmp/requirements.txt"
+CONTAINER_ARTIFACT_DIR="/tmp/lagrangian-remote-test-artifacts"
 
 echo "Transferring ${TEST_SCRIPT} to ${REMOTE_IP}:${REMOTE_TMP} ..."
 scp "${SSH_ARGS[@]}" "${TEST_SCRIPT}" "${SSH_USER}@${REMOTE_IP}:${REMOTE_TMP}"
@@ -69,25 +74,29 @@ if [[ -f "${REQUIREMENTS_FILE}" ]]; then
     "sudo docker exec ${CONTAINER_NAME} python3 -m pip install -r ${CONTAINER_REQUIREMENTS_PATH}"
 fi
 
+echo "Preparing artifact directory inside container ${CONTAINER_NAME} ..."
+ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
+  "sudo docker exec ${CONTAINER_NAME} rm -rf ${CONTAINER_ARTIFACT_DIR} && \
+   sudo docker exec ${CONTAINER_NAME} mkdir -p ${CONTAINER_ARTIFACT_DIR}"
+
 echo "Running test inside container ..."
 set +e
 ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
   "sudo docker exec \
-  -w /tmp \
+  -w ${CONTAINER_ARTIFACT_DIR} \
   -e PYTHONPATH=/opt/lagrangian/worker \
    -e XLA_PYTHON_CLIENT_PREALLOCATE=false \
   ${CONTAINER_NAME} python3 ${CONTAINER_PATH}"
 TEST_EXIT=$?
 set -e
 
-echo "Transferring memory profile ${PROFILE_NAME} back to local (best-effort) ..."
-if ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
-     "sudo docker cp ${CONTAINER_NAME}:/tmp/${PROFILE_NAME} /tmp/${PROFILE_NAME}"; then
-  scp "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}:/tmp/${PROFILE_NAME}" "${SCRIPT_DIR}/${PROFILE_NAME}" \
-    && echo "Profile saved to ${SCRIPT_DIR}/${PROFILE_NAME}"
-else
-  echo "No memory profile found in container (test may not have reached the save call)."
-fi
+mkdir -p "${REPO_BASE}/tmp"
+LOCAL_ARTIFACT_DIR="$(mktemp -d "${REPO_BASE}/tmp/lagrangian-remote-test-artifacts.XXXXXX")"
+echo "Copying test artifacts to ${LOCAL_ARTIFACT_DIR} ..."
+ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
+  "sudo docker cp ${CONTAINER_NAME}:${CONTAINER_ARTIFACT_DIR}/. -" \
+  | tar -xf - -C "${LOCAL_ARTIFACT_DIR}"
+echo "Test artifacts saved to ${LOCAL_ARTIFACT_DIR}"
 
 exit ${TEST_EXIT}
 
