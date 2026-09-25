@@ -38,8 +38,8 @@
     "TestJobController": {
       "type": "object",
       "properties": {
-        "test_params": {
-          "$ref": "#/definitions/TestParams"
+        "test_method": {
+          "$ref": "#/definitions/TestMethod"
         },
         "compute_instance": {
           "$ref": "#/definitions/ComputeInstance"
@@ -49,23 +49,72 @@
         }
       },
       "required": [
-        "test_params",
+        "test_method",
         "compute_instance",
         "acceleration_mode"
       ]
     },
-    "TestParams": {
+    "TestMethod": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Custom"
+            },
+            "content": {
+              "$ref": "#/definitions/CustomTestMethod"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Dataset"
+            },
+            "content": {
+              "$ref": "#/definitions/DatasetMethod"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
+      ]
+    },
+    "CustomTestMethod": {
       "type": "object",
       "properties": {
-        "num_timesteps": {
-          "type": "integer",
-          "format": "int32"
+        "test_params": {
+          "$ref": "#/definitions/CustomTestMethodTestParams"
         },
         "control_model": {
           "$ref": "#/definitions/ControlModel"
         },
         "simulation_model": {
           "type": "string"
+        }
+      },
+      "required": [
+        "test_params",
+        "control_model",
+        "simulation_model"
+      ]
+    },
+    "CustomTestMethodTestParams": {
+      "type": "object",
+      "properties": {
+        "num_timesteps": {
+          "type": "integer",
+          "format": "int32"
         },
         "num_parallel_envs": {
           "type": "integer",
@@ -75,8 +124,6 @@
       },
       "required": [
         "num_timesteps",
-        "control_model",
-        "simulation_model",
         "num_parallel_envs"
       ]
     },
@@ -286,6 +333,69 @@
         "TargetPositions",
         "TargetVelocities",
         "TargetTorques"
+      ]
+    },
+    "DatasetMethod": {
+      "type": "object",
+      "properties": {
+        "dataset": {
+          "$ref": "#/definitions/Dataset"
+        },
+        "test_params": {
+          "$ref": "#/definitions/DatasetTestMethodTestParams"
+        },
+        "control_model": {
+          "$ref": "#/definitions/ControlModel"
+        }
+      },
+      "required": [
+        "dataset",
+        "test_params",
+        "control_model"
+      ]
+    },
+    "Dataset": {
+      "type": "string",
+      "enum": [
+        "Libero"
+      ]
+    },
+    "DatasetTestMethodTestParams": {
+      "type": "object",
+      "properties": {
+        "tasks": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "tasks_index": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "tasks_sequencing": {
+          "$ref": "#/definitions/DatasetTaskSequencing"
+        }
+      },
+      "required": [
+        "tasks_sequencing"
+      ]
+    },
+    "DatasetTaskSequencing": {
+      "type": "string",
+      "enum": [
+        "Parallel",
+        "Sequential"
       ]
     },
     "ComputeInstance": {

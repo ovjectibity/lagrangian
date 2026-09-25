@@ -16,6 +16,7 @@ dependencies = [
     "sentencepiece",
     "torch",
     "websockets",
+    "libero",
 ]
 
 [tool.uv]

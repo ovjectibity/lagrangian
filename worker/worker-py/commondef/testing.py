@@ -5,8 +5,9 @@ from __future__ import annotations
 
 from commondef.training import *
 
+from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 
 class CameraFrames(BaseModel):
@@ -17,18 +18,49 @@ class CameraFrames(BaseModel):
     h: int
     w: int
 
+class CustomTestMethodTestParams(BaseModel):
+    num_timesteps: int
+    num_parallel_envs: int
+
+class CustomTestMethod(BaseModel):
+    test_params: CustomTestMethodTestParams
+    control_model: ControlModel
+    simulation_model: str
+
+class Dataset(str, Enum):
+    LIBERO = "Libero"
+class DatasetTaskSequencing(str, Enum):
+    PARALLEL = "Parallel"
+    SEQUENTIAL = "Sequential"
+class DatasetTestMethodTestParams(BaseModel):
+    tasks: Optional[List[int]] = Field(default=None)
+    tasks_index: Optional[List[int]] = Field(default=None)
+    tasks_sequencing: DatasetTaskSequencing
+
+class DatasetMethod(BaseModel):
+    dataset: Dataset
+    test_params: DatasetTestMethodTestParams
+    control_model: ControlModel
+
 class ModelForward(BaseModel):
     xpos: List[float]
     xquat: List[float]
 
-class TestParams(BaseModel):
-    num_timesteps: int
-    control_model: ControlModel
-    simulation_model: str
-    num_parallel_envs: int
+class TestMethodTypes(str, Enum):
+    CUSTOM = "Custom"
+    DATASET = "Dataset"
 
+class TestMethodCustom(BaseModel):
+    type: Literal[TestMethodTypes.CUSTOM] = TestMethodTypes.CUSTOM
+    content: CustomTestMethod
+
+class TestMethodDataset(BaseModel):
+    type: Literal[TestMethodTypes.DATASET] = TestMethodTypes.DATASET
+    content: DatasetMethod
+
+TestMethod = Union[TestMethodCustom, TestMethodDataset]
 class TestJobController(BaseModel):
-    test_params: TestParams
+    test_method: TestMethod
     compute_instance: ComputeInstance
     acceleration_mode: TrainingAccelerationMode
 

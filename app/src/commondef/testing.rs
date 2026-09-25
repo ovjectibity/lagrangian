@@ -11,10 +11,8 @@ use crate::commondef::training::{
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
-pub struct TestParams {
+pub struct CustomTestMethodTestParams {
     pub num_timesteps: i32,
-    pub control_model: ControlModel,
-    pub simulation_model: String,
     pub num_parallel_envs: u32
     // pub control_output_mode: ControlOutputMode,
     // pub reward_function: Option<RewardSystem>
@@ -22,8 +20,54 @@ pub struct TestParams {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
+pub enum DatasetTaskSequencing {
+    Parallel,
+    Sequential
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct DatasetTestMethodTestParams {
+    pub tasks: Option<Vec<i32>>,
+    pub tasks_index: Option<Vec<i32>>,
+    pub tasks_sequencing: DatasetTaskSequencing
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub enum Dataset {
+    Libero
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct DatasetMethod {
+    pub dataset: Dataset,
+    pub test_params: DatasetTestMethodTestParams,
+    pub control_model: ControlModel
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct CustomTestMethod {
+    pub test_params: CustomTestMethodTestParams,
+    pub control_model: ControlModel,
+    pub simulation_model: String
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum TestMethod {
+    Custom(CustomTestMethod),
+    Dataset(DatasetMethod)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
 pub struct TestJobController {
-    pub test_params: TestParams,
+    pub test_method: TestMethod, 
+    // pub test_params: TestParams,
     pub compute_instance: ComputeInstance,
     pub acceleration_mode: TrainingAccelerationMode,
 }

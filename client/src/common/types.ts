@@ -86,6 +86,42 @@ export interface CheckpointReference {
 	value_model_params?: MLPModel;
 }
 
+export interface CustomTestMethodTestParams {
+	num_timesteps: number;
+	num_parallel_envs: number;
+}
+
+export type ControlModel = 
+	| { type: "MLP", content: MLPModel }
+	| { type: "VLA", content: VLAModel };
+
+export interface CustomTestMethod {
+	test_params: CustomTestMethodTestParams;
+	control_model: ControlModel;
+	simulation_model: string;
+}
+
+export enum Dataset {
+	Libero = "Libero",
+}
+
+export enum DatasetTaskSequencing {
+	Parallel = "Parallel",
+	Sequential = "Sequential",
+}
+
+export interface DatasetTestMethodTestParams {
+	tasks?: number[];
+	tasks_index?: number[];
+	tasks_sequencing: DatasetTaskSequencing;
+}
+
+export interface DatasetMethod {
+	dataset: Dataset;
+	test_params: DatasetTestMethodTestParams;
+	control_model: ControlModel;
+}
+
 export interface FlowNoiseConfig {
 	noise_model: MLPModel;
 }
@@ -143,10 +179,6 @@ export interface RewardSystem {
 	input_spec: ModelInputSpec;
 }
 
-export type ControlModel = 
-	| { type: "MLP", content: MLPModel }
-	| { type: "VLA", content: VLAModel };
-
 export type ValueModel = 
 	| { type: "MLP", content: MLPModel };
 
@@ -180,12 +212,9 @@ export interface Project {
 	created_at: Timestamp;
 }
 
-export interface TestParams {
-	num_timesteps: number;
-	control_model: ControlModel;
-	simulation_model: string;
-	num_parallel_envs: number;
-}
+export type TestMethod = 
+	| { type: "Custom", content: CustomTestMethod }
+	| { type: "Dataset", content: DatasetMethod };
 
 export enum ComputeInstance {
 	AWSG4dn = "AWSG4dn",
@@ -199,7 +228,7 @@ export enum TrainingAccelerationMode {
 }
 
 export interface TestJobController {
-	test_params: TestParams;
+	test_method: TestMethod;
 	compute_instance: ComputeInstance;
 	acceleration_mode: TrainingAccelerationMode;
 }
