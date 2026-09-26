@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
+import copy
 import logging
-import time
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -23,74 +23,89 @@ except ModuleNotFoundError:
     mjx = None
     warp = None
 
-
 Array = jax.Array
 
+# Camera render resolution (hardcoded; to be standardised in training graph later).
+_CAM_HEIGHT = 224
+_CAM_WIDTH = 224
 
 class Simulator(ABC):
+    @staticmethod
     @abstractmethod
-    def reset_state(self) -> None:
+    def forward_dyn_pure(data: Any, model: Any, controls: Array) -> Any:
+        """Advance a copied physics state without mutating simulator-owned state."""
         pass
 
+    @staticmethod
     @abstractmethod
-    def nq(self) -> int:
+    def inverse_dyn_pure(data: Any, model: Any, acc: Array) -> tuple[Array, Any]:
         pass
 
+    @staticmethod
     @abstractmethod
-    def nu(self) -> int:
-        pass
-
-    @abstractmethod
-    def nv(self) -> int:
-        pass
-
-    @abstractmethod
-    def nbody(self) -> int:
-        pass
-
-    @abstractmethod
-    def forward_dyn(self, controls: Array) -> None:
-        pass
-
-    @abstractmethod
-    def inverse_dyn(self, acc: Array) -> Array:
-        pass
-
-    @abstractmethod
-    def get_model_state(
-        self, input_spec: ModelInputSpec, render_ctx: Any = None,
+    def get_model_state_pure(
+        input_spec: ModelInputSpec,
+        data: Any,
+        model: Any,
+        render_ctx: Any = None,
+        actuated_qpos_indices: Array | None = None,
+        max_num_contacts: int | None = None,
     ) -> dict[str, Array]:
         """render_ctx: caller-managed camera render handle, required only when
         input_spec.all_cameras is set. See Simulator._get_render_context /
-        Simulator._get_renderer (impl-specific) for how to build one."""
+        Simulator._get_renderer (impl-specific) for how to build one.
+
+        max_num_contacts is the fixed number of contact pairs returned when
+        contact_pairs is requested. It must be static when traced by JAX.
+        """
         pass
 
     @abstractmethod
-    def get_model_cartesian_state(self) -> Array:
+    def reset_state(data: Any) -> None:
         pass
 
     @abstractmethod
-    def get_world_body(self) -> Any | None:
+    def nq(data: Any) -> int:
         pass
 
     @abstractmethod
-    def get_simul_update(self) -> tuple[list[float], list[float]]:
+    def nu(data: Any) -> int:
         pass
 
     @abstractmethod
-    def get_contact_body_index_pairs(self) -> list[tuple[int, int]]:
+    def nv(data: Any) -> int:
         pass
+
+    @abstractmethod
+    def nbody(data: Any) -> int:
+        pass
+
+    # @abstractmethod
+    # def get_model_cartesian_state(self) -> Array:
+    #     pass
+
+    # @abstractmethod
+    # def get_world_body(data: Any) -> Any | None:
+    #     pass
+
+    # @abstractmethod
+    # def get_simul_update(self) -> tuple[list[float], list[float]]:
+    #     pass
+
+    # @abstractmethod
+    # def get_contact_body_index_pairs(self) -> list[tuple[int, int]]:
+    #     pass
 
     @abstractmethod
     def modify_target_position(self, target_pos_diff: Array) -> Array:
         pass
 
-    @abstractmethod
-    def get_target_controls_from_target_positions(
-        self,
-        target_pos_diff: Array,
-    ) -> Array:
-        pass
+    # @abstractmethod
+    # def get_target_controls_from_target_positions(
+    #     self,
+    #     target_pos_diff: Array,
+    # ) -> Array:
+    #     pass
 
     @abstractmethod
     def get_target_controls_from_target_velocities(
@@ -98,21 +113,6 @@ class Simulator(ABC):
         target_vel_diff: Array,
     ) -> Array:
         pass
-
-    def make_state_fn(
-        self, input_spec: ModelInputSpec,
-    ) -> Callable[[Any, Any], dict[str, Array]]:
-        """Return a pure (mjx_data, render_ctx) -> dict[str, Array] closure for
-        use in lax.scan / vmap. The closure only ever renders a single world;
-        batching over nworld is achieved by the caller vmapping this function
-        (render_ctx broadcast via in_axes=None, sized for that same nworld —
-        see Simulator._get_render_context). render_ctx is ignored if
-        input_spec.all_cameras is not set.
-
-        Only MjxSimulator implements this. MujocoSimulator raises NotImplementedError.
-        contact_pairs is not supported in this path (JAX requires fixed-size arrays in scan).
-        """
-        raise NotImplementedError("make_state_fn is only supported for MjxSimulator")
 
     def _compute_actuated_qpos_indices(self) -> list[int]:
         """Return qpos indices belonging to each actuated joint.
@@ -140,10 +140,6 @@ class Simulator(ABC):
         return indices
 
 
-# Camera render resolution (hardcoded; to be standardised in training graph later).
-_CAM_HEIGHT = 224
-_CAM_WIDTH = 224
-
 
 class MjxSimulator(Simulator):
     def __init__(
@@ -168,11 +164,11 @@ class MjxSimulator(Simulator):
             self._model.nq, self._model.nu, self._model.nv,
             self._model.ngeom, self._model.nbody, self._model.nconmax, self._model.npair,
         )
-        logger.info("Tracing mjModel's texture coordinates %s",
-                    self._model.mesh_texcoord, 
-                    self._model.mesh_texcoordadr,
-                    self._model.mesh_texcoordnum,
-                    self._model.mesh_facetexcoord)
+        # logger.info("Tracing mjModel's texture coordinates %s",
+        #             self._model.mesh_texcoord,
+        #             self._model.mesh_texcoordadr,
+        #             self._model.mesh_texcoordnum,
+        #             self._model.mesh_facetexcoord)
 
         ## Fix for the render megakernel crash issue, 
         # STLs don't have mesh texture coordinates but 
@@ -193,29 +189,29 @@ class MjxSimulator(Simulator):
         )
         logger.info("MjxSimulator: calling mjx.put_model")
         # print(dir(mujoco.mjx.warp.types.GraphMode))
-        graph_mode = mujoco.mjx.warp.types.GraphMode.NONE
+        # graph_mode = mujoco.mjx.warp.types.GraphMode.NONE
         self._mjx_model = mjx.put_model(
             self._model,
             impl="warp",
-            graph_mode=graph_mode,
+            # graph_mode=graph_mode,
         )
-        self._mjx_model = self._mjx_model.replace(
-            opt=self._mjx_model.opt.replace(
-                _impl=self._mjx_model.opt._impl.replace(
-                    graph_mode=graph_mode,
-                ),
-            ),
-        )
-        logger.info(
-            "MjxSimulator: requested graph mode: %r (%s)",
-            graph_mode,
-            int(graph_mode),
-        )
-        logger.info(
-            "MjxSimulator: stored graph mode: %r (%s)",
-            self._mjx_model.opt._impl.graph_mode,
-            int(self._mjx_model.opt._impl.graph_mode),
-        )
+        # self._mjx_model = self._mjx_model.replace(
+        #     opt=self._mjx_model.opt.replace(
+        #         _impl=self._mjx_model.opt._impl.replace(
+        #             graph_mode=graph_mode,
+        #         ),
+        #     ),
+        # )
+        # logger.info(
+        #     "MjxSimulator: requested graph mode: %r (%s)",
+        #     graph_mode,
+        #     int(graph_mode),
+        # )
+        # logger.info(
+        #     "MjxSimulator: stored graph mode: %r (%s)",
+        #     self._mjx_model.opt._impl.graph_mode,
+        #     int(self._mjx_model.opt._impl.graph_mode),
+        # )
         logger.info("MjxSimulator: calling mjx.put_data")
         # self._mjx_data = mjx.put_data(self._model, self._data, impl="warp")
         self._mjx_data = mjx.make_data(self._model, impl="warp")
@@ -424,47 +420,111 @@ class MjxSimulator(Simulator):
         self._mjx_data = mjx.step(self._mjx_model, self._mjx_data)
         # self._mjx_data = mjx.refit_bvh(self._mjx_model, self._mjx_data, render_ctx.pytree())
 
-    def forward_dyn_pure(
-        self,
-        mjx_data: Any,
-        controls: Array,
-    ) -> tuple[Any, Array, Array, Array]:
-        """Pure functional step: takes mjx_data + controls, returns (mjx_data_next, wstate, cstate, contact_matrix).
-
-        contact_matrix is a float32 [nbody, nbody] array with 1.0 for active contact pairs.
-        Does not mutate self._mjx_data.
-        """
-        nq = self.nq()
-        nu = self.nu()
-        nv = self.nv()
-        nbody = self.nbody()
-        geom_bodyid = jnp.asarray(self._model.geom_bodyid)
-
-        mjx_data_next = mjx.step(self._mjx_model, mjx_data.replace(ctrl=controls.reshape(nu)))
-
-        wstate = jnp.concatenate([
-            mjx_data_next.qpos[:nq],
-            mjx_data_next.qvel[:nv],
-        ])
-        xpos = mjx_data_next.xpos[:nbody].reshape(-1)
-        xquat = mjx_data_next.xquat[:nbody].reshape(-1)
-        cstate = jnp.concatenate([xpos, xquat])
-
-        geom1 = mjx_data_next.contact.geom1
-        geom2 = mjx_data_next.contact.geom2
-        body1 = geom_bodyid[geom1]
-        body2 = geom_bodyid[geom2]
-        contact_matrix = jnp.zeros((nbody, nbody), dtype=jnp.float32)
-        contact_matrix = contact_matrix.at[body1, body2].set(1.0)
-        contact_matrix = contact_matrix.at[body2, body1].set(1.0)
-
-        return mjx_data_next, wstate, cstate, contact_matrix
+    @staticmethod
+    def forward_dyn_pure(data: Any, model: Any, controls: Array) -> Any:
+        """Return the next immutable MJX state without mutating ``data``."""
+        data_with_controls = data.replace(ctrl=controls.reshape(data.ctrl.shape))
+        return mjx.step(model, data_with_controls)
 
     def inverse_dyn(self, acc: Array) -> Array:
         self._sync_cpu_from_mjx()
         self._data.qacc[: self.nv()] = np.asarray(jax.device_get(acc), dtype=np.float64).reshape(self.nv())
         mujoco.mj_inverse(self._model, self._data)
         return jnp.asarray(np.asarray(self._data.qfrc_inverse[: self.nv()], dtype=np.float64))
+
+    @staticmethod
+    def inverse_dyn_pure(data: Any, model: Any, acc: Array) -> tuple[Array, Any]:
+        """Return inverse forces and updated data without mutating MJX state."""
+        data_with_acc = data.replace(qacc=acc.reshape(data.qacc.shape))
+        inverse_data = mjx.inverse(model, data_with_acc)
+        return inverse_data.qfrc_inverse, inverse_data
+
+    @staticmethod
+    def get_model_state_pure(
+        input_spec: ModelInputSpec,
+        data: Any,
+        model: Any,
+        render_ctx: Any = None,
+        actuated_qpos_indices: Array | None = None,
+        max_num_contacts: int | None = None,
+    ) -> dict[str, Array]:
+        """Extract model inputs from caller-owned MJX data.
+
+        Contact pairs are flattened and padded with ``-1`` to a fixed size of
+        ``2 * max_num_contacts``. When no limit is supplied, the static MJX
+        contact-buffer capacity is used.
+        """
+        result: dict[str, Array] = {}
+
+        if input_spec.qdof_state:
+            if actuated_qpos_indices is None:
+                raise ValueError(
+                    "qdof_state requires precomputed actuated_qpos_indices"
+                )
+            result["qdof"] = data.qpos[jnp.asarray(actuated_qpos_indices)]
+        if input_spec.qpos_state:
+            result["qpos"] = data.qpos[: model.nq]
+        if input_spec.qvel_state:
+            result["qvel"] = data.qvel[: model.nv]
+        if input_spec.xpos_state:
+            result["xpos"] = data.xpos[: model.nbody].reshape(-1)
+        if input_spec.xquat_state:
+            result["xquat"] = data.xquat[: model.nbody].reshape(-1)
+        if input_spec.all_cameras and model.ncam > 0:
+            if render_ctx is None:
+                raise ValueError(
+                    "all_cameras requested but no MJX render context was provided"
+                )
+            rgb_packed, _ = mjx.render(model, data, render_ctx)
+            result["cameras"] = jnp.stack(
+                [
+                    mjx.get_rgb(render_ctx, cam_id, rgb_packed)
+                    for cam_id in range(int(model.ncam))
+                ],
+                axis=0,
+            ).reshape(int(model.ncam), _CAM_HEIGHT, _CAM_WIDTH, 3)
+        if input_spec.contact_pairs:
+            if max_num_contacts is not None and max_num_contacts < 0:
+                raise ValueError("max_num_contacts must be non-negative")
+
+            # MJX-Warp keeps contacts in its private, fixed-capacity buffer.
+            # `nacon` identifies the populated prefix for this world.
+            contact_geoms = jnp.asarray(data._impl.contact__geom).reshape(-1, 2)
+            contact_capacity = contact_geoms.shape[0]
+            output_count = (
+                contact_capacity
+                if max_num_contacts is None
+                else max_num_contacts
+            )
+
+            if contact_capacity == 0 or int(model.ngeom) == 0:
+                body_pairs = jnp.full(
+                    (output_count, 2), -1, dtype=jnp.int32
+                )
+            else:
+                active_count = jnp.asarray(data._impl.nacon).reshape(-1)[0]
+                valid_contact = jnp.arange(contact_capacity) < active_count
+                valid_contact &= jnp.all(contact_geoms >= 0, axis=1)
+                contact_indices = jnp.nonzero(
+                    valid_contact,
+                    size=output_count,
+                    fill_value=-1,
+                )[0]
+                selected_geoms = contact_geoms[jnp.maximum(contact_indices, 0)]
+                selected_geoms = jnp.clip(selected_geoms, 0, int(model.ngeom) - 1)
+                body_pairs = jnp.asarray(model.geom_bodyid)[selected_geoms]
+                body_pairs = jnp.where(
+                    contact_indices[:, None] >= 0,
+                    body_pairs,
+                    -1,
+                )
+
+            result["contact_pairs"] = body_pairs.astype(data.qpos.dtype).reshape(-1)
+        if not result:
+            result["qpos"] = data.qpos[: model.nq]
+            result["qvel"] = data.qvel[: model.nv]
+
+        return result
 
     def get_model_state(
         self, input_spec: ModelInputSpec, render_ctx: Any = None,
@@ -582,124 +642,66 @@ class MjxSimulator(Simulator):
             result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
         return result
 
-    def make_state_fn(
-        self, input_spec: ModelInputSpec,
-    ) -> Callable[[Any, Any], dict[str, Array]]:
-        """Builds a pure per-world state_fn(data, render_ctx), meant to be
-        called under an external jax.vmap (e.g. over parallel envs/trajectories).
+    # def get_model_cartesian_state(self) -> Array:
+    #     self._sync_cpu_from_mjx()
+    #     xpos = np.asarray(self._data.xpos[: self._model.nbody], dtype=np.float64).reshape(-1)
+    #     xquat = np.asarray(self._data.xquat[: self._model.nbody], dtype=np.float64).reshape(-1)
+    #     return jnp.asarray(np.concatenate([xpos, xquat], axis=0))
 
-        state_fn only ever renders a single world — batching over nworld is
-        achieved entirely by the caller vmapping this function (data varying
-        per lane, render_ctx broadcast via in_axes=None). The caller is
-        responsible for building render_ctx via
-        Simulator._get_render_context(nworld=<the vmap batch size>).pytree(),
-        keeping it alive for the rollout, and passing it into every call.
-        render_ctx is ignored (may be None) if input_spec.all_cameras is unset.
-        """
-        actuated_idx = self._actuated_qpos_idx_jnp
-        nq = self.nq()
-        nv = self.nv()
-        nbody = self.nbody()
-        mjx_model = self._mjx_model
-        ncam = int(self._model.ncam)
-        all_cameras = bool(input_spec.all_cameras)
-        qdof_state = bool(input_spec.qdof_state)
-        qpos_state = bool(input_spec.qpos_state)
-        qvel_state = bool(input_spec.qvel_state)
-        xpos_state = bool(input_spec.xpos_state)
-        xquat_state = bool(input_spec.xquat_state)
+    # def get_world_body(self) -> Any | None:
+    #     self._sync_cpu_from_mjx()
+    #     geoms_by_body: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    #     for geom_id in range(int(self._model.ngeom)):
+    #         geom_type_val = int(np.asarray(self._model.geom_type)[geom_id])
+    #         geom_body_id = int(np.asarray(self._model.geom_bodyid)[geom_id])
+    #         geom_type = self._geom_type_name(geom_type_val)
+    #         geom_dataid = int(np.asarray(self._model.geom_dataid)[geom_id])
+    #         mesh_obj = self._extract_mesh_data_as_obj(geom_dataid) if geom_type == "Mesh" else None
+    #         geom_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
+    #         geom = {
+    #             "name": geom_name,
+    #             "pos": np.asarray(self._model.geom_pos[geom_id], dtype=np.float32).tolist(),
+    #             "quat": np.asarray(self._model.geom_quat[geom_id], dtype=np.float32).tolist(),
+    #             "euler": None,
+    #             "geom_t": geom_type,
+    #             "size": np.asarray(self._model.geom_size[geom_id], dtype=np.float32).tolist(),
+    #             "mesh_obj": mesh_obj,
+    #             "group": int(np.asarray(self._model.geom_group)[geom_id]),
+    #         }
+    #         geoms_by_body[geom_body_id].append(geom)
 
-        def state_fn(data: Any, render_ctx: Any = None) -> dict[str, Array]:
-            result: dict[str, Array] = {}
-            if qdof_state:
-                result["qdof"] = data.qpos[actuated_idx]
-            if qpos_state:
-                result["qpos"] = data.qpos[:nq]
-            if qvel_state:
-                result["qvel"] = data.qvel[:nv]
-            if xpos_state:
-                result["xpos"] = data.xpos[:nbody].reshape(-1)
-            if xquat_state:
-                result["xquat"] = data.xquat[:nbody].reshape(-1)
-            if all_cameras and ncam > 0:
-                # Shape [ncam, H, W, 3] float32 in [0, 1]. `data` here is the
-                # unbatched per-world pytree from this function's own
-                # perspective; the caller's jax.vmap (with render_ctx
-                # broadcast via in_axes=None) maps this onto the batched Warp
-                # kernel via render()'s custom vmap rule.
-                rgb_packed, _ = mjx.render(mjx_model, data, render_ctx)
-                # get_rgb already returns float32 in [0, 1] — no /255 needed.
-                result["cameras"] = jnp.stack(
-                    [mjx.get_rgb(render_ctx, cam_id, rgb_packed) for cam_id in range(ncam)],
-                    axis=0,
-                ).reshape(ncam, _CAM_HEIGHT, _CAM_WIDTH, 3)
-            if not result:
-                result["qpos"] = data.qpos[:nq]
-                result["qvel"] = data.qvel[:nv]
-            return result
+    #     children_by_body: dict[int, list[int]] = defaultdict(list)
+    #     body_parentid = np.asarray(self._model.body_parentid)
+    #     for body_id in range(1, int(self._model.nbody)):
+    #         parent_id = int(body_parentid[body_id])
+    #         children_by_body[parent_id].append(body_id)
 
-        return state_fn
+    #     world_root = self._build_body_recursive(0, geoms_by_body, children_by_body)
+    #     return {"bodies": [world_root]}
 
-    def get_model_cartesian_state(self) -> Array:
-        self._sync_cpu_from_mjx()
-        xpos = np.asarray(self._data.xpos[: self._model.nbody], dtype=np.float64).reshape(-1)
-        xquat = np.asarray(self._data.xquat[: self._model.nbody], dtype=np.float64).reshape(-1)
-        return jnp.asarray(np.concatenate([xpos, xquat], axis=0))
+    # def get_simul_update(self) -> tuple[list[float], list[float]]:
+    #     self._sync_cpu_from_mjx()
+    #     xpos = np.asarray(self._data.xpos[: self._model.nbody], dtype=np.float64).reshape(-1)
+    #     xquat = np.asarray(self._data.xquat[: self._model.nbody], dtype=np.float64).reshape(-1)
+    #     return xpos.tolist(), xquat.tolist()
 
-    def get_world_body(self) -> Any | None:
-        self._sync_cpu_from_mjx()
-        geoms_by_body: dict[int, list[dict[str, Any]]] = defaultdict(list)
-        for geom_id in range(int(self._model.ngeom)):
-            geom_type_val = int(np.asarray(self._model.geom_type)[geom_id])
-            geom_body_id = int(np.asarray(self._model.geom_bodyid)[geom_id])
-            geom_type = self._geom_type_name(geom_type_val)
-            geom_dataid = int(np.asarray(self._model.geom_dataid)[geom_id])
-            mesh_obj = self._extract_mesh_data_as_obj(geom_dataid) if geom_type == "Mesh" else None
-            geom_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
-            geom = {
-                "name": geom_name,
-                "pos": np.asarray(self._model.geom_pos[geom_id], dtype=np.float32).tolist(),
-                "quat": np.asarray(self._model.geom_quat[geom_id], dtype=np.float32).tolist(),
-                "euler": None,
-                "geom_t": geom_type,
-                "size": np.asarray(self._model.geom_size[geom_id], dtype=np.float32).tolist(),
-                "mesh_obj": mesh_obj,
-                "group": int(np.asarray(self._model.geom_group)[geom_id]),
-            }
-            geoms_by_body[geom_body_id].append(geom)
-
-        children_by_body: dict[int, list[int]] = defaultdict(list)
-        body_parentid = np.asarray(self._model.body_parentid)
-        for body_id in range(1, int(self._model.nbody)):
-            parent_id = int(body_parentid[body_id])
-            children_by_body[parent_id].append(body_id)
-
-        world_root = self._build_body_recursive(0, geoms_by_body, children_by_body)
-        return {"bodies": [world_root]}
-
-    def get_simul_update(self) -> tuple[list[float], list[float]]:
-        self._sync_cpu_from_mjx()
-        xpos = np.asarray(self._data.xpos[: self._model.nbody], dtype=np.float64).reshape(-1)
-        xquat = np.asarray(self._data.xquat[: self._model.nbody], dtype=np.float64).reshape(-1)
-        return xpos.tolist(), xquat.tolist()
-
-    def get_contact_body_index_pairs(self) -> list[tuple[int, int]]:
-        self._sync_cpu_from_mjx()
-        ncon = int(self._data.ncon)
-        geom_bodyid = np.asarray(self._model.geom_bodyid)
-        contact_pairs: list[tuple[int, int]] = []
-        for i in range(ncon):
-            contact = self._data.contact[i]
-            geom1 = int(contact.geom1)
-            geom2 = int(contact.geom2)
-            if geom1 < 0 or geom2 < 0:
-                continue
-            body1 = int(geom_bodyid[geom1])
-            body2 = int(geom_bodyid[geom2])
-            if body1 < 0 or body2 < 0:
-                continue
-            contact_pairs.append((body1, body2))
-        return contact_pairs
+    # def get_contact_body_index_pairs(self) -> list[tuple[int, int]]:
+    #     self._sync_cpu_from_mjx()
+    #     ncon = int(self._data.ncon)
+    #     geom_bodyid = np.asarray(self._model.geom_bodyid)
+    #     contact_pairs: list[tuple[int, int]] = []
+    #     for i in range(ncon):
+    #         contact = self._data.contact[i]
+    #         geom1 = int(contact.geom1)
+    #         geom2 = int(contact.geom2)
+    #         if geom1 < 0 or geom2 < 0:
+    #             continue
+    #         body1 = int(geom_bodyid[geom1])
+    #         body2 = int(geom_bodyid[geom2])
+    #         if body1 < 0 or body2 < 0:
+    #             continue
+    #         contact_pairs.append((body1, body2))
+    #     return contact_pairs
 
     def modify_target_position(self, target_pos_diff: Array) -> Array:
         target_diff_vals = self._array_to_list(target_pos_diff, self.nu(), "Target position diff")
@@ -709,68 +711,68 @@ class MjxSimulator(Simulator):
         self.target_position = self._clamp_controls_to_actuator_range(updated_targets)
         return jnp.asarray(self.target_position)
 
-    def get_target_controls_from_target_positions(self, target_pos_diff: Array) -> Array:
-        nu = self.nu()
-        nv = self.nv()
-        target_diff_vals = self._array_to_list(target_pos_diff, nu, "Target position diff")
-        actuator_joint_indices = self._get_actuator_joint_indices()
-        if len(actuator_joint_indices) != nu:
-            raise ValueError(
-                f"Actuator index mapping mismatch. Expected {nu}, got {len(actuator_joint_indices)}"
-            )
-        if not self._is_torque_actuator():
-            qpos = self.qpos()
-            ctrl_vals = [
-                qpos[qpos_idx] + target_diff_vals[i]
-                for i, (qpos_idx, _) in enumerate(actuator_joint_indices)
-            ]
-            ctrl_vals = self._clamp_controls_to_actuator_range(ctrl_vals)
-            return jnp.asarray(ctrl_vals)
+    # def get_target_controls_from_target_positions(self, target_pos_diff: Array) -> Array:
+    #     nu = self.nu()
+    #     nv = self.nv()
+    #     target_diff_vals = self._array_to_list(target_pos_diff, nu, "Target position diff")
+    #     actuator_joint_indices = self._get_actuator_joint_indices()
+    #     if len(actuator_joint_indices) != nu:
+    #         raise ValueError(
+    #             f"Actuator index mapping mismatch. Expected {nu}, got {len(actuator_joint_indices)}"
+    #         )
+    #     if not self._is_torque_actuator():
+    #         qpos = self.qpos()
+    #         ctrl_vals = [
+    #             qpos[qpos_idx] + target_diff_vals[i]
+    #             for i, (qpos_idx, _) in enumerate(actuator_joint_indices)
+    #         ]
+    #         ctrl_vals = self._clamp_controls_to_actuator_range(ctrl_vals)
+    #         return jnp.asarray(ctrl_vals)
 
-        t = 0.1
-        qvel = self.qvel()
-        if len(qvel) != nv:
-            raise ValueError(f"Velocity dimension mismatch. Expected {nv}, got {len(qvel)}")
-        qacc_des = np.zeros((nv,), dtype=np.float64)
-        for i, (_, dof_idx) in enumerate(actuator_joint_indices):
-            dq = target_diff_vals[i]
-            v = qvel[dof_idx]
-            qacc_des[dof_idx] = ((dq / t) - v) / t
-        qfrc_vals = np.asarray(self.inverse_dyn(jnp.asarray(qacc_des)), dtype=np.float64).tolist()
-        ctrl_vals = [qfrc_vals[dof_idx] for _, dof_idx in actuator_joint_indices]
-        ctrl_vals = self._clamp_controls_to_actuator_range(ctrl_vals)
-        return jnp.asarray(ctrl_vals)
+    #     t = 0.1
+    #     qvel = self.qvel()
+    #     if len(qvel) != nv:
+    #         raise ValueError(f"Velocity dimension mismatch. Expected {nv}, got {len(qvel)}")
+    #     qacc_des = np.zeros((nv,), dtype=np.float64)
+    #     for i, (_, dof_idx) in enumerate(actuator_joint_indices):
+    #         dq = target_diff_vals[i]
+    #         v = qvel[dof_idx]
+    #         qacc_des[dof_idx] = ((dq / t) - v) / t
+    #     qfrc_vals = np.asarray(self.inverse_dyn(jnp.asarray(qacc_des)), dtype=np.float64).tolist()
+    #     ctrl_vals = [qfrc_vals[dof_idx] for _, dof_idx in actuator_joint_indices]
+    #     ctrl_vals = self._clamp_controls_to_actuator_range(ctrl_vals)
+    #     return jnp.asarray(ctrl_vals)
 
-    def get_target_controls_from_target_velocities(self, target_vel_diff: Array) -> Array:
-        nu = self.nu()
-        nv = self.nv()
-        target_vel_vals = self._array_to_list(target_vel_diff, nu, "Target velocity")
-        actuator_joint_indices = self._get_actuator_joint_indices()
-        if len(actuator_joint_indices) != nu:
-            raise ValueError(
-                f"Actuator index mapping mismatch. Expected {nu}, got {len(actuator_joint_indices)}"
-            )
-        if not self._is_torque_actuator():
-            qpos = self.qpos()
-            t = 0.1
-            ctrl_vals = [
-                qpos[qpos_idx] + target_vel_vals[i] * t
-                for i, (qpos_idx, _) in enumerate(actuator_joint_indices)
-            ]
-            return jnp.asarray(ctrl_vals)
+    # def get_target_controls_from_target_velocities(self, target_vel_diff: Array) -> Array:
+    #     nu = self.nu()
+    #     nv = self.nv()
+    #     target_vel_vals = self._array_to_list(target_vel_diff, nu, "Target velocity")
+    #     actuator_joint_indices = self._get_actuator_joint_indices()
+    #     if len(actuator_joint_indices) != nu:
+    #         raise ValueError(
+    #             f"Actuator index mapping mismatch. Expected {nu}, got {len(actuator_joint_indices)}"
+    #         )
+    #     if not self._is_torque_actuator():
+    #         qpos = self.qpos()
+    #         t = 0.1
+    #         ctrl_vals = [
+    #             qpos[qpos_idx] + target_vel_vals[i] * t
+    #             for i, (qpos_idx, _) in enumerate(actuator_joint_indices)
+    #         ]
+    #         return jnp.asarray(ctrl_vals)
 
-        qvel = self.qvel()
-        if len(qvel) != nv:
-            raise ValueError(f"Velocity dimension mismatch. Expected {nv}, got {len(qvel)}")
-        t = 0.1
-        qacc_des = np.zeros((nv,), dtype=np.float64)
-        for i, (_, dof_idx) in enumerate(actuator_joint_indices):
-            target_v = target_vel_vals[i]
-            v_curr = qvel[dof_idx]
-            qacc_des[dof_idx] = (target_v - v_curr) / t
-        qfrc_vals = np.asarray(self.inverse_dyn(jnp.asarray(qacc_des)), dtype=np.float64).tolist()
-        ctrl_vals = [qfrc_vals[dof_idx] for _, dof_idx in actuator_joint_indices]
-        return jnp.asarray(ctrl_vals)
+    #     qvel = self.qvel()
+    #     if len(qvel) != nv:
+    #         raise ValueError(f"Velocity dimension mismatch. Expected {nv}, got {len(qvel)}")
+    #     t = 0.1
+    #     qacc_des = np.zeros((nv,), dtype=np.float64)
+    #     for i, (_, dof_idx) in enumerate(actuator_joint_indices):
+    #         target_v = target_vel_vals[i]
+    #         v_curr = qvel[dof_idx]
+    #         qacc_des[dof_idx] = (target_v - v_curr) / t
+    #     qfrc_vals = np.asarray(self.inverse_dyn(jnp.asarray(qacc_des)), dtype=np.float64).tolist()
+    #     ctrl_vals = [qfrc_vals[dof_idx] for _, dof_idx in actuator_joint_indices]
+    #     return jnp.asarray(ctrl_vals)
 
 
 class MujocoSimulator(Simulator):
@@ -940,10 +942,116 @@ class MujocoSimulator(Simulator):
         self._data.ctrl[:self.nu()] = ctrl_vals
         mujoco.mj_step(self._model, self._data)
 
+    @staticmethod
+    def forward_dyn_pure(data: Any, model: Any, controls: Array) -> Any:
+        """Return a stepped copy of MuJoCo data without mutating ``data``."""
+        data_next = copy.copy(data)
+        data_next.ctrl[:] = np.asarray(
+            jax.device_get(controls), dtype=np.float64
+        ).reshape(data_next.ctrl.shape)
+        mujoco.mj_step(model, data_next)
+        return data_next
+
     def inverse_dyn(self, acc: Array) -> Array:
         self._data.qacc[:self.nv()] = np.asarray(jax.device_get(acc), dtype=np.float64).reshape(self.nv())
         mujoco.mj_inverse(self._model, self._data)
         return jnp.asarray(np.asarray(self._data.qfrc_inverse[:self.nv()], dtype=np.float64))
+
+    @staticmethod
+    def inverse_dyn_pure(data: Any, model: Any, acc: Array) -> tuple[Array, Any]:
+        """Return inverse forces and updated data without mutating MuJoCo state."""
+        inverse_data = copy.copy(data)
+        inverse_data.qacc[:] = np.asarray(
+            jax.device_get(acc), dtype=np.float64
+        ).reshape(inverse_data.qacc.shape)
+        mujoco.mj_inverse(model, inverse_data)
+        forces = jnp.asarray(np.asarray(inverse_data.qfrc_inverse, dtype=np.float64))
+        return forces, inverse_data
+
+    @staticmethod
+    def get_model_state_pure(
+        input_spec: ModelInputSpec,
+        data: Any,
+        model: Any,
+        render_ctx: Any = None,
+        actuated_qpos_indices: Array | None = None,
+        max_num_contacts: int | None = None,
+    ) -> dict[str, Array]:
+        """Extract model inputs from caller-owned MuJoCo data."""
+        result: dict[str, Array] = {}
+
+        if input_spec.qdof_state:
+            if actuated_qpos_indices is None:
+                raise ValueError(
+                    "qdof_state requires precomputed actuated_qpos_indices"
+                )
+            qpos = jnp.asarray(np.asarray(data.qpos[: model.nq], dtype=np.float64))
+            result["qdof"] = qpos[jnp.asarray(actuated_qpos_indices)]
+        if input_spec.qpos_state:
+            result["qpos"] = jnp.asarray(
+                np.asarray(data.qpos[: model.nq], dtype=np.float64)
+            )
+        if input_spec.qvel_state:
+            result["qvel"] = jnp.asarray(
+                np.asarray(data.qvel[: model.nv], dtype=np.float64)
+            )
+        if input_spec.xpos_state:
+            result["xpos"] = jnp.asarray(
+                np.asarray(data.xpos[: model.nbody], dtype=np.float64).reshape(-1)
+            )
+        if input_spec.xquat_state:
+            result["xquat"] = jnp.asarray(
+                np.asarray(data.xquat[: model.nbody], dtype=np.float64).reshape(-1)
+            )
+        if input_spec.all_cameras and model.ncam > 0:
+            if render_ctx is None:
+                raise ValueError(
+                    "all_cameras requested but no MuJoCo renderer was provided"
+                )
+            frames: list[np.ndarray] = []
+            for cam_id in range(int(model.ncam)):
+                render_ctx.update_scene(data, camera=cam_id)
+                frames.append(render_ctx.render().astype(np.float32) / 255.0)
+            result["cameras"] = jnp.asarray(np.stack(frames, axis=0))
+        if input_spec.contact_pairs:
+            if max_num_contacts is not None and max_num_contacts < 0:
+                raise ValueError("max_num_contacts must be non-negative")
+            geom_bodyid = np.asarray(model.geom_bodyid)
+            pairs: list[tuple[int, int]] = []
+            for contact_index in range(int(data.ncon)):
+                contact = data.contact[contact_index]
+                geom1 = int(contact.geom1)
+                geom2 = int(contact.geom2)
+                if geom1 < 0 or geom2 < 0:
+                    continue
+                body1 = int(geom_bodyid[geom1])
+                body2 = int(geom_bodyid[geom2])
+                if body1 >= 0 and body2 >= 0:
+                    pairs.append((body1, body2))
+
+            if max_num_contacts is None:
+                result["contact_pairs"] = (
+                    jnp.asarray(pairs, dtype=jnp.float64).reshape(-1)
+                    if pairs
+                    else jnp.zeros((0,), dtype=jnp.float64)
+                )
+            else:
+                body_pairs = np.full(
+                    (max_num_contacts, 2), -1, dtype=np.float64
+                )
+                num_pairs = min(len(pairs), max_num_contacts)
+                if num_pairs:
+                    body_pairs[:num_pairs] = pairs[:num_pairs]
+                result["contact_pairs"] = jnp.asarray(body_pairs).reshape(-1)
+        if not result:
+            result["qpos"] = jnp.asarray(
+                np.asarray(data.qpos[: model.nq], dtype=np.float64)
+            )
+            result["qvel"] = jnp.asarray(
+                np.asarray(data.qvel[: model.nv], dtype=np.float64)
+            )
+
+        return result
 
     def qpos(self) -> list[float]:
         return np.asarray(self._data.qpos[:self.nq()], dtype=np.float64).tolist()
@@ -1014,62 +1122,62 @@ class MujocoSimulator(Simulator):
             result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
         return result
 
-    def get_model_cartesian_state(self) -> Array:
-        xpos = np.asarray(self._data.xpos[:self._model.nbody], dtype=np.float64).reshape(-1)
-        xquat = np.asarray(self._data.xquat[:self._model.nbody], dtype=np.float64).reshape(-1)
-        return jnp.asarray(np.concatenate([xpos, xquat], axis=0))
+    # def get_model_cartesian_state(self) -> Array:
+    #     xpos = np.asarray(self._data.xpos[:self._model.nbody], dtype=np.float64).reshape(-1)
+    #     xquat = np.asarray(self._data.xquat[:self._model.nbody], dtype=np.float64).reshape(-1)
+    #     return jnp.asarray(np.concatenate([xpos, xquat], axis=0))
 
-    def get_world_body(self) -> Any | None:
-        geoms_by_body: dict[int, list[dict[str, Any]]] = defaultdict(list)
-        for geom_id in range(int(self._model.ngeom)):
-            geom_type_val = int(np.asarray(self._model.geom_type)[geom_id])
-            geom_body_id = int(np.asarray(self._model.geom_bodyid)[geom_id])
-            geom_type = self._geom_type_name(geom_type_val)
-            geom_dataid = int(np.asarray(self._model.geom_dataid)[geom_id])
-            mesh_obj = self._extract_mesh_data_as_obj(geom_dataid) if geom_type == "Mesh" else None
-            geom_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
-            geom = {
-                "name": geom_name,
-                "pos": np.asarray(self._model.geom_pos[geom_id], dtype=np.float32).tolist(),
-                "quat": np.asarray(self._model.geom_quat[geom_id], dtype=np.float32).tolist(),
-                "euler": None,
-                "geom_t": geom_type,
-                "size": np.asarray(self._model.geom_size[geom_id], dtype=np.float32).tolist(),
-                "mesh_obj": mesh_obj,
-                "group": int(np.asarray(self._model.geom_group)[geom_id]),
-            }
-            geoms_by_body[geom_body_id].append(geom)
+    # def get_world_body(self) -> Any | None:
+    #     geoms_by_body: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    #     for geom_id in range(int(self._model.ngeom)):
+    #         geom_type_val = int(np.asarray(self._model.geom_type)[geom_id])
+    #         geom_body_id = int(np.asarray(self._model.geom_bodyid)[geom_id])
+    #         geom_type = self._geom_type_name(geom_type_val)
+    #         geom_dataid = int(np.asarray(self._model.geom_dataid)[geom_id])
+    #         mesh_obj = self._extract_mesh_data_as_obj(geom_dataid) if geom_type == "Mesh" else None
+    #         geom_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
+    #         geom = {
+    #             "name": geom_name,
+    #             "pos": np.asarray(self._model.geom_pos[geom_id], dtype=np.float32).tolist(),
+    #             "quat": np.asarray(self._model.geom_quat[geom_id], dtype=np.float32).tolist(),
+    #             "euler": None,
+    #             "geom_t": geom_type,
+    #             "size": np.asarray(self._model.geom_size[geom_id], dtype=np.float32).tolist(),
+    #             "mesh_obj": mesh_obj,
+    #             "group": int(np.asarray(self._model.geom_group)[geom_id]),
+    #         }
+    #         geoms_by_body[geom_body_id].append(geom)
 
-        children_by_body: dict[int, list[int]] = defaultdict(list)
-        body_parentid = np.asarray(self._model.body_parentid)
-        for body_id in range(1, int(self._model.nbody)):
-            parent_id = int(body_parentid[body_id])
-            children_by_body[parent_id].append(body_id)
+    #     children_by_body: dict[int, list[int]] = defaultdict(list)
+    #     body_parentid = np.asarray(self._model.body_parentid)
+    #     for body_id in range(1, int(self._model.nbody)):
+    #         parent_id = int(body_parentid[body_id])
+    #         children_by_body[parent_id].append(body_id)
 
-        world_root = self._build_body_recursive(0, geoms_by_body, children_by_body)
-        return {"bodies": [world_root]}
+    #     world_root = self._build_body_recursive(0, geoms_by_body, children_by_body)
+    #     return {"bodies": [world_root]}
 
-    def get_simul_update(self) -> tuple[list[float], list[float]]:
-        xpos = np.asarray(self._data.xpos[:self._model.nbody], dtype=np.float64).reshape(-1)
-        xquat = np.asarray(self._data.xquat[:self._model.nbody], dtype=np.float64).reshape(-1)
-        return xpos.tolist(), xquat.tolist()
+    # def get_simul_update(self) -> tuple[list[float], list[float]]:
+    #     xpos = np.asarray(self._data.xpos[:self._model.nbody], dtype=np.float64).reshape(-1)
+    #     xquat = np.asarray(self._data.xquat[:self._model.nbody], dtype=np.float64).reshape(-1)
+    #     return xpos.tolist(), xquat.tolist()
 
-    def get_contact_body_index_pairs(self) -> list[tuple[int, int]]:
-        ncon = int(self._data.ncon)
-        geom_bodyid = np.asarray(self._model.geom_bodyid)
-        contact_pairs: list[tuple[int, int]] = []
-        for i in range(ncon):
-            contact = self._data.contact[i]
-            geom1 = int(contact.geom1)
-            geom2 = int(contact.geom2)
-            if geom1 < 0 or geom2 < 0:
-                continue
-            body1 = int(geom_bodyid[geom1])
-            body2 = int(geom_bodyid[geom2])
-            if body1 < 0 or body2 < 0:
-                continue
-            contact_pairs.append((body1, body2))
-        return contact_pairs
+    # def get_contact_body_index_pairs(self) -> list[tuple[int, int]]:
+    #     ncon = int(self._data.ncon)
+    #     geom_bodyid = np.asarray(self._model.geom_bodyid)
+    #     contact_pairs: list[tuple[int, int]] = []
+    #     for i in range(ncon):
+    #         contact = self._data.contact[i]
+    #         geom1 = int(contact.geom1)
+    #         geom2 = int(contact.geom2)
+    #         if geom1 < 0 or geom2 < 0:
+    #             continue
+    #         body1 = int(geom_bodyid[geom1])
+    #         body2 = int(geom_bodyid[geom2])
+    #         if body1 < 0 or body2 < 0:
+    #             continue
+    #         contact_pairs.append((body1, body2))
+    #     return contact_pairs
 
     def modify_target_position(self, target_pos_diff: Array) -> Array:
         target_diff_vals = self._array_to_list(target_pos_diff, self.nu(), "Target position diff")

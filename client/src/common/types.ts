@@ -101,29 +101,38 @@ export interface CustomTestMethod {
 	simulation_model: string;
 }
 
-export enum Dataset {
-	Libero = "Libero",
-}
-
-export enum DatasetTaskSequencing {
-	Parallel = "Parallel",
-	Sequential = "Sequential",
-}
-
-export interface DatasetTestMethodTestParams {
-	tasks?: number[];
-	tasks_index?: number[];
-	tasks_sequencing: DatasetTaskSequencing;
-}
+export type Dataset = 
+	| { type: "Libero", content: LiberoDatasetParams };
 
 export interface DatasetMethod {
 	dataset: Dataset;
-	test_params: DatasetTestMethodTestParams;
 	control_model: ControlModel;
 }
 
 export interface FlowNoiseConfig {
 	noise_model: MLPModel;
+}
+
+export enum LiberoDatasetType {
+	Libero10 = "Libero10",
+	Libero90 = "Libero90",
+	LiberoGoal = "LiberoGoal",
+	LiberoObject = "LiberoObject",
+	LiberoSequential = "LiberoSequential",
+}
+
+export enum DatasetTaskSequencing {
+	ParallelTasksParallelEnvs = "ParallelTasksParallelEnvs",
+	SequentialTasksParallelEnvs = "SequentialTasksParallelEnvs",
+	FullySequential = "FullySequential",
+}
+
+export interface LiberoDatasetParams {
+	tasks?: number[];
+	tasks_index?: number[];
+	libero_dataset_type: LiberoDatasetType;
+	tasks_sequencing: DatasetTaskSequencing;
+	num_envs_per_task: number;
 }
 
 export interface LogStream {

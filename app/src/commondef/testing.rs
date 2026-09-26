@@ -21,29 +21,43 @@ pub struct CustomTestMethodTestParams {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub enum DatasetTaskSequencing {
-    Parallel,
-    Sequential
+    ParallelTasksParallelEnvs,
+    SequentialTasksParallelEnvs,
+    FullySequential
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
-pub struct DatasetTestMethodTestParams {
+pub enum LiberoDatasetType {
+    Libero10, 
+    Libero90,
+    LiberoGoal,
+    LiberoObject,
+    LiberoSequential
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct LiberoDatasetParams {
     pub tasks: Option<Vec<i32>>,
     pub tasks_index: Option<Vec<i32>>,
-    pub tasks_sequencing: DatasetTaskSequencing
+    pub libero_dataset_type: LiberoDatasetType,
+    pub tasks_sequencing: DatasetTaskSequencing,
+    pub num_envs_per_task: i32
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum Dataset {
-    Libero
+    Libero(LiberoDatasetParams)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct DatasetMethod {
     pub dataset: Dataset,
-    pub test_params: DatasetTestMethodTestParams,
+    // pub test_params: DatasetTestMethodTestParams,
     pub control_model: ControlModel
 }
 

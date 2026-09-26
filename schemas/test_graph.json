@@ -341,26 +341,36 @@
         "dataset": {
           "$ref": "#/definitions/Dataset"
         },
-        "test_params": {
-          "$ref": "#/definitions/DatasetTestMethodTestParams"
-        },
         "control_model": {
           "$ref": "#/definitions/ControlModel"
         }
       },
       "required": [
         "dataset",
-        "test_params",
         "control_model"
       ]
     },
     "Dataset": {
-      "type": "string",
-      "enum": [
-        "Libero"
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Libero"
+            },
+            "content": {
+              "$ref": "#/definitions/LiberoDatasetParams"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
       ]
     },
-    "DatasetTestMethodTestParams": {
+    "LiberoDatasetParams": {
       "type": "object",
       "properties": {
         "tasks": {
@@ -383,19 +393,39 @@
             "format": "int32"
           }
         },
+        "libero_dataset_type": {
+          "$ref": "#/definitions/LiberoDatasetType"
+        },
         "tasks_sequencing": {
           "$ref": "#/definitions/DatasetTaskSequencing"
+        },
+        "num_envs_per_task": {
+          "type": "integer",
+          "format": "int32"
         }
       },
       "required": [
-        "tasks_sequencing"
+        "libero_dataset_type",
+        "tasks_sequencing",
+        "num_envs_per_task"
+      ]
+    },
+    "LiberoDatasetType": {
+      "type": "string",
+      "enum": [
+        "Libero10",
+        "Libero90",
+        "LiberoGoal",
+        "LiberoObject",
+        "LiberoSequential"
       ]
     },
     "DatasetTaskSequencing": {
       "type": "string",
       "enum": [
-        "Parallel",
-        "Sequential"
+        "ParallelTasksParallelEnvs",
+        "SequentialTasksParallelEnvs",
+        "FullySequential"
       ]
     },
     "ComputeInstance": {

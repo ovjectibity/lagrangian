@@ -27,20 +27,34 @@ class CustomTestMethod(BaseModel):
     control_model: ControlModel
     simulation_model: str
 
-class Dataset(str, Enum):
+class DatasetTypes(str, Enum):
     LIBERO = "Libero"
-class DatasetTaskSequencing(str, Enum):
-    PARALLEL = "Parallel"
-    SEQUENTIAL = "Sequential"
-class DatasetTestMethodTestParams(BaseModel):
-    tasks: Optional[List[int]] = Field(default=None)
-    tasks_index: Optional[List[int]] = Field(default=None)
-    tasks_sequencing: DatasetTaskSequencing
 
+class DatasetLibero(BaseModel):
+    type: Literal[DatasetTypes.LIBERO] = DatasetTypes.LIBERO
+    content: LiberoDatasetParams
+
+Dataset = DatasetLibero
 class DatasetMethod(BaseModel):
     dataset: Dataset
-    test_params: DatasetTestMethodTestParams
     control_model: ControlModel
+
+class LiberoDatasetType(str, Enum):
+    LIBERO10 = "Libero10"
+    LIBERO90 = "Libero90"
+    LIBEROGOAL = "LiberoGoal"
+    LIBEROOBJECT = "LiberoObject"
+    LIBEROSEQUENTIAL = "LiberoSequential"
+class DatasetTaskSequencing(str, Enum):
+    PARALLELTASKSPARALLELENVS = "ParallelTasksParallelEnvs"
+    SEQUENTIALTASKSPARALLELENVS = "SequentialTasksParallelEnvs"
+    FULLYSEQUENTIAL = "FullySequential"
+class LiberoDatasetParams(BaseModel):
+    tasks: Optional[List[int]] = Field(default=None)
+    tasks_index: Optional[List[int]] = Field(default=None)
+    libero_dataset_type: LiberoDatasetType
+    tasks_sequencing: DatasetTaskSequencing
+    num_envs_per_task: int
 
 class ModelForward(BaseModel):
     xpos: List[float]
