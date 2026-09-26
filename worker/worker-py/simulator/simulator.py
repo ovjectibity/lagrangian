@@ -31,6 +31,90 @@ _CAM_WIDTH = 224
 
 class Simulator(ABC):
     @staticmethod
+    def _get_contact_pair_sensor_metadata(
+        model: Any,
+    ) -> tuple[Array, Array]:
+        """Return fixed contact-pair sensor addresses and their body IDs.
+
+        A contact-pair sensor is an incoming MJCF ``<contact>`` sensor with
+        ``body1`` and ``body2`` criteria, ``num=\"1\"``, and
+        ``data=\"found\"``.  The MuJoCo compiler stores the contact data
+        selection and slot count in ``sensor_intprm``.  Restricting the
+        helper to this layout gives every selected sensor one scalar in
+        ``data.sensordata`` and one fixed ``(body1, body2)`` output slot.
+
+        This runs once while setting up a simulator; it must not be called
+        from a JAX-traced state-extraction function.
+        """
+        if mujoco is None:
+            raise ModuleNotFoundError(
+                "mujoco is not installed. Install dependencies with `uv sync`."
+            )
+
+        nsensor = int(model.nsensor)
+        if nsensor == 0:
+            return (
+                jnp.zeros((0,), dtype=jnp.int32),
+                jnp.zeros((0, 2), dtype=jnp.int32),
+            )
+
+        sensor_type = np.asarray(model.sensor_type).reshape(nsensor)
+        sensor_objtype = np.asarray(model.sensor_objtype).reshape(nsensor)
+        sensor_reftype = np.asarray(model.sensor_reftype).reshape(nsensor)
+        sensor_objid = np.asarray(model.sensor_objid).reshape(nsensor)
+        sensor_refid = np.asarray(model.sensor_refid).reshape(nsensor)
+        sensor_dim = np.asarray(model.sensor_dim).reshape(nsensor)
+        sensor_adr = np.asarray(model.sensor_adr).reshape(nsensor)
+        sensor_intprm = np.asarray(model.sensor_intprm).reshape(nsensor, -1)
+        if sensor_intprm.shape[1] < 3:
+            raise ValueError("MuJoCo contact sensor parameters are incomplete")
+
+        is_body_pair = (
+            (sensor_type == int(mujoco.mjtSensor.mjSENS_CONTACT))
+            & (sensor_objtype == int(mujoco.mjtObj.mjOBJ_BODY))
+            & (sensor_reftype == int(mujoco.mjtObj.mjOBJ_BODY))
+            # ``sensor_intprm[:, 0]`` is the contact-data bitfield.  The
+            # first bit is ``found`` and must be the only selected field.
+            & (sensor_intprm[:, 0] == 1)
+            # ``sensor_intprm[:, 2]`` is the MJCF ``num`` attribute.
+            & (sensor_intprm[:, 2] == 1)
+            & (sensor_dim == 1)
+        )
+        sensor_ids = np.flatnonzero(is_body_pair)
+        body_pairs = np.column_stack(
+            (sensor_objid[sensor_ids], sensor_refid[sensor_ids])
+        ).astype(np.int32, copy=False)
+
+        if np.any(body_pairs < 0) or np.any(body_pairs >= int(model.nbody)):
+            raise ValueError("Contact-pair sensor references an invalid body")
+
+        return (
+            jnp.asarray(sensor_adr[sensor_ids], dtype=jnp.int32),
+            jnp.asarray(body_pairs, dtype=jnp.int32),
+        )
+
+    @staticmethod
+    def _get_contact_pair_sensor_state(
+        data: Any,
+        contact_sensor_addresses: Array,
+        contact_body_pairs: Array,
+    ) -> Array:
+        """Return configured body pairs whose scalar ``found`` sensor is set."""
+        sensor_addresses = jnp.asarray(contact_sensor_addresses, dtype=jnp.int32)
+        body_pairs = jnp.asarray(contact_body_pairs, dtype=jnp.int32)
+        if sensor_addresses.ndim != 1:
+            raise ValueError("contact_sensor_addresses must be one-dimensional")
+        if body_pairs.ndim != 2 or body_pairs.shape != (sensor_addresses.shape[0], 2):
+            raise ValueError(
+                "contact_body_pairs must have shape (len(contact_sensor_addresses), 2)"
+            )
+
+        found = jnp.asarray(data.sensordata)[sensor_addresses] > 0
+        return jnp.where(found[:, None], body_pairs, -1).astype(
+            data.qpos.dtype
+        ).reshape(-1)
+
+    @staticmethod
     @abstractmethod
     def forward_dyn_pure(data: Any, model: Any, controls: Array) -> Any:
         """Advance a copied physics state without mutating simulator-owned state."""
@@ -49,33 +133,40 @@ class Simulator(ABC):
         model: Any,
         render_ctx: Any = None,
         actuated_qpos_indices: Array | None = None,
-        max_num_contacts: int | None = None,
+        contact_sensor_addresses: Array | None = None,
+        contact_body_pairs: Array | None = None,
     ) -> dict[str, Array]:
         """render_ctx: caller-managed camera render handle, required only when
         input_spec.all_cameras is set. See Simulator._get_render_context /
         Simulator._get_renderer (impl-specific) for how to build one.
 
-        max_num_contacts is the fixed number of contact pairs returned when
-        contact_pairs is requested. It must be static when traced by JAX.
+        Contact pairs are returned only when ``input_spec.contact_pairs`` and
+        both contact metadata arrays are supplied. The arrays are generated
+        once by ``_get_contact_pair_sensor_metadata`` for the incoming model.
         """
         pass
 
+    @staticmethod
     @abstractmethod
     def reset_state(data: Any) -> None:
         pass
 
+    @staticmethod
     @abstractmethod
     def nq(data: Any) -> int:
         pass
 
+    @staticmethod
     @abstractmethod
     def nu(data: Any) -> int:
         pass
 
+    @staticmethod
     @abstractmethod
     def nv(data: Any) -> int:
         pass
 
+    @staticmethod
     @abstractmethod
     def nbody(data: Any) -> int:
         pass
@@ -96,6 +187,7 @@ class Simulator(ABC):
     # def get_contact_body_index_pairs(self) -> list[tuple[int, int]]:
     #     pass
 
+    @staticmethod
     @abstractmethod
     def modify_target_position(self, target_pos_diff: Array) -> Array:
         pass
@@ -107,26 +199,36 @@ class Simulator(ABC):
     # ) -> Array:
     #     pass
 
+    @staticmethod
     @abstractmethod
     def get_target_controls_from_target_velocities(
-        self,
-        target_vel_diff: Array,
+        data: Any,
+        model: Any,
+        target_velocities: Array,
     ) -> Array:
         pass
 
-    def _compute_actuated_qpos_indices(self) -> list[int]:
+    @staticmethod
+    def _compute_actuated_qpos_indices(model: Any) -> Array:
         """Return qpos indices belonging to each actuated joint.
 
         For hinge/slide joints: 1 component. Ball: 4. Free: 7.
-        Used for qdof_state extraction (generalised coords of actuated joints only).
+        The result has model-dependent length, so compute it once from the
+        untraced MuJoCo model and pass it to ``get_model_state_pure``.
         """
-        nu = self.nu()
+        nu = int(model.nu)
+        nq = int(model.nq)
+        njnt = int(model.njnt)
         indices: list[int] = []
-        actuator_trnid = np.asarray(self._model.actuator_trnid).reshape(nu, 2)  # type: ignore[attr-defined]
-        jnt_qposadr = np.asarray(self._model.jnt_qposadr)  # type: ignore[attr-defined]
-        jnt_type = np.asarray(self._model.jnt_type)  # type: ignore[attr-defined]
+        actuator_trnid = np.asarray(model.actuator_trnid).reshape(nu, 2)
+        jnt_qposadr = np.asarray(model.jnt_qposadr)
+        jnt_type = np.asarray(model.jnt_type)
         for actuator_idx in range(nu):
             joint_id = int(actuator_trnid[actuator_idx, 0])
+            if not 0 <= joint_id < njnt:
+                raise ValueError(
+                    f"Actuator {actuator_idx} is not attached to a valid joint"
+                )
             qpos_adr = int(jnt_qposadr[joint_id])
             jtype = int(jnt_type[joint_id])
             # mjtJoint: 0=free(7), 1=ball(4), 2=slide(1), 3=hinge(1)
@@ -136,8 +238,12 @@ class Simulator(ABC):
                 n = 4
             else:
                 n = 1
+            if qpos_adr < 0 or qpos_adr + n > nq:
+                raise ValueError(
+                    f"Actuated joint {joint_id} has an invalid qpos address"
+                )
             indices.extend(range(qpos_adr, qpos_adr + n))
-        return indices
+        return jnp.asarray(indices, dtype=jnp.int32)
 
 
 
@@ -239,8 +345,6 @@ class MjxSimulator(Simulator):
         # logger.info("MjxSimulator: bench — 10 steps took %.2fs (%.4fs/step)", t4 - t3, (t4 - t3) / 10)
 
         self.target_position: list[float] = self._get_actuated_qpos_targets()
-        self._actuated_qpos_idx: list[int] = self._compute_actuated_qpos_indices()
-        self._actuated_qpos_idx_jnp: Array = jnp.array(self._actuated_qpos_idx, dtype=jnp.int32)
 
     def _get_render_context(self, nworld: int) -> Any:
         """Builds a fresh Warp render context sized for `nworld` worlds.
@@ -426,6 +530,50 @@ class MjxSimulator(Simulator):
         data_with_controls = data.replace(ctrl=controls.reshape(data.ctrl.shape))
         return mjx.step(model, data_with_controls)
 
+    @staticmethod
+    def get_target_controls_from_target_velocities(
+        data: Any,
+        model: Any,
+        target_velocities: Array,
+    ) -> Array:
+        """Convert target joint velocities to controls from MJX state.
+
+        This preserves the existing 0.1-second target-velocity horizon and
+        assumes each actuator is transmitted directly through a joint.
+        """
+        controls = target_velocities.reshape(data.ctrl.shape)
+        if controls.shape[0] == 0:
+            return controls
+
+        actuator_joint_ids = jnp.asarray(model.actuator_trnid)[:, 0]
+        qpos_indices = jnp.asarray(model.jnt_qposadr)[actuator_joint_ids]
+        dof_indices = jnp.asarray(model.jnt_dofadr)[actuator_joint_ids]
+        is_torque_actuator = (
+            jnp.asarray(model.actuator_biastype)[0]
+            == int(mujoco.mjtBias.mjBIAS_NONE)
+        )
+
+        def position_controls(_: None) -> Array:
+            return data.qpos[qpos_indices] + controls * 0.1
+
+        def torque_controls(_: None) -> Array:
+            desired_qacc = jnp.zeros_like(data.qacc).at[dof_indices].set(
+                (controls - data.qvel[dof_indices]) / 0.1
+            )
+            inverse_forces, _ = MjxSimulator.inverse_dyn_pure(
+                data,
+                model,
+                desired_qacc,
+            )
+            return inverse_forces[dof_indices]
+
+        return jax.lax.cond(
+            is_torque_actuator,
+            torque_controls,
+            position_controls,
+            operand=None,
+        )
+
     def inverse_dyn(self, acc: Array) -> Array:
         self._sync_cpu_from_mjx()
         self._data.qacc[: self.nv()] = np.asarray(jax.device_get(acc), dtype=np.float64).reshape(self.nv())
@@ -446,14 +594,10 @@ class MjxSimulator(Simulator):
         model: Any,
         render_ctx: Any = None,
         actuated_qpos_indices: Array | None = None,
-        max_num_contacts: int | None = None,
+        contact_sensor_addresses: Array | None = None,
+        contact_body_pairs: Array | None = None,
     ) -> dict[str, Array]:
-        """Extract model inputs from caller-owned MJX data.
-
-        Contact pairs are flattened and padded with ``-1`` to a fixed size of
-        ``2 * max_num_contacts``. When no limit is supplied, the static MJX
-        contact-buffer capacity is used.
-        """
+        """Extract model inputs from caller-owned MJX data."""
         result: dict[str, Array] = {}
 
         if input_spec.qdof_state:
@@ -483,163 +627,20 @@ class MjxSimulator(Simulator):
                 ],
                 axis=0,
             ).reshape(int(model.ncam), _CAM_HEIGHT, _CAM_WIDTH, 3)
-        if input_spec.contact_pairs:
-            if max_num_contacts is not None and max_num_contacts < 0:
-                raise ValueError("max_num_contacts must be non-negative")
-
-            # MJX-Warp keeps contacts in its private, fixed-capacity buffer.
-            # `nacon` identifies the populated prefix for this world.
-            contact_geoms = jnp.asarray(data._impl.contact__geom).reshape(-1, 2)
-            contact_capacity = contact_geoms.shape[0]
-            output_count = (
-                contact_capacity
-                if max_num_contacts is None
-                else max_num_contacts
+        if (
+            input_spec.contact_pairs
+            and contact_sensor_addresses is not None
+            and contact_body_pairs is not None
+        ):
+            result["contact_pairs"] = Simulator._get_contact_pair_sensor_state(
+                data,
+                contact_sensor_addresses,
+                contact_body_pairs,
             )
-
-            if contact_capacity == 0 or int(model.ngeom) == 0:
-                body_pairs = jnp.full(
-                    (output_count, 2), -1, dtype=jnp.int32
-                )
-            else:
-                active_count = jnp.asarray(data._impl.nacon).reshape(-1)[0]
-                valid_contact = jnp.arange(contact_capacity) < active_count
-                valid_contact &= jnp.all(contact_geoms >= 0, axis=1)
-                contact_indices = jnp.nonzero(
-                    valid_contact,
-                    size=output_count,
-                    fill_value=-1,
-                )[0]
-                selected_geoms = contact_geoms[jnp.maximum(contact_indices, 0)]
-                selected_geoms = jnp.clip(selected_geoms, 0, int(model.ngeom) - 1)
-                body_pairs = jnp.asarray(model.geom_bodyid)[selected_geoms]
-                body_pairs = jnp.where(
-                    contact_indices[:, None] >= 0,
-                    body_pairs,
-                    -1,
-                )
-
-            result["contact_pairs"] = body_pairs.astype(data.qpos.dtype).reshape(-1)
         if not result:
             result["qpos"] = data.qpos[: model.nq]
             result["qvel"] = data.qvel[: model.nv]
 
-        return result
-
-    def get_model_state(
-        self, input_spec: ModelInputSpec, render_ctx: Any = None,
-    ) -> dict[str, Array]:
-        self._sync_cpu_from_mjx()
-        result: dict[str, Array] = {}
-        if input_spec.qdof_state:
-            qpos_all = np.asarray(self._data.qpos, dtype=np.float64)
-            result["qdof"] = jnp.asarray(qpos_all[self._actuated_qpos_idx])
-        if input_spec.qpos_state:
-            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
-        if input_spec.qvel_state:
-            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
-        if input_spec.xpos_state:
-            result["xpos"] = jnp.asarray(
-                np.asarray(self._data.xpos[: self.nbody()], dtype=np.float64).reshape(-1)
-            )
-        if input_spec.xquat_state:
-            result["xquat"] = jnp.asarray(
-                np.asarray(self._data.xquat[: self.nbody()], dtype=np.float64).reshape(-1)
-            )
-        if input_spec.all_cameras and self._model.ncam > 0:
-            # Shape [ncam, H, W, 3] float32 in [0, 1] — see testing.py's
-            # _run_sequential, which relies on this exact shape.
-            # render_ctx is caller-managed: built via
-            # Simulator._get_render_context(nworld=1).pytree() and kept alive
-            # by the caller for the lifetime of the rollout — see that method's
-            # docstring for the lifecycle contract.
-            if render_ctx is None:
-                raise ValueError(
-                    "all_cameras requested but no render_ctx was provided "
-                    "(build one via _get_render_context(nworld=1).pytree())"
-                )
-            ncam = int(self._model.ncam)
-            # Pass self._mjx_data unmodified: marshal_jax_warp_callable's
-            # wrapper (mujoco/mjx/warp/ffi.py) does its own per-field
-            # dimension expansion against an internal _NDIM spec — manually
-            # pre-expanding every leaf here (e.g. via a blanket leading-axis
-            # add) breaks fields that aren't supposed to gain one (e.g.
-            # contact__dim), since the wrapper only pads (never squeezes) and
-            # asserts an exact ndim match afterward.
-
-            ##TODO: Remove if not being used; refit_bvh was just a 
-            # check to see if it solved the render kernel crashing issue. 
-            ## Check if refit_bhv fixes the issue: 
-            # render_ctx = self._get_render_context(1)
-            ##Sharing the expanded mjx data to account for nworld=1 
-            # expanded_mjx_data = jax.tree.map(
-            #     lambda x: jnp.expand_dims(x,axis=0),
-            #     self._mjx_data
-            # )
-            # self._mjx_data = mjx.refit_bvh(self._mjx_model, expanded_mjx_data, render_ctx.pytree())
-            # self._mjx_data = mjx.refit_bvh(self._mjx_model, self._mjx_data, render_ctx.pytree())
-
-            logger.info(
-                "MjxSimulator: render graph mode: %r (%s)",
-                self._mjx_model.opt._impl.graph_mode,
-                int(self._mjx_model.opt._impl.graph_mode),
-            )
-            logger.info(
-                "MJX render inputs: data.nworld=%s "
-                "cam_xpos=%s cam_xmat=%s geom_xpos=%s geom_xmat=%s",
-                self._mjx_data.nworld,
-                self._mjx_data.cam_xpos.shape,
-                self._mjx_data.cam_xmat.shape,
-                self._mjx_data.geom_xpos.shape,
-                self._mjx_data.geom_xmat.shape,
-            )
-            logger.info(
-                "Render context: nworld=%s total_rays=%s "
-                "cam_res=%s cam_id_map=%s rgb_adr=%s ",
-                # "rgb_data=%s",
-                render_ctx.nworld,
-                render_ctx.total_rays,
-                render_ctx.cam_res.numpy(),
-                render_ctx.cam_id_map.numpy(),
-                render_ctx.rgb_adr.numpy(),
-                # render_ctx.rgb_data.shape,
-            )
-            rgb_packed, _ = mjx.render(self._mjx_model, self._mjx_data, render_ctx.pytree())
-            logger.info("Shape of rgb_packed in %s",rgb_packed.shape)
-            logger.info("Number of cameras available %s %s",ncam, range(ncam))
-            logger.info("Render context: %s %s", render_ctx, render_ctx.pytree())
-            ## TODO: Remove if not needed, originally added as 
-            # test logging for the render kernel crashing issue
-            # from mujoco.mjx.warp import render_context
-            # warp_rc = render_context.get(render_ctx.pytree())
-            # logger.info("Logging the wrap_rc rgb_adr: %s",warp_rc.rgb_adr)
-
-            # result["cameras"] = jnp.stack(
-            #     [mjx.get_rgb(render_ctx.pytree(), 0, rgb_packed)],
-            #     axis=0,
-            # ).reshape(ncam, _CAM_HEIGHT, _CAM_WIDTH, 3)
-            # result["cameras"] = jnp.ones([ncam, _CAM_HEIGHT, _CAM_WIDTH, 3])
-            result["cameras"] = jnp.stack(
-                [mjx.get_rgb(render_ctx.pytree(), cam_id, rgb_packed) for cam_id in range(ncam)],
-                axis=0,
-            ).reshape(ncam, _CAM_HEIGHT, _CAM_WIDTH, 3)
-        if input_spec.contact_pairs:
-            geom_bodyid = np.asarray(self._model.geom_bodyid)
-            pairs: list[float] = []
-            for i in range(int(self._data.ncon)):
-                contact = self._data.contact[i]
-                g1, g2 = int(contact.geom1), int(contact.geom2)
-                if g1 >= 0 and g2 >= 0:
-                    b1, b2 = int(geom_bodyid[g1]), int(geom_bodyid[g2])
-                    if b1 >= 0 and b2 >= 0:
-                        pairs.extend([float(b1), float(b2)])
-            result["contact_pairs"] = (
-                jnp.asarray(pairs, dtype=jnp.float64) if pairs
-                else jnp.zeros((0,), dtype=jnp.float64)
-            )
-        if not result:
-            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
-            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
         return result
 
     # def get_model_cartesian_state(self) -> Array:
@@ -743,38 +744,6 @@ class MjxSimulator(Simulator):
     #     ctrl_vals = self._clamp_controls_to_actuator_range(ctrl_vals)
     #     return jnp.asarray(ctrl_vals)
 
-    # def get_target_controls_from_target_velocities(self, target_vel_diff: Array) -> Array:
-    #     nu = self.nu()
-    #     nv = self.nv()
-    #     target_vel_vals = self._array_to_list(target_vel_diff, nu, "Target velocity")
-    #     actuator_joint_indices = self._get_actuator_joint_indices()
-    #     if len(actuator_joint_indices) != nu:
-    #         raise ValueError(
-    #             f"Actuator index mapping mismatch. Expected {nu}, got {len(actuator_joint_indices)}"
-    #         )
-    #     if not self._is_torque_actuator():
-    #         qpos = self.qpos()
-    #         t = 0.1
-    #         ctrl_vals = [
-    #             qpos[qpos_idx] + target_vel_vals[i] * t
-    #             for i, (qpos_idx, _) in enumerate(actuator_joint_indices)
-    #         ]
-    #         return jnp.asarray(ctrl_vals)
-
-    #     qvel = self.qvel()
-    #     if len(qvel) != nv:
-    #         raise ValueError(f"Velocity dimension mismatch. Expected {nv}, got {len(qvel)}")
-    #     t = 0.1
-    #     qacc_des = np.zeros((nv,), dtype=np.float64)
-    #     for i, (_, dof_idx) in enumerate(actuator_joint_indices):
-    #         target_v = target_vel_vals[i]
-    #         v_curr = qvel[dof_idx]
-    #         qacc_des[dof_idx] = (target_v - v_curr) / t
-    #     qfrc_vals = np.asarray(self.inverse_dyn(jnp.asarray(qacc_des)), dtype=np.float64).tolist()
-    #     ctrl_vals = [qfrc_vals[dof_idx] for _, dof_idx in actuator_joint_indices]
-    #     return jnp.asarray(ctrl_vals)
-
-
 class MujocoSimulator(Simulator):
     def __init__(
         self,
@@ -798,7 +767,6 @@ class MujocoSimulator(Simulator):
         mujoco.mj_forward(self._model, self._data)
         logger.info("MujocoSimulator: init complete")
         self.target_position: list[float] = self._get_actuated_qpos_targets()
-        self._actuated_qpos_idx: list[int] = self._compute_actuated_qpos_indices()
 
     def _is_torque_actuator(self) -> bool:
         nu = self.nu()
@@ -973,9 +941,10 @@ class MujocoSimulator(Simulator):
         input_spec: ModelInputSpec,
         data: Any,
         model: Any,
-        render_ctx: Any = None,
+        render_ctx: mujoco.Renderer | None = None,
         actuated_qpos_indices: Array | None = None,
-        max_num_contacts: int | None = None,
+        contact_sensor_addresses: Array | None = None,
+        contact_body_pairs: Array | None = None,
     ) -> dict[str, Array]:
         """Extract model inputs from caller-owned MuJoCo data."""
         result: dict[str, Array] = {}
@@ -1013,36 +982,16 @@ class MujocoSimulator(Simulator):
                 render_ctx.update_scene(data, camera=cam_id)
                 frames.append(render_ctx.render().astype(np.float32) / 255.0)
             result["cameras"] = jnp.asarray(np.stack(frames, axis=0))
-        if input_spec.contact_pairs:
-            if max_num_contacts is not None and max_num_contacts < 0:
-                raise ValueError("max_num_contacts must be non-negative")
-            geom_bodyid = np.asarray(model.geom_bodyid)
-            pairs: list[tuple[int, int]] = []
-            for contact_index in range(int(data.ncon)):
-                contact = data.contact[contact_index]
-                geom1 = int(contact.geom1)
-                geom2 = int(contact.geom2)
-                if geom1 < 0 or geom2 < 0:
-                    continue
-                body1 = int(geom_bodyid[geom1])
-                body2 = int(geom_bodyid[geom2])
-                if body1 >= 0 and body2 >= 0:
-                    pairs.append((body1, body2))
-
-            if max_num_contacts is None:
-                result["contact_pairs"] = (
-                    jnp.asarray(pairs, dtype=jnp.float64).reshape(-1)
-                    if pairs
-                    else jnp.zeros((0,), dtype=jnp.float64)
-                )
-            else:
-                body_pairs = np.full(
-                    (max_num_contacts, 2), -1, dtype=np.float64
-                )
-                num_pairs = min(len(pairs), max_num_contacts)
-                if num_pairs:
-                    body_pairs[:num_pairs] = pairs[:num_pairs]
-                result["contact_pairs"] = jnp.asarray(body_pairs).reshape(-1)
+        if (
+            input_spec.contact_pairs
+            and contact_sensor_addresses is not None
+            and contact_body_pairs is not None
+        ):
+            result["contact_pairs"] = Simulator._get_contact_pair_sensor_state(
+                data,
+                contact_sensor_addresses,
+                contact_body_pairs,
+            )
         if not result:
             result["qpos"] = jnp.asarray(
                 np.asarray(data.qpos[: model.nq], dtype=np.float64)
@@ -1068,59 +1017,6 @@ class MujocoSimulator(Simulator):
         rather than reconstructing it on every get_model_state call.
         """
         return mujoco.Renderer(self._model, height=_CAM_HEIGHT, width=_CAM_WIDTH)
-
-    def get_model_state(
-        self, input_spec: ModelInputSpec, render_ctx: Any = None,
-    ) -> dict[str, Array]:
-        result: dict[str, Array] = {}
-        if input_spec.qdof_state:
-            qpos_all = np.asarray(self._data.qpos, dtype=np.float64)
-            result["qdof"] = jnp.asarray(qpos_all[self._actuated_qpos_idx])
-        if input_spec.qpos_state:
-            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
-        if input_spec.qvel_state:
-            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
-        if input_spec.xpos_state:
-            result["xpos"] = jnp.asarray(
-                np.asarray(self._data.xpos[: self.nbody()], dtype=np.float64).reshape(-1)
-            )
-        if input_spec.xquat_state:
-            result["xquat"] = jnp.asarray(
-                np.asarray(self._data.xquat[: self.nbody()], dtype=np.float64).reshape(-1)
-            )
-        if input_spec.all_cameras and self._model.ncam > 0:
-            # Shape [ncam, H, W, 3] float32 in [0, 1] — see testing.py's
-            # _run_sequential, which relies on this exact shape. render_ctx
-            # here is a caller-managed mujoco.Renderer (see _get_renderer).
-            if render_ctx is None:
-                raise ValueError(
-                    "all_cameras requested but no renderer was provided "
-                    "(build one via _get_renderer())"
-                )
-            ncam = int(self._model.ncam)
-            frames: list[np.ndarray] = []
-            for cam_id in range(ncam):
-                render_ctx.update_scene(self._data, camera=cam_id)
-                frames.append(render_ctx.render().astype(np.float32) / 255.0)
-            result["cameras"] = jnp.asarray(np.stack(frames, axis=0))
-        if input_spec.contact_pairs:
-            geom_bodyid = np.asarray(self._model.geom_bodyid)
-            pairs: list[float] = []
-            for i in range(int(self._data.ncon)):
-                contact = self._data.contact[i]
-                g1, g2 = int(contact.geom1), int(contact.geom2)
-                if g1 >= 0 and g2 >= 0:
-                    b1, b2 = int(geom_bodyid[g1]), int(geom_bodyid[g2])
-                    if b1 >= 0 and b2 >= 0:
-                        pairs.extend([float(b1), float(b2)])
-            result["contact_pairs"] = (
-                jnp.asarray(pairs, dtype=jnp.float64) if pairs
-                else jnp.zeros((0,), dtype=jnp.float64)
-            )
-        if not result:
-            result["qpos"] = jnp.asarray(np.asarray(self._data.qpos[: self.nq()], dtype=np.float64))
-            result["qvel"] = jnp.asarray(np.asarray(self._data.qvel[: self.nv()], dtype=np.float64))
-        return result
 
     # def get_model_cartesian_state(self) -> Array:
     #     xpos = np.asarray(self._data.xpos[:self._model.nbody], dtype=np.float64).reshape(-1)
@@ -1219,33 +1115,38 @@ class MujocoSimulator(Simulator):
         ctrl_vals = self._clamp_controls_to_actuator_range(ctrl_vals)
         return jnp.asarray(ctrl_vals)
 
-    def get_target_controls_from_target_velocities(self, target_vel_diff: Array) -> Array:
-        nu = self.nu()
-        nv = self.nv()
-        target_vel_vals = self._array_to_list(target_vel_diff, nu, "Target velocity")
-        actuator_joint_indices = self._get_actuator_joint_indices()
-        if len(actuator_joint_indices) != nu:
-            raise ValueError(
-                f"Actuator index mapping mismatch. Expected {nu}, got {len(actuator_joint_indices)}"
-            )
-        if not self._is_torque_actuator():
-            qpos = self.qpos()
-            t = 0.1
-            ctrl_vals = [
-                qpos[qpos_idx] + target_vel_vals[i] * t
-                for i, (qpos_idx, _) in enumerate(actuator_joint_indices)
-            ]
-            return jnp.asarray(ctrl_vals)
+    @staticmethod
+    def get_target_controls_from_target_velocities(
+        data: Any,
+        model: Any,
+        target_velocities: Array,
+    ) -> Array:
+        """Convert target joint velocities to controls from MuJoCo state.
 
-        qvel = self.qvel()
-        if len(qvel) != nv:
-            raise ValueError(f"Velocity dimension mismatch. Expected {nv}, got {len(qvel)}")
-        t = 0.1
-        qacc_des = np.zeros((nv,), dtype=np.float64)
-        for i, (_, dof_idx) in enumerate(actuator_joint_indices):
-            target_v = target_vel_vals[i]
-            v_curr = qvel[dof_idx]
-            qacc_des[dof_idx] = (target_v - v_curr) / t
-        qfrc_vals = np.asarray(self.inverse_dyn(jnp.asarray(qacc_des)), dtype=np.float64).tolist()
-        ctrl_vals = [qfrc_vals[dof_idx] for _, dof_idx in actuator_joint_indices]
-        return jnp.asarray(ctrl_vals)
+        This preserves the existing 0.1-second target-velocity horizon and
+        assumes each actuator is transmitted directly through a joint.
+        """
+        controls = target_velocities.reshape(data.ctrl.shape)
+        if controls.shape[0] == 0:
+            return controls
+
+        actuator_joint_ids = np.asarray(model.actuator_trnid)[:, 0]
+        qpos_indices = np.asarray(model.jnt_qposadr)[actuator_joint_ids]
+        dof_indices = np.asarray(model.jnt_dofadr)[actuator_joint_ids]
+        is_torque_actuator = (
+            int(np.asarray(model.actuator_biastype)[0])
+            == int(mujoco.mjtBias.mjBIAS_NONE)
+        )
+
+        if not is_torque_actuator:
+            return jnp.asarray(data.qpos[qpos_indices]) + controls * 0.1
+
+        desired_qacc = jnp.zeros_like(jnp.asarray(data.qacc)).at[dof_indices].set(
+            (controls - jnp.asarray(data.qvel)[dof_indices]) / 0.1
+        )
+        inverse_forces, _ = MujocoSimulator.inverse_dyn_pure(
+            data,
+            model,
+            desired_qacc,
+        )
+        return inverse_forces[dof_indices]
