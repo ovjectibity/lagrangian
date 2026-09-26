@@ -148,7 +148,14 @@ class Simulator(ABC):
 
     @staticmethod
     @abstractmethod
-    def reset_state(data: Any) -> None:
+    def init(
+        model_path: str | None = None,
+        mjcf: str | None = None,
+    ) -> tuple[Any, ...]:
+        """Build backend-native state from one MJCF source.
+
+        ``mjcf`` is an XML string; ``model_path`` is a path to an MJCF file.
+        """
         pass
 
     @staticmethod
@@ -170,22 +177,6 @@ class Simulator(ABC):
     @abstractmethod
     def nbody(data: Any) -> int:
         pass
-
-    # @abstractmethod
-    # def get_model_cartesian_state(self) -> Array:
-    #     pass
-
-    # @abstractmethod
-    # def get_world_body(data: Any) -> Any | None:
-    #     pass
-
-    # @abstractmethod
-    # def get_simul_update(self) -> tuple[list[float], list[float]]:
-    #     pass
-
-    # @abstractmethod
-    # def get_contact_body_index_pairs(self) -> list[tuple[int, int]]:
-    #     pass
 
     @staticmethod
     @abstractmethod
@@ -248,103 +239,131 @@ class Simulator(ABC):
 
 
 class MjxSimulator(Simulator):
-    def __init__(
-        self,
+    @staticmethod
+    def init(
         model_path: str | None = None,
         mjcf: str | None = None,
-    ) -> None:
+    ) -> tuple[Any, Any, Any, Any]:
+        """Build MJX and C MuJoCo state from an MJCF source.
+
+        Returns ``(mjx_data, mjx_model, mj_data, mj_model)``.
+        """
         if mujoco is None or mjx is None:
             raise ModuleNotFoundError(
                 "mujoco/mjx is not installed. Install dependencies with `uv sync`."
             )
-        if (model_path is None and mjcf is None) or (model_path is not None and mjcf is not None):
+        if (model_path is None) == (mjcf is None):
             raise ValueError("Provide exactly one of model_path or mjcf")
-        if mjcf is not None:
-            logger.info("MjxSimulator: loading model from XML string")
-            self._model = mujoco.MjModel.from_xml_string(mjcf)
-        else:
-            logger.info("MjxSimulator: loading model from path: %s", model_path)
-            self._model = mujoco.MjModel.from_xml_path(model_path)
-        logger.info(
-            "MjxSimulator: model loaded (nq=%s nu=%s nv=%s ngeom=%s nbody=%s nconmax=%s npair=%s)",
-            self._model.nq, self._model.nu, self._model.nv,
-            self._model.ngeom, self._model.nbody, self._model.nconmax, self._model.npair,
+
+        cpu_model = (
+            mujoco.MjModel.from_xml_string(mjcf)
+            if mjcf is not None
+            else mujoco.MjModel.from_xml_path(model_path)
         )
-        # logger.info("Tracing mjModel's texture coordinates %s",
-        #             self._model.mesh_texcoord,
-        #             self._model.mesh_texcoordadr,
-        #             self._model.mesh_texcoordnum,
-        #             self._model.mesh_facetexcoord)
+        cpu_data = mujoco.MjData(cpu_model)
+        mujoco.mj_forward(cpu_model, cpu_data)
+        mjx_model = mjx.put_model(cpu_model, impl="warp")
+        mjx_data = mjx.make_data(cpu_model, impl="warp")
+        mjx_data = mjx.forward(mjx_model, mjx_data)
+        return mjx_data, mjx_model, cpu_data, cpu_model
 
-        ## Fix for the render megakernel crash issue, 
-        # STLs don't have mesh texture coordinates but 
-        # still get textures enabled (causing the crash) if not 
-        # handled as follows
-        if len(self._model.mesh_texcoord) == 0: 
-            self._use_textures = False
-        else: 
-            self._use_textures = True
+    # def __init__(
+    #     self,
+    #     model_path: str | None = None,
+    #     mjcf: str | None = None,
+    # ) -> None:
+    #     if mujoco is None or mjx is None:
+    #         raise ModuleNotFoundError(
+    #             "mujoco/mjx is not installed. Install dependencies with `uv sync`."
+    #         )
+    #     if (model_path is None and mjcf is None) or (model_path is not None and mjcf is not None):
+    #         raise ValueError("Provide exactly one of model_path or mjcf")
+    #     if mjcf is not None:
+    #         logger.info("MjxSimulator: loading model from XML string")
+    #         self._model = mujoco.MjModel.from_xml_string(mjcf)
+    #     else:
+    #         logger.info("MjxSimulator: loading model from path: %s", model_path)
+    #         self._model = mujoco.MjModel.from_xml_path(model_path)
+    #     logger.info(
+    #         "MjxSimulator: model loaded (nq=%s nu=%s nv=%s ngeom=%s nbody=%s nconmax=%s npair=%s)",
+    #         self._model.nq, self._model.nu, self._model.nv,
+    #         self._model.ngeom, self._model.nbody, self._model.nconmax, self._model.npair,
+    #     )
+    #     # logger.info("Tracing mjModel's texture coordinates %s",
+    #     #             self._model.mesh_texcoord,
+    #     #             self._model.mesh_texcoordadr,
+    #     #             self._model.mesh_texcoordnum,
+    #     #             self._model.mesh_facetexcoord)
 
-        logger.info("MjxSimulator: creating MjData")
-        self._data = mujoco.MjData(self._model)
-        logger.info("MjxSimulator: running mj_forward")
-        mujoco.mj_forward(self._model, self._data)
-        logger.info(
-            "MjxSimulator: after mj_forward — ncon=%s (allocated contact buffer size=%s)",
-            self._data.ncon, self._data.contact.dist.shape[0],
-        )
-        logger.info("MjxSimulator: calling mjx.put_model")
-        # print(dir(mujoco.mjx.warp.types.GraphMode))
-        # graph_mode = mujoco.mjx.warp.types.GraphMode.NONE
-        self._mjx_model = mjx.put_model(
-            self._model,
-            impl="warp",
-            # graph_mode=graph_mode,
-        )
-        # self._mjx_model = self._mjx_model.replace(
-        #     opt=self._mjx_model.opt.replace(
-        #         _impl=self._mjx_model.opt._impl.replace(
-        #             graph_mode=graph_mode,
-        #         ),
-        #     ),
-        # )
-        # logger.info(
-        #     "MjxSimulator: requested graph mode: %r (%s)",
-        #     graph_mode,
-        #     int(graph_mode),
-        # )
-        # logger.info(
-        #     "MjxSimulator: stored graph mode: %r (%s)",
-        #     self._mjx_model.opt._impl.graph_mode,
-        #     int(self._mjx_model.opt._impl.graph_mode),
-        # )
-        logger.info("MjxSimulator: calling mjx.put_data")
-        # self._mjx_data = mjx.put_data(self._model, self._data, impl="warp")
-        self._mjx_data = mjx.make_data(self._model, impl="warp")
-        mjx.forward(self._mjx_model,self._mjx_data)
-        logger.info("MjxSimulator: init complete")
+    #     ## Fix for the render megakernel crash issue, 
+    #     # STLs don't have mesh texture coordinates but 
+    #     # still get textures enabled (causing the crash) if not 
+    #     # handled as follows
+    #     if len(self._model.mesh_texcoord) == 0: 
+    #         self._use_textures = False
+    #     else: 
+    #         self._use_textures = True
 
-        # Benchmark: isolate mjx.step timing
-        # logger.info("MjxSimulator: running mjx.step benchmark...")
-        # _bench_step = jax.jit(lambda d: mjx.step(self._mjx_model, d))
-        # t0 = time.time()
-        # _bench_lowered = _bench_step.lower(self._mjx_data)
-        # t1 = time.time()
-        # logger.info("MjxSimulator: bench — lowering took %.2fs", t1 - t0)
-        # _bench_compiled = _bench_lowered.compile()
-        # t2 = time.time()
-        # logger.info("MjxSimulator: bench — XLA compile took %.2fs", t2 - t1)
-        # _bench_result = _bench_compiled(self._mjx_data)
-        # jax.block_until_ready(_bench_result)
-        # t3 = time.time()
-        # logger.info("MjxSimulator: bench — first execution took %.2fs", t3 - t2)
-        # for _ in range(10):
-        #     _bench_result = _bench_compiled(_bench_result)
-        # jax.block_until_ready(_bench_result)
-        # t4 = time.time()
-        # logger.info("MjxSimulator: bench — 10 steps took %.2fs (%.4fs/step)", t4 - t3, (t4 - t3) / 10)
+    #     logger.info("MjxSimulator: creating MjData")
+    #     self._data = mujoco.MjData(self._model)
+    #     logger.info("MjxSimulator: running mj_forward")
+    #     mujoco.mj_forward(self._model, self._data)
+    #     logger.info(
+    #         "MjxSimulator: after mj_forward — ncon=%s (allocated contact buffer size=%s)",
+    #         self._data.ncon, self._data.contact.dist.shape[0],
+    #     )
+    #     logger.info("MjxSimulator: calling mjx.put_model")
+    #     # print(dir(mujoco.mjx.warp.types.GraphMode))
+    #     # graph_mode = mujoco.mjx.warp.types.GraphMode.NONE
+    #     self._mjx_model = mjx.put_model(
+    #         self._model,
+    #         impl="warp",
+    #         # graph_mode=graph_mode,
+    #     )
+    #     # self._mjx_model = self._mjx_model.replace(
+    #     #     opt=self._mjx_model.opt.replace(
+    #     #         _impl=self._mjx_model.opt._impl.replace(
+    #     #             graph_mode=graph_mode,
+    #     #         ),
+    #     #     ),
+    #     # )
+    #     # logger.info(
+    #     #     "MjxSimulator: requested graph mode: %r (%s)",
+    #     #     graph_mode,
+    #     #     int(graph_mode),
+    #     # )
+    #     # logger.info(
+    #     #     "MjxSimulator: stored graph mode: %r (%s)",
+    #     #     self._mjx_model.opt._impl.graph_mode,
+    #     #     int(self._mjx_model.opt._impl.graph_mode),
+    #     # )
+    #     logger.info("MjxSimulator: calling mjx.put_data")
+    #     # self._mjx_data = mjx.put_data(self._model, self._data, impl="warp")
+    #     self._mjx_data = mjx.make_data(self._model, impl="warp")
+    #     mjx.forward(self._mjx_model,self._mjx_data)
+    #     logger.info("MjxSimulator: init complete")
 
-        self.target_position: list[float] = self._get_actuated_qpos_targets()
+    #     # Benchmark: isolate mjx.step timing
+    #     # logger.info("MjxSimulator: running mjx.step benchmark...")
+    #     # _bench_step = jax.jit(lambda d: mjx.step(self._mjx_model, d))
+    #     # t0 = time.time()
+    #     # _bench_lowered = _bench_step.lower(self._mjx_data)
+    #     # t1 = time.time()
+    #     # logger.info("MjxSimulator: bench — lowering took %.2fs", t1 - t0)
+    #     # _bench_compiled = _bench_lowered.compile()
+    #     # t2 = time.time()
+    #     # logger.info("MjxSimulator: bench — XLA compile took %.2fs", t2 - t1)
+    #     # _bench_result = _bench_compiled(self._mjx_data)
+    #     # jax.block_until_ready(_bench_result)
+    #     # t3 = time.time()
+    #     # logger.info("MjxSimulator: bench — first execution took %.2fs", t3 - t2)
+    #     # for _ in range(10):
+    #     #     _bench_result = _bench_compiled(_bench_result)
+    #     # jax.block_until_ready(_bench_result)
+    #     # t4 = time.time()
+    #     # logger.info("MjxSimulator: bench — 10 steps took %.2fs (%.4fs/step)", t4 - t3, (t4 - t3) / 10)
+
+    #     self.target_position: list[float] = self._get_actuated_qpos_targets()
 
     def _get_render_context(self, nworld: int) -> Any:
         """Builds a fresh Warp render context sized for `nworld` worlds.
@@ -375,23 +394,27 @@ class MjxSimulator(Simulator):
 
     def qpos(self) -> list[float]:
         self._sync_cpu_from_mjx()
-        return np.asarray(self._data.qpos[: self.nq()], dtype=np.float64).tolist()
+        return np.asarray(
+            self._data.qpos[: MjxSimulator.nq(self._data)], dtype=np.float64
+        ).tolist()
 
     def qvel(self) -> list[float]:
         self._sync_cpu_from_mjx()
-        return np.asarray(self._data.qvel[: self.nv()], dtype=np.float64).tolist()
+        return np.asarray(
+            self._data.qvel[: MjxSimulator.nv(self._data)], dtype=np.float64
+        ).tolist()
 
     def _is_torque_actuator(self) -> bool:
-        nu = self.nu()
+        nu = MjxSimulator.nu(self._data)
         if nu == 0:
             return True
         first_biastype = int(np.asarray(self._model.actuator_biastype)[0])
         return first_biastype == int(mujoco.mjtBias.mjBIAS_NONE)
 
     def _get_actuator_joint_indices(self) -> list[tuple[int, int]]:
-        nu = self.nu()
-        nq = self.nq()
-        nv = self.nv()
+        nu = MjxSimulator.nu(self._data)
+        nq = MjxSimulator.nq(self._data)
+        nv = MjxSimulator.nv(self._data)
         actuator_trnid = np.asarray(self._model.actuator_trnid).reshape(nu, 2)
         jnt_qposadr = np.asarray(self._model.jnt_qposadr)
         jnt_dofadr = np.asarray(self._model.jnt_dofadr)
@@ -416,7 +439,7 @@ class MjxSimulator(Simulator):
         return indices
 
     def _clamp_controls_to_actuator_range(self, controls: list[float]) -> list[float]:
-        nu = self.nu()
+        nu = MjxSimulator.nu(self._data)
         if len(controls) != nu:
             raise ValueError(f"Control dimension mismatch. Expected {nu}, got {len(controls)}")
         ctrl_limited = np.asarray(self._model.actuator_ctrllimited)
@@ -433,7 +456,7 @@ class MjxSimulator(Simulator):
         return clamped
 
     def _get_actuated_qpos_targets(self) -> list[float]:
-        nu = self.nu()
+        nu = MjxSimulator.nu(self._data)
         qpos = self.qpos()
         actuator_joint_indices = self._get_actuator_joint_indices()
         if len(actuator_joint_indices) != nu:
@@ -499,28 +522,28 @@ class MjxSimulator(Simulator):
             "geoms": geoms_by_body.get(body_id),
         }
 
-    def reset_state(self) -> None:
-        mujoco.mj_resetData(self._model, self._data)
-        mujoco.mj_forward(self._model, self._data)
-        self._sync_mjx_from_cpu()
-        self.target_position = self._get_actuated_qpos_targets()
+    @staticmethod
+    def nq(data: Any) -> int:
+        return int(data.qpos.shape[0])
 
-    def nq(self) -> int:
-        return int(self._model.nq)
+    @staticmethod
+    def nu(data: Any) -> int:
+        return int(data.ctrl.shape[0])
 
-    def nu(self) -> int:
-        return int(self._model.nu)
+    @staticmethod
+    def nv(data: Any) -> int:
+        return int(data.qvel.shape[0])
 
-    def nv(self) -> int:
-        return int(self._model.nv)
-
-    def nbody(self) -> int:
-        return int(self._model.nbody)
+    @staticmethod
+    def nbody(data: Any) -> int:
+        return int(data.xpos.shape[0])
 
     def forward_dyn(self, controls: Array) -> None:
         print("Controls array is: ",controls)
         print("Controls dtype & shape is: ",controls.dtype,controls.shape)
-        self._mjx_data = self._mjx_data.replace(ctrl=controls.reshape(self.nu()))
+        self._mjx_data = self._mjx_data.replace(
+            ctrl=controls.reshape(MjxSimulator.nu(self._mjx_data))
+        )
         self._mjx_data = mjx.step(self._mjx_model, self._mjx_data)
         # self._mjx_data = mjx.refit_bvh(self._mjx_model, self._mjx_data, render_ctx.pytree())
 
@@ -576,9 +599,12 @@ class MjxSimulator(Simulator):
 
     def inverse_dyn(self, acc: Array) -> Array:
         self._sync_cpu_from_mjx()
-        self._data.qacc[: self.nv()] = np.asarray(jax.device_get(acc), dtype=np.float64).reshape(self.nv())
+        nv = MjxSimulator.nv(self._data)
+        self._data.qacc[:nv] = np.asarray(
+            jax.device_get(acc), dtype=np.float64
+        ).reshape(nv)
         mujoco.mj_inverse(self._model, self._data)
-        return jnp.asarray(np.asarray(self._data.qfrc_inverse[: self.nv()], dtype=np.float64))
+        return jnp.asarray(np.asarray(self._data.qfrc_inverse[:nv], dtype=np.float64))
 
     @staticmethod
     def inverse_dyn_pure(data: Any, model: Any, acc: Array) -> tuple[Array, Any]:
@@ -705,8 +731,9 @@ class MjxSimulator(Simulator):
     #     return contact_pairs
 
     def modify_target_position(self, target_pos_diff: Array) -> Array:
-        target_diff_vals = self._array_to_list(target_pos_diff, self.nu(), "Target position diff")
-        if len(self.target_position) != self.nu():
+        nu = MjxSimulator.nu(self._data)
+        target_diff_vals = self._array_to_list(target_pos_diff, nu, "Target position diff")
+        if len(self.target_position) != nu:
             self.target_position = self._get_actuated_qpos_targets()
         updated_targets = [target + diff for target, diff in zip(self.target_position, target_diff_vals)]
         self.target_position = self._clamp_controls_to_actuator_range(updated_targets)
@@ -745,40 +772,62 @@ class MjxSimulator(Simulator):
     #     return jnp.asarray(ctrl_vals)
 
 class MujocoSimulator(Simulator):
-    def __init__(
-        self,
+    @staticmethod
+    def init(
         model_path: str | None = None,
         mjcf: str | None = None,
-    ) -> None:
+    ) -> tuple[Any, Any]:
+        """Build forwarded MuJoCo ``(data, model)`` from an MJCF source."""
         if mujoco is None:
             raise ModuleNotFoundError(
                 "mujoco is not installed. Install dependencies with `uv sync`."
             )
-        if (model_path is None and mjcf is None) or (model_path is not None and mjcf is not None):
+        if (model_path is None) == (mjcf is None):
             raise ValueError("Provide exactly one of model_path or mjcf")
-        if mjcf is not None:
-            logger.info("MujocoSimulator: loading model from XML string")
-            self._model = mujoco.MjModel.from_xml_string(mjcf)
-        else:
-            logger.info("MujocoSimulator: loading model from path: %s", model_path)
-            self._model = mujoco.MjModel.from_xml_path(model_path)
-        logger.info("MujocoSimulator: model loaded (nq=%s nu=%s nv=%s)", self._model.nq, self._model.nu, self._model.nv)
-        self._data = mujoco.MjData(self._model)
-        mujoco.mj_forward(self._model, self._data)
-        logger.info("MujocoSimulator: init complete")
-        self.target_position: list[float] = self._get_actuated_qpos_targets()
+
+        model = (
+            mujoco.MjModel.from_xml_string(mjcf)
+            if mjcf is not None
+            else mujoco.MjModel.from_xml_path(model_path)
+        )
+        data = mujoco.MjData(model)
+        mujoco.mj_forward(model, data)
+        return data, model
+
+    # def __init__(
+    #     self,
+    #     model_path: str | None = None,
+    #     mjcf: str | None = None,
+    # ) -> None:
+    #     if mujoco is None:
+    #         raise ModuleNotFoundError(
+    #             "mujoco is not installed. Install dependencies with `uv sync`."
+    #         )
+    #     if (model_path is None and mjcf is None) or (model_path is not None and mjcf is not None):
+    #         raise ValueError("Provide exactly one of model_path or mjcf")
+    #     if mjcf is not None:
+    #         logger.info("MujocoSimulator: loading model from XML string")
+    #         self._model = mujoco.MjModel.from_xml_string(mjcf)
+    #     else:
+    #         logger.info("MujocoSimulator: loading model from path: %s", model_path)
+    #         self._model = mujoco.MjModel.from_xml_path(model_path)
+    #     logger.info("MujocoSimulator: model loaded (nq=%s nu=%s nv=%s)", self._model.nq, self._model.nu, self._model.nv)
+    #     self._data = mujoco.MjData(self._model)
+    #     mujoco.mj_forward(self._model, self._data)
+    #     logger.info("MujocoSimulator: init complete")
+    #     self.target_position: list[float] = self._get_actuated_qpos_targets()
 
     def _is_torque_actuator(self) -> bool:
-        nu = self.nu()
+        nu = MujocoSimulator.nu(self._data)
         if nu == 0:
             return True
         first_biastype = int(np.asarray(self._model.actuator_biastype)[0])
         return first_biastype == int(mujoco.mjtBias.mjBIAS_NONE)
 
     def _get_actuator_joint_indices(self) -> list[tuple[int, int]]:
-        nu = self.nu()
-        nq = self.nq()
-        nv = self.nv()
+        nu = MujocoSimulator.nu(self._data)
+        nq = MujocoSimulator.nq(self._data)
+        nv = MujocoSimulator.nv(self._data)
         actuator_trnid = np.asarray(self._model.actuator_trnid).reshape(nu, 2)
         jnt_qposadr = np.asarray(self._model.jnt_qposadr)
         jnt_dofadr = np.asarray(self._model.jnt_dofadr)
@@ -803,7 +852,7 @@ class MujocoSimulator(Simulator):
         return indices
 
     def _clamp_controls_to_actuator_range(self, controls: list[float]) -> list[float]:
-        nu = self.nu()
+        nu = MujocoSimulator.nu(self._data)
         if len(controls) != nu:
             raise ValueError(f"Control dimension mismatch. Expected {nu}, got {len(controls)}")
         ctrl_limited = np.asarray(self._model.actuator_ctrllimited)
@@ -820,7 +869,7 @@ class MujocoSimulator(Simulator):
         return clamped
 
     def _get_actuated_qpos_targets(self) -> list[float]:
-        nu = self.nu()
+        nu = MujocoSimulator.nu(self._data)
         qpos = self.qpos()
         actuator_joint_indices = self._get_actuator_joint_indices()
         if len(actuator_joint_indices) != nu:
@@ -886,28 +935,28 @@ class MujocoSimulator(Simulator):
             "geoms": geoms_by_body.get(body_id),
         }
 
-    def reset_state(self) -> None:
-        mujoco.mj_resetData(self._model, self._data)
-        mujoco.mj_forward(self._model, self._data)
-        self.target_position = self._get_actuated_qpos_targets()
+    @staticmethod
+    def nq(data: Any) -> int:
+        return int(data.qpos.shape[0])
 
-    def nq(self) -> int:
-        return int(self._model.nq)
+    @staticmethod
+    def nu(data: Any) -> int:
+        return int(data.ctrl.shape[0])
 
-    def nu(self) -> int:
-        return int(self._model.nu)
+    @staticmethod
+    def nv(data: Any) -> int:
+        return int(data.qvel.shape[0])
 
-    def nv(self) -> int:
-        return int(self._model.nv)
-
-    def nbody(self) -> int:
-        return int(self._model.nbody)
+    @staticmethod
+    def nbody(data: Any) -> int:
+        return int(data.xpos.shape[0])
 
     def forward_dyn(self, controls: Array) -> None:
         ctrl_vals = np.asarray(jax.device_get(controls), dtype=np.float64).reshape(-1).tolist()
-        if len(ctrl_vals) != self.nu():
-            raise ValueError(f"Control dimension mismatch. Expected {self.nu()}, got {len(ctrl_vals)}")
-        self._data.ctrl[:self.nu()] = ctrl_vals
+        nu = MujocoSimulator.nu(self._data)
+        if len(ctrl_vals) != nu:
+            raise ValueError(f"Control dimension mismatch. Expected {nu}, got {len(ctrl_vals)}")
+        self._data.ctrl[:nu] = ctrl_vals
         mujoco.mj_step(self._model, self._data)
 
     @staticmethod
@@ -921,9 +970,12 @@ class MujocoSimulator(Simulator):
         return data_next
 
     def inverse_dyn(self, acc: Array) -> Array:
-        self._data.qacc[:self.nv()] = np.asarray(jax.device_get(acc), dtype=np.float64).reshape(self.nv())
+        nv = MujocoSimulator.nv(self._data)
+        self._data.qacc[:nv] = np.asarray(
+            jax.device_get(acc), dtype=np.float64
+        ).reshape(nv)
         mujoco.mj_inverse(self._model, self._data)
-        return jnp.asarray(np.asarray(self._data.qfrc_inverse[:self.nv()], dtype=np.float64))
+        return jnp.asarray(np.asarray(self._data.qfrc_inverse[:nv], dtype=np.float64))
 
     @staticmethod
     def inverse_dyn_pure(data: Any, model: Any, acc: Array) -> tuple[Array, Any]:
@@ -1003,10 +1055,14 @@ class MujocoSimulator(Simulator):
         return result
 
     def qpos(self) -> list[float]:
-        return np.asarray(self._data.qpos[:self.nq()], dtype=np.float64).tolist()
+        return np.asarray(
+            self._data.qpos[: MujocoSimulator.nq(self._data)], dtype=np.float64
+        ).tolist()
 
     def qvel(self) -> list[float]:
-        return np.asarray(self._data.qvel[:self.nv()], dtype=np.float64).tolist()
+        return np.asarray(
+            self._data.qvel[: MujocoSimulator.nv(self._data)], dtype=np.float64
+        ).tolist()
 
     def _get_renderer(self) -> mujoco.Renderer:
         """Builds a fresh mujoco.Renderer for this model.
@@ -1076,16 +1132,17 @@ class MujocoSimulator(Simulator):
     #     return contact_pairs
 
     def modify_target_position(self, target_pos_diff: Array) -> Array:
-        target_diff_vals = self._array_to_list(target_pos_diff, self.nu(), "Target position diff")
-        if len(self.target_position) != self.nu():
+        nu = MujocoSimulator.nu(self._data)
+        target_diff_vals = self._array_to_list(target_pos_diff, nu, "Target position diff")
+        if len(self.target_position) != nu:
             self.target_position = self._get_actuated_qpos_targets()
         updated_targets = [target + diff for target, diff in zip(self.target_position, target_diff_vals)]
         self.target_position = self._clamp_controls_to_actuator_range(updated_targets)
         return jnp.asarray(self.target_position)
 
     def get_target_controls_from_target_positions(self, target_pos_diff: Array) -> Array:
-        nu = self.nu()
-        nv = self.nv()
+        nu = MujocoSimulator.nu(self._data)
+        nv = MujocoSimulator.nv(self._data)
         target_diff_vals = self._array_to_list(target_pos_diff, nu, "Target position diff")
         actuator_joint_indices = self._get_actuator_joint_indices()
         if len(actuator_joint_indices) != nu:
