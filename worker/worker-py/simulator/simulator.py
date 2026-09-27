@@ -269,21 +269,6 @@ class Simulator(ABC):
 
     @staticmethod
     @abstractmethod
-    def modify_target_position(
-        self,
-        target_pos_diff: jnp.ndarray | np.ndarray,
-    ) -> jnp.ndarray | np.ndarray:
-        pass
-
-    # @abstractmethod
-    # def get_target_controls_from_target_positions(
-    #     self,
-    #     target_pos_diff: jnp.ndarray | np.ndarray,
-    # ) -> jnp.ndarray | np.ndarray:
-    #     pass
-
-    @staticmethod
-    @abstractmethod
     def get_target_act_length_from_target_diff(
         model: Any,
         data: Any,
@@ -303,54 +288,6 @@ class Simulator(ABC):
     ) -> jnp.ndarray | np.ndarray:
         """Map an nv-sized policy output onto supported actuator inputs."""
         pass
-
-    @staticmethod
-    @abstractmethod
-    def get_target_controls_from_target_velocities(
-        data: Any,
-        model: Any,
-        target_velocities: jnp.ndarray | np.ndarray,
-    ) -> jnp.ndarray | np.ndarray:
-        pass
-
-    # @staticmethod
-    # def _compute_actuated_qpos_indices(model: Any) -> jnp.ndarray:
-    #     """Return qpos indices belonging to each actuated joint.
-
-    #     For hinge/slide joints: 1 component. Ball: 4. Free: 7.
-    #     The result has model-dependent length, so compute it once from the
-    #     untraced MuJoCo model and pass it to ``get_model_state_pure``.
-    #     """
-    #     nu = int(model.nu)
-    #     nq = int(model.nq)
-    #     njnt = int(model.njnt)
-    #     indices: list[int] = []
-    #     actuator_trnid = np.asarray(model.actuator_trnid).reshape(nu, 2)
-    #     jnt_qposadr = np.asarray(model.jnt_qposadr)
-    #     jnt_type = np.asarray(model.jnt_type)
-    #     for actuator_idx in range(nu):
-    #         joint_id = int(actuator_trnid[actuator_idx, 0])
-    #         if not 0 <= joint_id < njnt:
-    #             raise ValueError(
-    #                 f"Actuator {actuator_idx} is not attached to a valid joint"
-    #             )
-    #         qpos_adr = int(jnt_qposadr[joint_id])
-    #         jtype = int(jnt_type[joint_id])
-    #         # mjtJoint: 0=free(7), 1=ball(4), 2=slide(1), 3=hinge(1)
-    #         if jtype == 0:
-    #             n = 7
-    #         elif jtype == 1:
-    #             n = 4
-    #         else:
-    #             n = 1
-    #         if qpos_adr < 0 or qpos_adr + n > nq:
-    #             raise ValueError(
-    #                 f"Actuated joint {joint_id} has an invalid qpos address"
-    #             )
-    #         indices.extend(range(qpos_adr, qpos_adr + n))
-    #     return jnp.asarray(indices, dtype=jnp.int32)
-
-
 
 class MjxSimulator(Simulator):
     @staticmethod
@@ -477,8 +414,6 @@ class MjxSimulator(Simulator):
     #     # t4 = time.time()
     #     # logger.info("MjxSimulator: bench — 10 steps took %.2fs (%.4fs/step)", t4 - t3, (t4 - t3) / 10)
 
-    #     self.target_position: list[float] = self._get_actuated_qpos_targets()
-
     def _get_render_context(self, nworld: int) -> Any:
         """Builds a fresh Warp render context sized for `nworld` worlds.
 
@@ -499,142 +434,6 @@ class MjxSimulator(Simulator):
         # self._mjx_data = mjx.refit_bvh(self._mjx_model,self._mjx_data,ctx.pytree())
         return ctx
 
-    def _sync_cpu_from_mjx(self) -> None:
-        self._data = mjx.get_data(self._model, self._mjx_data)
-
-    def _sync_mjx_from_cpu(self) -> None:
-        self._mjx_data = mjx.put_data(self._model, self._data, impl="warp")
-        # self._mjx_data = mjx.make_data(self._model, impl="warp")
-
-    def qpos(self) -> list[float]:
-        return self._mjx_data.qpos[: MjxSimulator.nq(self._mjx_data)].tolist()
-
-    def qvel(self) -> list[float]:
-        return self._mjx_data.qvel[: MjxSimulator.nv(self._mjx_data)].tolist()
-
-    def _is_torque_actuator(self) -> bool:
-        nu = MjxSimulator.nu(self._data)
-        if nu == 0:
-            return True
-        first_biastype = int(self._mjx_model.actuator_biastype[0])
-        return first_biastype == int(mujoco.mjtBias.mjBIAS_NONE)
-
-    def _get_actuator_joint_indices(self) -> list[tuple[int, int]]:
-        nu = MjxSimulator.nu(self._data)
-        nq = MjxSimulator.nq(self._data)
-        nv = MjxSimulator.nv(self._data)
-        actuator_trnid = self._mjx_model.actuator_trnid.reshape(nu, 2)
-        jnt_qposadr = self._mjx_model.jnt_qposadr
-        jnt_dofadr = self._mjx_model.jnt_dofadr
-        indices: list[tuple[int, int]] = []
-        for actuator_idx in range(nu):
-            joint_id = int(actuator_trnid[actuator_idx, 0])
-            if joint_id < 0:
-                raise ValueError(
-                    f"Actuator {actuator_idx} is not attached to a valid joint (joint_id={joint_id})"
-                )
-            qpos_adr = int(jnt_qposadr[joint_id])
-            dof_adr = int(jnt_dofadr[joint_id])
-            if qpos_adr < 0 or qpos_adr >= nq:
-                raise ValueError(
-                    f"Invalid qpos address {qpos_adr} for actuator {actuator_idx} (nq={nq})"
-                )
-            if dof_adr < 0 or dof_adr >= nv:
-                raise ValueError(
-                    f"Invalid dof address {dof_adr} for actuator {actuator_idx} (nv={nv})"
-                )
-            indices.append((qpos_adr, dof_adr))
-        return indices
-
-    def _clamp_controls_to_actuator_range(self, controls: list[float]) -> list[float]:
-        nu = MjxSimulator.nu(self._data)
-        if len(controls) != nu:
-            raise ValueError(f"Control dimension mismatch. Expected {nu}, got {len(controls)}")
-        ctrl_limited = self._mjx_model.actuator_ctrllimited
-        ctrl_range = self._mjx_model.actuator_ctrlrange.reshape(nu, 2)
-        clamped: list[float] = []
-        for i, val in enumerate(controls):
-            is_limited = bool(ctrl_limited[i]) if ctrl_limited.size else True
-            if not is_limited:
-                clamped.append(float(val))
-                continue
-            min_v = float(ctrl_range[i, 0])
-            max_v = float(ctrl_range[i, 1])
-            clamped.append(float(jnp.clip(val, min_v, max_v)))
-        return clamped
-
-    def _get_actuated_qpos_targets(self) -> list[float]:
-        nu = MjxSimulator.nu(self._data)
-        qpos = self.qpos()
-        actuator_joint_indices = self._get_actuator_joint_indices()
-        if len(actuator_joint_indices) != nu:
-            raise ValueError(
-                f"Actuator index mapping mismatch. Expected {nu}, got {len(actuator_joint_indices)}"
-            )
-        targets = [qpos[qpos_idx] for qpos_idx, _ in actuator_joint_indices]
-        return self._clamp_controls_to_actuator_range(targets)
-
-    def _array_to_list(
-        self,
-        x: jnp.ndarray,
-        expected_size: int,
-        name: str,
-    ) -> list[float]:
-        vals = x.reshape(-1).tolist()
-        if len(vals) != expected_size:
-            raise ValueError(
-                f"{name} dimension mismatch. Expected {expected_size}, got {len(vals)}"
-            )
-        return vals
-
-    def _extract_mesh_data_as_obj(self, mesh_id: int) -> str | None:
-        if mesh_id < 0:
-            return None
-        vert_adr = int(np.asarray(self._model.mesh_vertadr)[mesh_id])
-        vert_num = int(np.asarray(self._model.mesh_vertnum)[mesh_id])
-        face_adr = int(np.asarray(self._model.mesh_faceadr)[mesh_id])
-        face_num = int(np.asarray(self._model.mesh_facenum)[mesh_id])
-        verts = np.asarray(self._model.mesh_vert)[vert_adr : vert_adr + vert_num]
-        faces = np.asarray(self._model.mesh_face)[face_adr : face_adr + face_num]
-        obj_rows: list[str] = []
-        for x, y, z in verts:
-            obj_rows.append(f"v {x} {y} {z}")
-        for a, b, c in faces:
-            obj_rows.append(f"f {int(a) + 1} {int(b) + 1} {int(c) + 1}")
-        return "\n".join(obj_rows)
-
-    def _geom_type_name(self, geom_type: int) -> str | None:
-        geom_map = {
-            int(mujoco.mjtGeom.mjGEOM_PLANE): "Plane",
-            int(mujoco.mjtGeom.mjGEOM_SPHERE): "Sphere",
-            int(mujoco.mjtGeom.mjGEOM_CYLINDER): "Cylinder",
-            int(mujoco.mjtGeom.mjGEOM_CAPSULE): "Capsule",
-            int(mujoco.mjtGeom.mjGEOM_BOX): "Box",
-            int(mujoco.mjtGeom.mjGEOM_MESH): "Mesh",
-        }
-        return geom_map.get(int(geom_type))
-
-    def _build_body_recursive(
-        self,
-        body_id: int,
-        geoms_by_body: dict[int, list[dict[str, Any]]],
-        children_by_body: dict[int, list[int]],
-    ) -> dict[str, Any]:
-        children = [
-            self._build_body_recursive(child_id, geoms_by_body, children_by_body)
-            for child_id in children_by_body.get(body_id, [])
-        ]
-        body_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_BODY, body_id)
-        return {
-            "name": body_name,
-            "body_id": body_id,
-            "pos": np.asarray(self._data.xpos[body_id], dtype=np.float32).tolist(),
-            "quat": np.asarray(self._data.xquat[body_id], dtype=np.float32).tolist(),
-            "euler": None,
-            "bodies": children if children else None,
-            "geoms": geoms_by_body.get(body_id),
-        }
-
     @staticmethod
     def nq(data: Any) -> int:
         return int(data.qpos.shape[0])
@@ -650,15 +449,6 @@ class MjxSimulator(Simulator):
     @staticmethod
     def nbody(data: Any) -> int:
         return int(data.xpos.shape[0])
-
-    def forward_dyn(self, controls: jnp.ndarray) -> None:
-        print("Controls array is: ",controls)
-        print("Controls dtype & shape is: ",controls.dtype,controls.shape)
-        self._mjx_data = self._mjx_data.replace(
-            ctrl=controls.reshape(MjxSimulator.nu(self._mjx_data))
-        )
-        self._mjx_data = mjx.step(self._mjx_model, self._mjx_data)
-        # self._mjx_data = mjx.refit_bvh(self._mjx_model, self._mjx_data, render_ctx.pytree())
 
     @staticmethod
     def forward_dyn_pure(data: Any, model: Any, controls: jnp.ndarray) -> Any:
@@ -919,58 +709,6 @@ class MjxSimulator(Simulator):
         return actuator_input
 
     @staticmethod
-    def get_target_controls_from_target_velocities(
-        data: Any,
-        model: Any,
-        target_velocities: jnp.ndarray,
-    ) -> jnp.ndarray:
-        """Convert target joint velocities to controls from MJX state.
-
-        This preserves the existing 0.1-second target-velocity horizon and
-        assumes each actuator is transmitted directly through a joint.
-        """
-        controls = target_velocities.reshape(data.ctrl.shape)
-        if controls.shape[0] == 0:
-            return controls
-
-        actuator_joint_ids = model.actuator_trnid[:, 0]
-        qpos_indices = model.jnt_qposadr[actuator_joint_ids]
-        dof_indices = model.jnt_dofadr[actuator_joint_ids]
-        is_torque_actuator = (
-            model.actuator_biastype[0]
-            == int(mujoco.mjtBias.mjBIAS_NONE)
-        )
-
-        def position_controls(_: None) -> jnp.ndarray:
-            return data.qpos[qpos_indices] + controls * 0.1
-
-        def torque_controls(_: None) -> jnp.ndarray:
-            desired_qacc = jnp.zeros_like(data.qacc).at[dof_indices].set(
-                (controls - data.qvel[dof_indices]) / 0.1
-            )
-            inverse_forces, _ = MjxSimulator.inverse_dyn_pure(
-                data,
-                model,
-                desired_qacc,
-            )
-            return inverse_forces[dof_indices]
-
-        return jax.lax.cond(
-            is_torque_actuator,
-            torque_controls,
-            position_controls,
-            operand=None,
-        )
-
-    def inverse_dyn(self, acc: jnp.ndarray) -> jnp.ndarray:
-        forces, self._mjx_data = MjxSimulator.inverse_dyn_pure(
-            self._mjx_data,
-            self._mjx_model,
-            acc,
-        )
-        return forces
-
-    @staticmethod
     def inverse_dyn_pure(
         data: Any,
         model: Any,
@@ -1038,111 +776,6 @@ class MjxSimulator(Simulator):
 
         return result
 
-    # def get_model_cartesian_state(self) -> jnp.ndarray:
-    #     self._sync_cpu_from_mjx()
-    #     xpos = np.asarray(self._data.xpos[: self._model.nbody], dtype=np.float64).reshape(-1)
-    #     xquat = np.asarray(self._data.xquat[: self._model.nbody], dtype=np.float64).reshape(-1)
-    #     return jnp.asarray(np.concatenate([xpos, xquat], axis=0))
-
-    # def get_world_body(self) -> Any | None:
-    #     self._sync_cpu_from_mjx()
-    #     geoms_by_body: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    #     for geom_id in range(int(self._model.ngeom)):
-    #         geom_type_val = int(np.asarray(self._model.geom_type)[geom_id])
-    #         geom_body_id = int(np.asarray(self._model.geom_bodyid)[geom_id])
-    #         geom_type = self._geom_type_name(geom_type_val)
-    #         geom_dataid = int(np.asarray(self._model.geom_dataid)[geom_id])
-    #         mesh_obj = self._extract_mesh_data_as_obj(geom_dataid) if geom_type == "Mesh" else None
-    #         geom_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
-    #         geom = {
-    #             "name": geom_name,
-    #             "pos": np.asarray(self._model.geom_pos[geom_id], dtype=np.float32).tolist(),
-    #             "quat": np.asarray(self._model.geom_quat[geom_id], dtype=np.float32).tolist(),
-    #             "euler": None,
-    #             "geom_t": geom_type,
-    #             "size": np.asarray(self._model.geom_size[geom_id], dtype=np.float32).tolist(),
-    #             "mesh_obj": mesh_obj,
-    #             "group": int(np.asarray(self._model.geom_group)[geom_id]),
-    #         }
-    #         geoms_by_body[geom_body_id].append(geom)
-
-    #     children_by_body: dict[int, list[int]] = defaultdict(list)
-    #     body_parentid = np.asarray(self._model.body_parentid)
-    #     for body_id in range(1, int(self._model.nbody)):
-    #         parent_id = int(body_parentid[body_id])
-    #         children_by_body[parent_id].append(body_id)
-
-    #     world_root = self._build_body_recursive(0, geoms_by_body, children_by_body)
-    #     return {"bodies": [world_root]}
-
-    # def get_simul_update(self) -> tuple[list[float], list[float]]:
-    #     self._sync_cpu_from_mjx()
-    #     xpos = np.asarray(self._data.xpos[: self._model.nbody], dtype=np.float64).reshape(-1)
-    #     xquat = np.asarray(self._data.xquat[: self._model.nbody], dtype=np.float64).reshape(-1)
-    #     return xpos.tolist(), xquat.tolist()
-
-    # def get_contact_body_index_pairs(self) -> list[tuple[int, int]]:
-    #     self._sync_cpu_from_mjx()
-    #     ncon = int(self._data.ncon)
-    #     geom_bodyid = np.asarray(self._model.geom_bodyid)
-    #     contact_pairs: list[tuple[int, int]] = []
-    #     for i in range(ncon):
-    #         contact = self._data.contact[i]
-    #         geom1 = int(contact.geom1)
-    #         geom2 = int(contact.geom2)
-    #         if geom1 < 0 or geom2 < 0:
-    #             continue
-    #         body1 = int(geom_bodyid[geom1])
-    #         body2 = int(geom_bodyid[geom2])
-    #         if body1 < 0 or body2 < 0:
-    #             continue
-    #         contact_pairs.append((body1, body2))
-    #     return contact_pairs
-
-    def modify_target_position(self, target_pos_diff: jnp.ndarray) -> jnp.ndarray:
-        nu = MjxSimulator.nu(self._data)
-        target_diff_vals = self._array_to_list(target_pos_diff, nu, "Target position diff")
-        if len(self.target_position) != nu:
-            self.target_position = self._get_actuated_qpos_targets()
-        updated_targets = [target + diff for target, diff in zip(self.target_position, target_diff_vals)]
-        self.target_position = self._clamp_controls_to_actuator_range(updated_targets)
-        return jnp.asarray(self.target_position)
-
-    # def get_target_controls_from_target_positions(
-    #     self,
-    #     target_pos_diff: jnp.ndarray,
-    # ) -> jnp.ndarray:
-    #     nu = self.nu()
-    #     nv = self.nv()
-    #     target_diff_vals = self._array_to_list(target_pos_diff, nu, "Target position diff")
-    #     actuator_joint_indices = self._get_actuator_joint_indices()
-    #     if len(actuator_joint_indices) != nu:
-    #         raise ValueError(
-    #             f"Actuator index mapping mismatch. Expected {nu}, got {len(actuator_joint_indices)}"
-    #         )
-    #     if not self._is_torque_actuator():
-    #         qpos = self.qpos()
-    #         ctrl_vals = [
-    #             qpos[qpos_idx] + target_diff_vals[i]
-    #             for i, (qpos_idx, _) in enumerate(actuator_joint_indices)
-    #         ]
-    #         ctrl_vals = self._clamp_controls_to_actuator_range(ctrl_vals)
-    #         return jnp.asarray(ctrl_vals)
-
-    #     t = 0.1
-    #     qvel = self.qvel()
-    #     if len(qvel) != nv:
-    #         raise ValueError(f"Velocity dimension mismatch. Expected {nv}, got {len(qvel)}")
-    #     qacc_des = np.zeros((nv,), dtype=np.float64)
-    #     for i, (_, dof_idx) in enumerate(actuator_joint_indices):
-    #         dq = target_diff_vals[i]
-    #         v = qvel[dof_idx]
-    #         qacc_des[dof_idx] = ((dq / t) - v) / t
-    #     qfrc_vals = np.asarray(self.inverse_dyn(jnp.asarray(qacc_des)), dtype=np.float64).tolist()
-    #     ctrl_vals = [qfrc_vals[dof_idx] for _, dof_idx in actuator_joint_indices]
-    #     ctrl_vals = self._clamp_controls_to_actuator_range(ctrl_vals)
-    #     return jnp.asarray(ctrl_vals)
-
 class MujocoSimulator(Simulator):
     @staticmethod
     def init(
@@ -1187,130 +820,6 @@ class MujocoSimulator(Simulator):
     #     self._data = mujoco.MjData(self._model)
     #     mujoco.mj_forward(self._model, self._data)
     #     logger.info("MujocoSimulator: init complete")
-    #     self.target_position: list[float] = self._get_actuated_qpos_targets()
-
-    def _is_torque_actuator(self) -> bool:
-        nu = MujocoSimulator.nu(self._data)
-        if nu == 0:
-            return True
-        first_biastype = int(np.asarray(self._model.actuator_biastype)[0])
-        return first_biastype == int(mujoco.mjtBias.mjBIAS_NONE)
-
-    def _get_actuator_joint_indices(self) -> list[tuple[int, int]]:
-        nu = MujocoSimulator.nu(self._data)
-        nq = MujocoSimulator.nq(self._data)
-        nv = MujocoSimulator.nv(self._data)
-        actuator_trnid = np.asarray(self._model.actuator_trnid).reshape(nu, 2)
-        jnt_qposadr = np.asarray(self._model.jnt_qposadr)
-        jnt_dofadr = np.asarray(self._model.jnt_dofadr)
-        indices: list[tuple[int, int]] = []
-        for actuator_idx in range(nu):
-            joint_id = int(actuator_trnid[actuator_idx, 0])
-            if joint_id < 0:
-                raise ValueError(
-                    f"Actuator {actuator_idx} is not attached to a valid joint (joint_id={joint_id})"
-                )
-            qpos_adr = int(jnt_qposadr[joint_id])
-            dof_adr = int(jnt_dofadr[joint_id])
-            if qpos_adr < 0 or qpos_adr >= nq:
-                raise ValueError(
-                    f"Invalid qpos address {qpos_adr} for actuator {actuator_idx} (nq={nq})"
-                )
-            if dof_adr < 0 or dof_adr >= nv:
-                raise ValueError(
-                    f"Invalid dof address {dof_adr} for actuator {actuator_idx} (nv={nv})"
-                )
-            indices.append((qpos_adr, dof_adr))
-        return indices
-
-    def _clamp_controls_to_actuator_range(self, controls: list[float]) -> list[float]:
-        nu = MujocoSimulator.nu(self._data)
-        if len(controls) != nu:
-            raise ValueError(f"Control dimension mismatch. Expected {nu}, got {len(controls)}")
-        ctrl_limited = np.asarray(self._model.actuator_ctrllimited)
-        ctrl_range = np.asarray(self._model.actuator_ctrlrange, dtype=np.float64).reshape(nu, 2)
-        clamped: list[float] = []
-        for i, val in enumerate(controls):
-            is_limited = bool(ctrl_limited[i]) if ctrl_limited.size else True
-            if not is_limited:
-                clamped.append(float(val))
-                continue
-            min_v = float(ctrl_range[i, 0])
-            max_v = float(ctrl_range[i, 1])
-            clamped.append(float(np.clip(val, min_v, max_v)))
-        return clamped
-
-    def _get_actuated_qpos_targets(self) -> list[float]:
-        nu = MujocoSimulator.nu(self._data)
-        qpos = self.qpos()
-        actuator_joint_indices = self._get_actuator_joint_indices()
-        if len(actuator_joint_indices) != nu:
-            raise ValueError(
-                f"Actuator index mapping mismatch. Expected {nu}, got {len(actuator_joint_indices)}"
-            )
-        targets = [qpos[qpos_idx] for qpos_idx, _ in actuator_joint_indices]
-        return self._clamp_controls_to_actuator_range(targets)
-
-    def _array_to_list(
-        self,
-        x: np.ndarray,
-        expected_size: int,
-        name: str,
-    ) -> list[float]:
-        vals = x.reshape(-1).tolist()
-        if len(vals) != expected_size:
-            raise ValueError(
-                f"{name} dimension mismatch. Expected {expected_size}, got {len(vals)}"
-            )
-        return vals
-
-    def _extract_mesh_data_as_obj(self, mesh_id: int) -> str | None:
-        if mesh_id < 0:
-            return None
-        vert_adr = int(np.asarray(self._model.mesh_vertadr)[mesh_id])
-        vert_num = int(np.asarray(self._model.mesh_vertnum)[mesh_id])
-        face_adr = int(np.asarray(self._model.mesh_faceadr)[mesh_id])
-        face_num = int(np.asarray(self._model.mesh_facenum)[mesh_id])
-        verts = np.asarray(self._model.mesh_vert)[vert_adr : vert_adr + vert_num]
-        faces = np.asarray(self._model.mesh_face)[face_adr : face_adr + face_num]
-        obj_rows: list[str] = []
-        for x, y, z in verts:
-            obj_rows.append(f"v {x} {y} {z}")
-        for a, b, c in faces:
-            obj_rows.append(f"f {int(a) + 1} {int(b) + 1} {int(c) + 1}")
-        return "\n".join(obj_rows)
-
-    def _geom_type_name(self, geom_type: int) -> str | None:
-        geom_map = {
-            int(mujoco.mjtGeom.mjGEOM_PLANE): "Plane",
-            int(mujoco.mjtGeom.mjGEOM_SPHERE): "Sphere",
-            int(mujoco.mjtGeom.mjGEOM_CYLINDER): "Cylinder",
-            int(mujoco.mjtGeom.mjGEOM_CAPSULE): "Capsule",
-            int(mujoco.mjtGeom.mjGEOM_BOX): "Box",
-            int(mujoco.mjtGeom.mjGEOM_MESH): "Mesh",
-        }
-        return geom_map.get(int(geom_type))
-
-    def _build_body_recursive(
-        self,
-        body_id: int,
-        geoms_by_body: dict[int, list[dict[str, Any]]],
-        children_by_body: dict[int, list[int]],
-    ) -> dict[str, Any]:
-        children = [
-            self._build_body_recursive(child_id, geoms_by_body, children_by_body)
-            for child_id in children_by_body.get(body_id, [])
-        ]
-        body_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_BODY, body_id)
-        return {
-            "name": body_name,
-            "body_id": body_id,
-            "pos": np.asarray(self._data.xpos[body_id], dtype=np.float32).tolist(),
-            "quat": np.asarray(self._data.xquat[body_id], dtype=np.float32).tolist(),
-            "euler": None,
-            "bodies": children if children else None,
-            "geoms": geoms_by_body.get(body_id),
-        }
 
     @staticmethod
     def nq(data: Any) -> int:
@@ -1328,14 +837,6 @@ class MujocoSimulator(Simulator):
     def nbody(data: Any) -> int:
         return int(data.xpos.shape[0])
 
-    def forward_dyn(self, controls: np.ndarray) -> None:
-        ctrl_vals = controls.reshape(-1)
-        nu = MujocoSimulator.nu(self._data)
-        if len(ctrl_vals) != nu:
-            raise ValueError(f"Control dimension mismatch. Expected {nu}, got {len(ctrl_vals)}")
-        self._data.ctrl[:nu] = ctrl_vals
-        mujoco.mj_step(self._model, self._data)
-
     @staticmethod
     def forward_dyn_pure(data: Any, model: Any, controls: np.ndarray) -> Any:
         """Return a stepped copy of MuJoCo data without mutating ``data``."""
@@ -1343,12 +844,6 @@ class MujocoSimulator(Simulator):
         data_next.ctrl[:] = controls.reshape(data_next.ctrl.shape)
         mujoco.mj_step(model, data_next)
         return data_next
-
-    def inverse_dyn(self, acc: np.ndarray) -> np.ndarray:
-        nv = MujocoSimulator.nv(self._data)
-        self._data.qacc[:nv] = acc.reshape(nv)
-        mujoco.mj_inverse(self._model, self._data)
-        return self._data.qfrc_inverse[:nv].copy()
 
     @staticmethod
     def inverse_dyn_pure(
@@ -1417,16 +912,6 @@ class MujocoSimulator(Simulator):
 
         return result
 
-    def qpos(self) -> list[float]:
-        return np.asarray(
-            self._data.qpos[: MujocoSimulator.nq(self._data)], dtype=np.float64
-        ).tolist()
-
-    def qvel(self) -> list[float]:
-        return np.asarray(
-            self._data.qvel[: MujocoSimulator.nv(self._data)], dtype=np.float64
-        ).tolist()
-
     def _get_renderer(self) -> mujoco.Renderer:
         """Builds a fresh mujoco.Renderer for this model.
 
@@ -1436,110 +921,6 @@ class MujocoSimulator(Simulator):
         rather than reconstructing it on every get_model_state call.
         """
         return mujoco.Renderer(self._model, height=_CAM_HEIGHT, width=_CAM_WIDTH)
-
-    # def get_model_cartesian_state(self) -> np.ndarray:
-    #     xpos = np.asarray(self._data.xpos[:self._model.nbody], dtype=np.float64).reshape(-1)
-    #     xquat = np.asarray(self._data.xquat[:self._model.nbody], dtype=np.float64).reshape(-1)
-    #     return jnp.asarray(np.concatenate([xpos, xquat], axis=0))
-
-    # def get_world_body(self) -> Any | None:
-    #     geoms_by_body: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    #     for geom_id in range(int(self._model.ngeom)):
-    #         geom_type_val = int(np.asarray(self._model.geom_type)[geom_id])
-    #         geom_body_id = int(np.asarray(self._model.geom_bodyid)[geom_id])
-    #         geom_type = self._geom_type_name(geom_type_val)
-    #         geom_dataid = int(np.asarray(self._model.geom_dataid)[geom_id])
-    #         mesh_obj = self._extract_mesh_data_as_obj(geom_dataid) if geom_type == "Mesh" else None
-    #         geom_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
-    #         geom = {
-    #             "name": geom_name,
-    #             "pos": np.asarray(self._model.geom_pos[geom_id], dtype=np.float32).tolist(),
-    #             "quat": np.asarray(self._model.geom_quat[geom_id], dtype=np.float32).tolist(),
-    #             "euler": None,
-    #             "geom_t": geom_type,
-    #             "size": np.asarray(self._model.geom_size[geom_id], dtype=np.float32).tolist(),
-    #             "mesh_obj": mesh_obj,
-    #             "group": int(np.asarray(self._model.geom_group)[geom_id]),
-    #         }
-    #         geoms_by_body[geom_body_id].append(geom)
-
-    #     children_by_body: dict[int, list[int]] = defaultdict(list)
-    #     body_parentid = np.asarray(self._model.body_parentid)
-    #     for body_id in range(1, int(self._model.nbody)):
-    #         parent_id = int(body_parentid[body_id])
-    #         children_by_body[parent_id].append(body_id)
-
-    #     world_root = self._build_body_recursive(0, geoms_by_body, children_by_body)
-    #     return {"bodies": [world_root]}
-
-    # def get_simul_update(self) -> tuple[list[float], list[float]]:
-    #     xpos = np.asarray(self._data.xpos[:self._model.nbody], dtype=np.float64).reshape(-1)
-    #     xquat = np.asarray(self._data.xquat[:self._model.nbody], dtype=np.float64).reshape(-1)
-    #     return xpos.tolist(), xquat.tolist()
-
-    # def get_contact_body_index_pairs(self) -> list[tuple[int, int]]:
-    #     ncon = int(self._data.ncon)
-    #     geom_bodyid = np.asarray(self._model.geom_bodyid)
-    #     contact_pairs: list[tuple[int, int]] = []
-    #     for i in range(ncon):
-    #         contact = self._data.contact[i]
-    #         geom1 = int(contact.geom1)
-    #         geom2 = int(contact.geom2)
-    #         if geom1 < 0 or geom2 < 0:
-    #             continue
-    #         body1 = int(geom_bodyid[geom1])
-    #         body2 = int(geom_bodyid[geom2])
-    #         if body1 < 0 or body2 < 0:
-    #             continue
-    #         contact_pairs.append((body1, body2))
-    #     return contact_pairs
-
-    def modify_target_position(
-        self,
-        target_pos_diff: np.ndarray,
-    ) -> np.ndarray:
-        nu = MujocoSimulator.nu(self._data)
-        target_diff_vals = self._array_to_list(target_pos_diff, nu, "Target position diff")
-        if len(self.target_position) != nu:
-            self.target_position = self._get_actuated_qpos_targets()
-        updated_targets = [target + diff for target, diff in zip(self.target_position, target_diff_vals)]
-        self.target_position = self._clamp_controls_to_actuator_range(updated_targets)
-        return np.asarray(self.target_position)
-
-    def get_target_controls_from_target_positions(
-        self,
-        target_pos_diff: np.ndarray,
-    ) -> np.ndarray:
-        nu = MujocoSimulator.nu(self._data)
-        nv = MujocoSimulator.nv(self._data)
-        target_diff_vals = self._array_to_list(target_pos_diff, nu, "Target position diff")
-        actuator_joint_indices = self._get_actuator_joint_indices()
-        if len(actuator_joint_indices) != nu:
-            raise ValueError(
-                f"Actuator index mapping mismatch. Expected {nu}, got {len(actuator_joint_indices)}"
-            )
-        if not self._is_torque_actuator():
-            qpos = self.qpos()
-            ctrl_vals = [
-                qpos[qpos_idx] + target_diff_vals[i]
-                for i, (qpos_idx, _) in enumerate(actuator_joint_indices)
-            ]
-            ctrl_vals = self._clamp_controls_to_actuator_range(ctrl_vals)
-            return np.asarray(ctrl_vals)
-
-        t = 0.1
-        qvel = self.qvel()
-        if len(qvel) != nv:
-            raise ValueError(f"Velocity dimension mismatch. Expected {nv}, got {len(qvel)}")
-        qacc_des = np.zeros((nv,), dtype=np.float64)
-        for i, (_, dof_idx) in enumerate(actuator_joint_indices):
-            dq = target_diff_vals[i]
-            v = qvel[dof_idx]
-            qacc_des[dof_idx] = ((dq / t) - v) / t
-        qfrc_vals = self.inverse_dyn(qacc_des).tolist()
-        ctrl_vals = [qfrc_vals[dof_idx] for _, dof_idx in actuator_joint_indices]
-        ctrl_vals = self._clamp_controls_to_actuator_range(ctrl_vals)
-        return np.asarray(ctrl_vals)
 
     @staticmethod
     def get_target_act_length_from_target_diff(
@@ -1756,40 +1137,3 @@ class MujocoSimulator(Simulator):
             )
 
         return actuator_input
-
-    @staticmethod
-    def get_target_controls_from_target_velocities(
-        data: Any,
-        model: Any,
-        target_velocities: np.ndarray,
-    ) -> np.ndarray:
-        """Convert target joint velocities to controls from MuJoCo state.
-
-        This preserves the existing 0.1-second target-velocity horizon and
-        assumes each actuator is transmitted directly through a joint.
-        """
-        controls = target_velocities.reshape(data.ctrl.shape)
-        if controls.shape[0] == 0:
-            return controls
-
-        actuator_joint_ids = model.actuator_trnid[:, 0]
-        qpos_indices = model.jnt_qposadr[actuator_joint_ids]
-        dof_indices = model.jnt_dofadr[actuator_joint_ids]
-        is_torque_actuator = (
-            int(model.actuator_biastype[0])
-            == int(mujoco.mjtBias.mjBIAS_NONE)
-        )
-
-        if not is_torque_actuator:
-            return data.qpos[qpos_indices] + controls * 0.1
-
-        desired_qacc = np.zeros_like(data.qacc)
-        desired_qacc[dof_indices] = (
-            controls - data.qvel[dof_indices]
-        ) / 0.1
-        inverse_forces, _ = MujocoSimulator.inverse_dyn_pure(
-            data,
-            model,
-            desired_qacc,
-        )
-        return inverse_forces[dof_indices]
