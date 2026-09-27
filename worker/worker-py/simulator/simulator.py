@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 import copy
 import logging
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -92,82 +93,6 @@ class Simulator(ABC):
         )
 
     @staticmethod
-    def _get_position_actuator_indices(model: Any) -> np.ndarray:
-        """Return compiled actuator indices for scalar position servos.
-
-        MuJoCo compiles actuator shortcuts into generic actuator parameters.
-        A position servo has fixed gain, affine bias with a position-feedback
-        term, and non-integrator dynamics. Integrated-velocity servos share
-        the position-feedback term but use integrator dynamics and are
-        intentionally excluded.
-
-        This helper runs once against the CPU ``MjModel`` during setup. Each
-        selected actuator must have exactly one control and one force output.
-        """
-        if mujoco is None:
-            raise ModuleNotFoundError(
-                "mujoco is not installed. Install dependencies with `uv sync`."
-            )
-
-        nactuator = int(getattr(model, "nactuator", model.nu))
-        if nactuator == 0:
-            return np.zeros((0,), dtype=np.int32)
-
-        gain_type = np.asarray(model.actuator_gaintype).reshape(nactuator)
-        bias_type = np.asarray(model.actuator_biastype).reshape(nactuator)
-        dyn_type = np.asarray(model.actuator_dyntype).reshape(nactuator)
-        gain_params = np.asarray(model.actuator_gainprm).reshape(nactuator, -1)
-        bias_params = np.asarray(model.actuator_biasprm).reshape(nactuator, -1)
-        if gain_params.shape[1] < 1 or bias_params.shape[1] < 2:
-            raise ValueError("MuJoCo actuator gain or bias parameters are incomplete")
-
-        is_position_actuator = (
-            (gain_type == int(mujoco.mjtGain.mjGAIN_FIXED))
-            & (bias_type == int(mujoco.mjtBias.mjBIAS_AFFINE))
-            & (dyn_type != int(mujoco.mjtDyn.mjDYN_INTEGRATOR))
-            & np.isclose(bias_params[:, 0], 0.0)
-            & ~np.isclose(bias_params[:, 1], 0.0)
-            & np.isclose(gain_params[:, 0], -bias_params[:, 1])
-        )
-        actuator_indices = np.flatnonzero(is_position_actuator).astype(
-            np.int32,
-            copy=False,
-        )
-
-        control_counts = np.asarray(
-            getattr(
-                model,
-                "actuator_ctrlnum",
-                np.ones((nactuator,), dtype=np.int32),
-            )
-        ).reshape(nactuator)
-        output_counts = np.asarray(
-            getattr(
-                model,
-                "actuator_outnum",
-                np.ones((nactuator,), dtype=np.int32),
-            )
-        ).reshape(nactuator)
-        invalid_control_count = actuator_indices[
-            control_counts[actuator_indices] != 1
-        ]
-        if invalid_control_count.size:
-            raise ValueError(
-                "Position actuators must each have exactly one control input; "
-                f"invalid actuator indices: {invalid_control_count.tolist()}"
-            )
-        invalid_output_count = actuator_indices[
-            output_counts[actuator_indices] != 1
-        ]
-        if invalid_output_count.size:
-            raise ValueError(
-                "Position actuators must each have exactly one force output; "
-                f"invalid actuator indices: {invalid_output_count.tolist()}"
-            )
-
-        return actuator_indices
-
-    @staticmethod
     def _get_contact_pair_sensor_state(
         data: Any,
         contact_sensor_addresses: jnp.ndarray | np.ndarray,
@@ -226,8 +151,8 @@ class Simulator(ABC):
         contact_body_pairs: jnp.ndarray | np.ndarray | None = None,
     ) -> dict[str, jnp.ndarray | np.ndarray]:
         """render_ctx: caller-managed camera render handle, required only when
-        input_spec.all_cameras is set. See Simulator._get_render_context /
-        Simulator._get_renderer (impl-specific) for how to build one.
+        input_spec.all_cameras is set. See Simulator.get_render_context for
+        how to build one.
 
         Contact pairs are returned only when ``input_spec.contact_pairs`` and
         both contact metadata arrays are supplied. The arrays are generated
@@ -249,6 +174,16 @@ class Simulator(ABC):
 
     @staticmethod
     @abstractmethod
+    def get_render_context(model: Any, nworld: int = 1) -> Any:
+        """Build a caller-owned backend render context for ``model``.
+
+        MJX callers pass the CPU ``MjModel`` returned by ``init`` because
+        rendering resources are created from the MuJoCo model.
+        """
+        pass
+
+    @staticmethod
+    @abstractmethod
     def nq(data: Any) -> int:
         pass
 
@@ -265,17 +200,6 @@ class Simulator(ABC):
     @staticmethod
     @abstractmethod
     def nbody(data: Any) -> int:
-        pass
-
-    @staticmethod
-    @abstractmethod
-    def get_target_act_length_from_target_diff(
-        model: Any,
-        data: Any,
-        target_diff: jnp.ndarray | np.ndarray,
-        position_actuator_indices: jnp.ndarray | np.ndarray,
-    ) -> jnp.ndarray | np.ndarray:
-        """Return position-actuator length targets from actuator-length deltas."""
         pass
 
     @staticmethod
@@ -306,115 +230,87 @@ class MjxSimulator(Simulator):
         if (model_path is None) == (mjcf is None):
             raise ValueError("Provide exactly one of model_path or mjcf")
 
-        cpu_model = (
-            mujoco.MjModel.from_xml_string(mjcf)
-            if mjcf is not None
-            else mujoco.MjModel.from_xml_path(model_path)
+        if mjcf is not None:
+            logger.info("MjxSimulator: loading model from XML string")
+            cpu_model = mujoco.MjModel.from_xml_string(mjcf)
+        else:
+            logger.info("MjxSimulator: loading model from path: %s", model_path)
+            cpu_model = mujoco.MjModel.from_xml_path(model_path)
+        logger.info(
+            "MjxSimulator: model loaded (nq=%s nu=%s nv=%s ngeom=%s "
+            "nbody=%s nconmax=%s npair=%s)",
+            cpu_model.nq,
+            cpu_model.nu,
+            cpu_model.nv,
+            cpu_model.ngeom,
+            cpu_model.nbody,
+            cpu_model.nconmax,
+            cpu_model.npair,
         )
+        logger.info(
+            "MjxSimulator: model texture coordinates "
+            "(mesh_texcoord=%s mesh_texcoordadr=%s mesh_texcoordnum=%s "
+            "mesh_facetexcoord=%s)",
+            cpu_model.mesh_texcoord,
+            cpu_model.mesh_texcoordadr,
+            cpu_model.mesh_texcoordnum,
+            cpu_model.mesh_facetexcoord,
+        )
+
+        logger.info("MjxSimulator: creating MjData")
         cpu_data = mujoco.MjData(cpu_model)
+        logger.info("MjxSimulator: running mj_forward")
         mujoco.mj_forward(cpu_model, cpu_data)
+        logger.info(
+            "MjxSimulator: after mj_forward — ncon=%s "
+            "(allocated contact buffer size=%s)",
+            cpu_data.ncon,
+            cpu_data.contact.dist.shape[0],
+        )
+
+        logger.info("MjxSimulator: calling mjx.put_model")
         mjx_model = mjx.put_model(cpu_model, impl="warp")
+        logger.info("MjxSimulator: calling mjx.make_data")
         mjx_data = mjx.make_data(cpu_model, impl="warp")
         mjx_data = mjx.forward(mjx_model, mjx_data)
+        logger.info("MjxSimulator: init complete")
+
+        logger.info("MjxSimulator: tracing and benchmarking mjx.step")
+        bench_step = jax.jit(lambda data: mjx.step(mjx_model, data))
+        start = time.perf_counter()
+        bench_lowered = bench_step.lower(mjx_data)
+        lowered_at = time.perf_counter()
+        logger.info(
+            "MjxSimulator: benchmark — lowering took %.2fs",
+            lowered_at - start,
+        )
+        bench_compiled = bench_lowered.compile()
+        compiled_at = time.perf_counter()
+        logger.info(
+            "MjxSimulator: benchmark — XLA compilation took %.2fs",
+            compiled_at - lowered_at,
+        )
+        bench_result = bench_compiled(mjx_data)
+        jax.block_until_ready(bench_result)
+        first_execution_at = time.perf_counter()
+        logger.info(
+            "MjxSimulator: benchmark — first execution took %.2fs",
+            first_execution_at - compiled_at,
+        )
+        for _ in range(10):
+            bench_result = bench_compiled(bench_result)
+        jax.block_until_ready(bench_result)
+        finished_at = time.perf_counter()
+        logger.info(
+            "MjxSimulator: benchmark — 10 steps took %.2fs (%.4fs/step)",
+            finished_at - first_execution_at,
+            (finished_at - first_execution_at) / 10,
+        )
+
         return mjx_data, mjx_model, cpu_data, cpu_model
 
-    # def __init__(
-    #     self,
-    #     model_path: str | None = None,
-    #     mjcf: str | None = None,
-    # ) -> None:
-    #     if mujoco is None or mjx is None:
-    #         raise ModuleNotFoundError(
-    #             "mujoco/mjx is not installed. Install dependencies with `uv sync`."
-    #         )
-    #     if (model_path is None and mjcf is None) or (model_path is not None and mjcf is not None):
-    #         raise ValueError("Provide exactly one of model_path or mjcf")
-    #     if mjcf is not None:
-    #         logger.info("MjxSimulator: loading model from XML string")
-    #         self._model = mujoco.MjModel.from_xml_string(mjcf)
-    #     else:
-    #         logger.info("MjxSimulator: loading model from path: %s", model_path)
-    #         self._model = mujoco.MjModel.from_xml_path(model_path)
-    #     logger.info(
-    #         "MjxSimulator: model loaded (nq=%s nu=%s nv=%s ngeom=%s nbody=%s nconmax=%s npair=%s)",
-    #         self._model.nq, self._model.nu, self._model.nv,
-    #         self._model.ngeom, self._model.nbody, self._model.nconmax, self._model.npair,
-    #     )
-    #     # logger.info("Tracing mjModel's texture coordinates %s",
-    #     #             self._model.mesh_texcoord,
-    #     #             self._model.mesh_texcoordadr,
-    #     #             self._model.mesh_texcoordnum,
-    #     #             self._model.mesh_facetexcoord)
-
-    #     ## Fix for the render megakernel crash issue, 
-    #     # STLs don't have mesh texture coordinates but 
-    #     # still get textures enabled (causing the crash) if not 
-    #     # handled as follows
-    #     if len(self._model.mesh_texcoord) == 0: 
-    #         self._use_textures = False
-    #     else: 
-    #         self._use_textures = True
-
-    #     logger.info("MjxSimulator: creating MjData")
-    #     self._data = mujoco.MjData(self._model)
-    #     logger.info("MjxSimulator: running mj_forward")
-    #     mujoco.mj_forward(self._model, self._data)
-    #     logger.info(
-    #         "MjxSimulator: after mj_forward — ncon=%s (allocated contact buffer size=%s)",
-    #         self._data.ncon, self._data.contact.dist.shape[0],
-    #     )
-    #     logger.info("MjxSimulator: calling mjx.put_model")
-    #     # print(dir(mujoco.mjx.warp.types.GraphMode))
-    #     # graph_mode = mujoco.mjx.warp.types.GraphMode.NONE
-    #     self._mjx_model = mjx.put_model(
-    #         self._model,
-    #         impl="warp",
-    #         # graph_mode=graph_mode,
-    #     )
-    #     # self._mjx_model = self._mjx_model.replace(
-    #     #     opt=self._mjx_model.opt.replace(
-    #     #         _impl=self._mjx_model.opt._impl.replace(
-    #     #             graph_mode=graph_mode,
-    #     #         ),
-    #     #     ),
-    #     # )
-    #     # logger.info(
-    #     #     "MjxSimulator: requested graph mode: %r (%s)",
-    #     #     graph_mode,
-    #     #     int(graph_mode),
-    #     # )
-    #     # logger.info(
-    #     #     "MjxSimulator: stored graph mode: %r (%s)",
-    #     #     self._mjx_model.opt._impl.graph_mode,
-    #     #     int(self._mjx_model.opt._impl.graph_mode),
-    #     # )
-    #     logger.info("MjxSimulator: calling mjx.put_data")
-    #     # self._mjx_data = mjx.put_data(self._model, self._data, impl="warp")
-    #     self._mjx_data = mjx.make_data(self._model, impl="warp")
-    #     mjx.forward(self._mjx_model,self._mjx_data)
-    #     logger.info("MjxSimulator: init complete")
-
-    #     # Benchmark: isolate mjx.step timing
-    #     # logger.info("MjxSimulator: running mjx.step benchmark...")
-    #     # _bench_step = jax.jit(lambda d: mjx.step(self._mjx_model, d))
-    #     # t0 = time.time()
-    #     # _bench_lowered = _bench_step.lower(self._mjx_data)
-    #     # t1 = time.time()
-    #     # logger.info("MjxSimulator: bench — lowering took %.2fs", t1 - t0)
-    #     # _bench_compiled = _bench_lowered.compile()
-    #     # t2 = time.time()
-    #     # logger.info("MjxSimulator: bench — XLA compile took %.2fs", t2 - t1)
-    #     # _bench_result = _bench_compiled(self._mjx_data)
-    #     # jax.block_until_ready(_bench_result)
-    #     # t3 = time.time()
-    #     # logger.info("MjxSimulator: bench — first execution took %.2fs", t3 - t2)
-    #     # for _ in range(10):
-    #     #     _bench_result = _bench_compiled(_bench_result)
-    #     # jax.block_until_ready(_bench_result)
-    #     # t4 = time.time()
-    #     # logger.info("MjxSimulator: bench — 10 steps took %.2fs (%.4fs/step)", t4 - t3, (t4 - t3) / 10)
-
-    def _get_render_context(self, nworld: int) -> Any:
+    @staticmethod
+    def get_render_context(model: mujoco.MjModel, nworld: int = 1) -> Any:
         """Builds a fresh Warp render context sized for `nworld` worlds.
 
         Stateless — the Simulator does not own or cache this. Building it is
@@ -428,11 +324,21 @@ class MjxSimulator(Simulator):
         key, not a reference back to this object. Call .pytree() to get the
         JAX-traceable/vmappable handle to pass into mjx.render/get_rgb.
         """
-        ctx = mjx.create_render_context(
-            self._model, nworld=nworld,
-            use_textures=self._use_textures) #, cam_res=(_CAM_WIDTH, _CAM_HEIGHT)
-        # self._mjx_data = mjx.refit_bvh(self._mjx_model,self._mjx_data,ctx.pytree())
-        return ctx
+        if mujoco is None or mjx is None:
+            raise ModuleNotFoundError(
+                "mujoco/mjx is not installed. Install dependencies with `uv sync`."
+            )
+        if nworld < 1:
+            raise ValueError("nworld must be at least 1")
+
+        # STLs do not contain mesh texture coordinates, but textures can still
+        # be enabled for them and cause the render megakernel to crash.
+        use_textures = len(model.mesh_texcoord) > 0
+        return mjx.create_render_context(
+            model,
+            nworld=nworld,
+            use_textures=use_textures,
+        )
 
     @staticmethod
     def nq(data: Any) -> int:
@@ -455,49 +361,6 @@ class MjxSimulator(Simulator):
         """Return the next immutable MJX state without mutating ``data``."""
         data_with_controls = data.replace(ctrl=controls.reshape(data.ctrl.shape))
         return mjx.step(model, data_with_controls)
-
-    @staticmethod
-    def get_target_act_length_from_target_diff(
-        model: Any,
-        data: Any,
-        target_diff: jnp.ndarray,
-        position_actuator_indices: jnp.ndarray,
-    ) -> jnp.ndarray:
-        """Add actuator-length deltas to MJX position-servo lengths."""
-        if target_diff.ndim != 1:
-            raise ValueError("target_diff must be one-dimensional")
-        if position_actuator_indices.ndim != 1:
-            raise ValueError("position_actuator_indices must be one-dimensional")
-        if target_diff.shape[0] != position_actuator_indices.shape[0]:
-            raise ValueError(
-                "target_diff length must equal the number of position "
-                "actuators: "
-                f"expected {position_actuator_indices.shape[0]}, "
-                f"got {target_diff.shape[0]}"
-            )
-        if target_diff.shape[0] == 0:
-            return target_diff
-
-        control_indices = (
-            model.actuator_ctrladr[position_actuator_indices]
-            if hasattr(model, "actuator_ctrladr")
-            else position_actuator_indices
-        )
-        output_indices = (
-            model.actuator_outadr[position_actuator_indices]
-            if hasattr(model, "actuator_outadr")
-            else position_actuator_indices
-        )
-        target_lengths = data.actuator_length[output_indices] + target_diff
-        return jnp.where(
-            model.actuator_ctrllimited[control_indices],
-            jnp.clip(
-                target_lengths,
-                model.actuator_ctrlrange[control_indices, 0],
-                model.actuator_ctrlrange[control_indices, 1],
-            ),
-            target_lengths,
-        )
 
     @staticmethod
     def get_actuator_input_from_control_input(
@@ -790,36 +653,24 @@ class MujocoSimulator(Simulator):
         if (model_path is None) == (mjcf is None):
             raise ValueError("Provide exactly one of model_path or mjcf")
 
-        model = (
-            mujoco.MjModel.from_xml_string(mjcf)
-            if mjcf is not None
-            else mujoco.MjModel.from_xml_path(model_path)
+        if mjcf is not None:
+            logger.info("MujocoSimulator: loading model from XML string")
+            model = mujoco.MjModel.from_xml_string(mjcf)
+        else:
+            logger.info("MujocoSimulator: loading model from path: %s", model_path)
+            model = mujoco.MjModel.from_xml_path(model_path)
+        logger.info(
+            "MujocoSimulator: model loaded (nq=%s nu=%s nv=%s)",
+            model.nq,
+            model.nu,
+            model.nv,
         )
+        logger.info("MujocoSimulator: creating MjData")
         data = mujoco.MjData(model)
+        logger.info("MujocoSimulator: running mj_forward")
         mujoco.mj_forward(model, data)
+        logger.info("MujocoSimulator: init complete")
         return data, model
-
-    # def __init__(
-    #     self,
-    #     model_path: str | None = None,
-    #     mjcf: str | None = None,
-    # ) -> None:
-    #     if mujoco is None:
-    #         raise ModuleNotFoundError(
-    #             "mujoco is not installed. Install dependencies with `uv sync`."
-    #         )
-    #     if (model_path is None and mjcf is None) or (model_path is not None and mjcf is not None):
-    #         raise ValueError("Provide exactly one of model_path or mjcf")
-    #     if mjcf is not None:
-    #         logger.info("MujocoSimulator: loading model from XML string")
-    #         self._model = mujoco.MjModel.from_xml_string(mjcf)
-    #     else:
-    #         logger.info("MujocoSimulator: loading model from path: %s", model_path)
-    #         self._model = mujoco.MjModel.from_xml_path(model_path)
-    #     logger.info("MujocoSimulator: model loaded (nq=%s nu=%s nv=%s)", self._model.nq, self._model.nu, self._model.nv)
-    #     self._data = mujoco.MjData(self._model)
-    #     mujoco.mj_forward(self._model, self._data)
-    #     logger.info("MujocoSimulator: init complete")
 
     @staticmethod
     def nq(data: Any) -> int:
@@ -912,7 +763,11 @@ class MujocoSimulator(Simulator):
 
         return result
 
-    def _get_renderer(self) -> mujoco.Renderer:
+    @staticmethod
+    def get_render_context(
+        model: mujoco.MjModel,
+        nworld: int = 1,
+    ) -> mujoco.Renderer:
         """Builds a fresh mujoco.Renderer for this model.
 
         Stateless — the Simulator does not own or cache this. Construction is
@@ -920,50 +775,13 @@ class MujocoSimulator(Simulator):
         (e.g. before a per-timestep loop) and reuse/close it themselves,
         rather than reconstructing it on every get_model_state call.
         """
-        return mujoco.Renderer(self._model, height=_CAM_HEIGHT, width=_CAM_WIDTH)
-
-    @staticmethod
-    def get_target_act_length_from_target_diff(
-        model: Any,
-        data: Any,
-        target_diff: np.ndarray,
-        position_actuator_indices: np.ndarray,
-    ) -> np.ndarray:
-        """Add actuator-length deltas to MuJoCo position-servo lengths."""
-        if target_diff.ndim != 1:
-            raise ValueError("target_diff must be one-dimensional")
-        if position_actuator_indices.ndim != 1:
-            raise ValueError("position_actuator_indices must be one-dimensional")
-        if target_diff.shape[0] != position_actuator_indices.shape[0]:
-            raise ValueError(
-                "target_diff length must equal the number of position "
-                "actuators: "
-                f"expected {position_actuator_indices.shape[0]}, "
-                f"got {target_diff.shape[0]}"
+        if mujoco is None:
+            raise ModuleNotFoundError(
+                "mujoco is not installed. Install dependencies with `uv sync`."
             )
-        if target_diff.shape[0] == 0:
-            return target_diff
-
-        control_indices = (
-            model.actuator_ctrladr[position_actuator_indices]
-            if hasattr(model, "actuator_ctrladr")
-            else position_actuator_indices
-        )
-        output_indices = (
-            model.actuator_outadr[position_actuator_indices]
-            if hasattr(model, "actuator_outadr")
-            else position_actuator_indices
-        )
-        target_lengths = data.actuator_length[output_indices] + target_diff
-        return np.where(
-            model.actuator_ctrllimited[control_indices],
-            np.clip(
-                target_lengths,
-                model.actuator_ctrlrange[control_indices, 0],
-                model.actuator_ctrlrange[control_indices, 1],
-            ),
-            target_lengths,
-        )
+        if nworld != 1:
+            raise ValueError("MuJoCo rendering supports only nworld=1")
+        return mujoco.Renderer(model, height=_CAM_HEIGHT, width=_CAM_WIDTH)
 
     @staticmethod
     def get_actuator_input_from_control_input(
