@@ -32,12 +32,10 @@ if os.getenv("CUDA_DEBUG_MODE") == "1":
 
 import asyncio
 import base64
-import functools
 import hmac
 import io
 import json
 import logging
-import math
 import ssl
 import tempfile
 import threading
@@ -48,17 +46,12 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 import jax
-import jax.numpy as jnp
-import numpy as np
-import orbax.checkpoint as ocp
 import websockets
 from pydantic import ValidationError
 from websockets.exceptions import ConnectionClosed
 
 from commondef.remoteworkermessages import (
     ControlModelVLA,
-    ControlOutputModeFlowMatchingAction,
-    PPOTrainingMethod,
     RemoteWorkerServerMessageTypes,
     StartTestMessage,
     StartTrainingMessage,
@@ -68,7 +61,7 @@ from commondef.remoteworkermessages import (
 )
 from commondef.training import ModelInputSpec
 from models.mlp import MLPModel
-from models.model import PPOTrainedModel, TestingModel
+from models.model import TestingModel
 from models.pi0.pi0 import Pi0Model
 from simulator.simulator import MjxSimulator, MujocoSimulator, Simulator
 from workflows.testing import CallbackTestingTaskSink, TestingWorkflow
@@ -129,58 +122,6 @@ def _extract_presented_secret(websocket: Any) -> str | None:
     return None
 
 
-def _build_model_for_training(
-    simulator: Simulator,
-    params: PPOTrainingMethod,
-    reward_fn: Any,
-    rng_key: Any = None,
-) -> PPOTrainedModel:
-    if isinstance(params.control_model, ControlModelVLA):
-        if not isinstance(params.control_output_mode, ControlOutputModeFlowMatchingAction):
-            raise ValueError(
-                "VLA control model requires control_output_mode=FlowMatchingAction(FlowNoise)"
-            )
-        vla_spec = params.control_model.content
-        noise_mlp_spec = params.control_output_mode.content.content.noise_model
-        return Pi0Model(
-            vla_spec,
-            noise_mlp_spec,
-            control_input_spec=vla_spec.input_spec,
-            value_input_spec=params.value_model.content.input_spec,
-            reward_input_spec=params.reward_function.input_spec,
-        )
-
-    control_mlp = params.control_model.content
-    value_mlp = params.value_model.content
-    policy, policy_store = MLPModel.init_policy(
-        input_dimension=int(control_mlp.input_dim),
-        output_dimension=int(control_mlp.output_dim),
-        hidden_layer_dimension=int(control_mlp.hidden_layer_dim),
-        num_layers=int(control_mlp.num_hidden_layers),
-        add_softmax=False,
-        control_policy=True,
-    )
-    value, value_store = MLPModel.init_policy(
-        input_dimension=int(value_mlp.input_dim),
-        output_dimension=int(value_mlp.output_dim),
-        hidden_layer_dimension=int(value_mlp.hidden_layer_dim),
-        num_layers=int(value_mlp.num_hidden_layers),
-        add_softmax=False,
-        control_policy=False,
-    )
-    return MLPModel.init_ppo_trained_model(
-        policy=policy,
-        val_estimator=value,
-        pol_store=policy_store,
-        val_estimator_store=value_store,
-        control_input_spec=control_mlp.input_spec,
-        value_input_spec=value_mlp.input_spec,
-        reward_input_spec=params.reward_function.input_spec,
-        reward_fn=reward_fn,
-        rng_key=rng_key,
-    )
-
-
 def _build_model_for_testing(
     control_model: Any,
     rng_key: Any = None,
@@ -229,30 +170,6 @@ def _build_model_for_testing(
     )
 
 
-def _load_checkpoint_into_model(
-    model: PPOTrainedModel,
-    model_zip_base64: str,
-    training_id: str,
-) -> None:
-    restore_dir = f"/tmp/checkpoints/{training_id}/loaded"
-    zip_bytes = base64.b64decode(model_zip_base64)
-    os.makedirs(restore_dir, exist_ok=True)
-    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
-        zf.extractall(restore_dir)
-    checkpointer = ocp.PyTreeCheckpointer()
-    policy_store = checkpointer.restore(
-        os.path.join(restore_dir, "policy"),
-        item=model.get_policy_store(),
-    )
-    value_store = checkpointer.restore(
-        os.path.join(restore_dir, "value"),
-        item=model.get_value_store(),
-    )
-    model.policy_store = policy_store
-    model.value_store = value_store
-    logger.info("Checkpoint loaded: training_id=%s restore_dir=%s", training_id, restore_dir)
-
-
 def _extract_sim_model_from_zip(
     model_zip_base64: str,
 ) -> tuple[tempfile.TemporaryDirectory, str]:
@@ -275,17 +192,23 @@ def _extract_sim_model_from_zip(
         raise
 
 
-def _load_user_reward_fn(code: str) -> Any:
-    ns: dict[str, Any] = {
-        "jax": jax, "jnp": jnp, "numpy": np, "np": np,
-        "math": math, "functools": functools,
-        "__builtins__": {"__import__": __import__},
-    }
-    exec(compile(code, "<reward_fn>", "exec"), ns)
-    fn = ns.get("reward")
-    if fn is None or not callable(fn):
-        raise ValueError("reward function not found in code")
-    return fn
+def _extract_checkpoint_from_zip(
+    checkpoint_zip_base64: str,
+) -> tuple[tempfile.TemporaryDirectory, str]:
+    tempdir = tempfile.TemporaryDirectory(prefix="lagrangian-checkpoint-")
+    root = Path(tempdir.name).resolve()
+    try:
+        zip_bytes = base64.b64decode(checkpoint_zip_base64)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            for member in zf.namelist():
+                member_path = (root / member).resolve()
+                if member_path != root and root not in member_path.parents:
+                    raise ValueError(f"Unsafe zip member: {member}")
+            zf.extractall(root)
+        return tempdir, str(root)
+    except Exception:
+        tempdir.cleanup()
+        raise
 
 
 def _log_message_payload(msg: str, training_id: str = "system") -> dict[str, Any]:
@@ -376,83 +299,90 @@ async def handle_connection(
                     continue
 
                 training_controller = start_msg.training_graph.training_job_controller
-                acceleration_mode = training_controller.acceleration_mode
                 ppo_params = training_controller.training_method.content
                 sim_model_zip = start_msg.simulation_models.get(ppo_params.simulation_model)
 
-                model_path: str | None = None
-                model_tmpdir: tempfile.TemporaryDirectory | None = None
-                if sim_model_zip:
+                if sim_model_zip is None:
+                    await send_queue.put(_log_message_payload(
+                        f"Training not started: simulation model "
+                        f"'{ppo_params.simulation_model}' was not provided",
+                        training_id=training_id,
+                    ))
+                    continue
+
+                try:
                     model_tmpdir, model_path = _extract_sim_model_from_zip(sim_model_zip)
-
-                try:
-                    user_reward_fn = _load_user_reward_fn(
-                        ppo_params.reward_function.reward_function_code
-                    )
                 except Exception as exc:
-                    logger.warning("Invalid reward function for training_id=%s: %s", training_id, exc)
+                    logger.exception(
+                        "Simulation model extraction failed for training_id=%s",
+                        training_id,
+                    )
                     await send_queue.put(_log_message_payload(
-                        f"Training not started: reward function invalid: {exc}", training_id=training_id
+                        f"Simulation model extraction failed: "
+                        f"{type(exc).__name__}: {exc}",
+                        training_id=training_id,
                     ))
-                    if model_tmpdir is not None:
-                        model_tmpdir.cleanup()
                     continue
 
-                if acceleration_mode == TrainingAccelerationMode.MLCPUSIMULATIONCPU:
-                    simulator: Simulator = MujocoSimulator(model_path=model_path, mjcf=None)
-                else:
-                    simulator = MjxSimulator(model_path=model_path, mjcf=None)
-
-                # Single RNG seed originates here and is split downstream: one
-                # sub-key seeds the model (eager sampling), one the workflow
-                # (which further splits for the trainer / per-epoch rollouts).
-                model_rng, workflow_rng = jax.random.split(jax.random.PRNGKey(0))
-
-                try:
-                    trained_model = _build_model_for_training(
-                        simulator, ppo_params, user_reward_fn, rng_key=model_rng
-                    )
-                except Exception as exc:
-                    logger.exception("Failed to build model for training_id=%s", training_id)
-                    await send_queue.put(_log_message_payload(
-                        f"Failed to build model: {type(exc).__name__}: {exc}", training_id=training_id
-                    ))
-                    if model_tmpdir is not None:
-                        model_tmpdir.cleanup()
-                    continue
-
+                checkpoint_tmpdirs: list[tempfile.TemporaryDirectory] = []
+                checkpoint_paths: list[str] = []
                 for ckpt in start_msg.checkpoints:
                     if ckpt.model_zip_base_64 is not None:
                         try:
-                            _load_checkpoint_into_model(trained_model, ckpt.model_zip_base_64, training_id)
+                            checkpoint_tmpdir, checkpoint_path = (
+                                _extract_checkpoint_from_zip(ckpt.model_zip_base_64)
+                            )
+                            checkpoint_tmpdirs.append(checkpoint_tmpdir)
+                            checkpoint_paths.append(checkpoint_path)
                         except Exception as exc:
-                            logger.exception("Checkpoint load failed for training_id=%s", training_id)
+                            logger.exception(
+                                "Checkpoint extraction failed for training_id=%s",
+                                training_id,
+                            )
                             await send_queue.put(_log_message_payload(
-                                f"Checkpoint load failed: {type(exc).__name__}: {exc}", training_id=training_id
+                                f"Checkpoint extraction failed: "
+                                f"{type(exc).__name__}: {exc}",
+                                training_id=training_id,
                             ))
 
-                workflow = TrainingWorkflow(
-                    training_id=training_id,
-                    training_controller=training_controller,
-                    simulator=simulator,
-                    model=trained_model,
-                    rng_key=workflow_rng,
-                )
+                try:
+                    workflow = TrainingWorkflow(
+                        training_id=training_id,
+                        training_controller=training_controller,
+                        model_path=model_path,
+                        checkpoint_paths=checkpoint_paths,
+                        rng_key=jax.random.PRNGKey(0),
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "Failed to initialize training workflow for training_id=%s",
+                        training_id,
+                    )
+                    await send_queue.put(_log_message_payload(
+                        f"Failed to initialize training: "
+                        f"{type(exc).__name__}: {exc}",
+                        training_id=training_id,
+                    ))
+                    model_tmpdir.cleanup()
+                    for checkpoint_tmpdir in checkpoint_tmpdirs:
+                        checkpoint_tmpdir.cleanup()
+                    continue
+
                 stop_event = threading.Event()
                 sink = CallbackTrainingTaskSink(thread_safe_send)
-                _tmpdir_ref = model_tmpdir
+                tmpdir_refs = (model_tmpdir, *checkpoint_tmpdirs)
 
                 async def run_training(
                     wf: TrainingWorkflow = workflow,
                     s: CallbackTrainingTaskSink = sink,
                     ev: threading.Event = stop_event,
-                    td: tempfile.TemporaryDirectory | None = _tmpdir_ref,
+                    tempdirs: tuple[tempfile.TemporaryDirectory, ...] = tmpdir_refs,
                 ) -> None:
                     try:
                         await asyncio.to_thread(wf.run_training_blocking, s, ev.is_set)
                     finally:
-                        if td is not None:
-                            td.cleanup()
+                        for tempdir in tempdirs:
+                            tempdir.cleanup()
 
                 task = asyncio.create_task(run_training(), name=f"training-{training_id}")
 

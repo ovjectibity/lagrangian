@@ -2,13 +2,17 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import base64
+import functools
 import io
 import logging
+import math
 import os
 import zipfile
 from typing import Any, Callable
 
 import jax
+import jax.numpy as jnp
+import numpy as np
 import orbax.checkpoint as ocp
 
 from commondef.remoteworkermessages import (
@@ -21,6 +25,8 @@ from commondef.remoteworkermessages import (
 )
 from commondef.training import (
     CheckpointFrequencyTypes,
+    ControlModelVLA,
+    ControlOutputModeFlowMatchingAction,
     MetricsData,
     PPOTrainingMethod,
     PPOTrainingRunState,
@@ -35,8 +41,10 @@ from commondef.training import (
     TrainingRunStatePPOTrainingRunState,
 )
 from workflows.ppo_trainer import PPOTrainer
+from models.mlp import MLPModel
 from models.model import PPOTrainedModel
-from simulator.simulator import MjxSimulator, Simulator
+from models.pi0.pi0 import Pi0Model
+from simulator.simulator import MjxSimulator, MujocoSimulator, Simulator
 
 logger = logging.getLogger(__name__)
 
@@ -74,21 +82,61 @@ class TrainingWorkflow:
         self,
         training_id: str,
         training_controller: TrainingJobController,
-        simulator: Simulator,
-        model: PPOTrainedModel,
+        model_path: str,
+        checkpoint_paths: list[str] | None = None,
         rng_key: jax.Array | None = None,
     ) -> None:
         self.id = training_id
-        self.simulator = simulator
-        self.model = model
         self.training_controller = training_controller
         self.params: PPOTrainingMethod = training_controller.training_method.content
-        # Single seed threaded from main.py; split one sub-key for the trainer.
-        self._rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
-        self._rng_key, trainer_key = jax.random.split(self._rng_key)
+
+        root_rng = rng_key if rng_key is not None else jax.random.PRNGKey(0)
+        model_rng, workflow_rng = jax.random.split(root_rng)
+        self._rng_key, trainer_key = jax.random.split(workflow_rng)
+
+        reward_fn = self._load_user_reward_fn(
+            self.params.reward_function.reward_function_code
+        )
+        self.model = self._build_model_for_training(
+            self.params,
+            reward_fn,
+            rng_key=model_rng,
+        )
+        for checkpoint_path in checkpoint_paths or []:
+            try:
+                self._load_checkpoint_into_model(self.model, checkpoint_path)
+            except Exception:
+                logger.exception(
+                    "Checkpoint load failed: training_id=%s checkpoint_path=%s",
+                    self.id,
+                    checkpoint_path,
+                )
+
+        mode = self.training_controller.acceleration_mode
+        if mode in (
+            TrainingAccelerationMode.MLCPUSIMULATIONCPU,
+            TrainingAccelerationMode.MLGPUSIMULATIONCPU,
+        ):
+            self.simulator: Simulator = MujocoSimulator()
+            self.simulator_data, self.simulator_model = MujocoSimulator.init(
+                model_path=model_path
+            )
+            self.mujoco_data = self.simulator_data
+            self.mujoco_model = self.simulator_model
+        elif mode == TrainingAccelerationMode.MLGPUSIMULATIONGPU:
+            self.simulator = MjxSimulator()
+            (
+                self.simulator_data,
+                self.simulator_model,
+                self.mujoco_data,
+                self.mujoco_model,
+            ) = MjxSimulator.init(model_path=model_path)
+        else:
+            raise ValueError(f"Unsupported local training acceleration mode: {mode}")
+
         self.trainer = PPOTrainer(
-            simulator=simulator,
-            model=model,
+            simulator=self.simulator,
+            model=self.model,
             num_trajs=self.params.num_trajs,
             traj_depth=self.params.num_steps_per_traj,
             num_updates=self.params.num_updates,
@@ -106,6 +154,94 @@ class TrainingWorkflow:
             self.params.epsilon,
             self.training_controller.acceleration_mode,
         )
+
+    @staticmethod
+    def _load_user_reward_fn(code: str) -> Any:
+        namespace: dict[str, Any] = {
+            "jax": jax,
+            "jnp": jnp,
+            "numpy": np,
+            "np": np,
+            "math": math,
+            "functools": functools,
+            "__builtins__": {"__import__": __import__},
+        }
+        exec(compile(code, "<reward_fn>", "exec"), namespace)
+        reward_fn = namespace.get("reward")
+        if reward_fn is None or not callable(reward_fn):
+            raise ValueError("reward function not found in code")
+        return reward_fn
+
+    @staticmethod
+    def _build_model_for_training(
+        params: PPOTrainingMethod,
+        reward_fn: Any,
+        rng_key: Any = None,
+    ) -> PPOTrainedModel:
+        if isinstance(params.control_model, ControlModelVLA):
+            if not isinstance(
+                params.control_output_mode,
+                ControlOutputModeFlowMatchingAction,
+            ):
+                raise ValueError(
+                    "VLA control model requires "
+                    "control_output_mode=FlowMatchingAction(FlowNoise)"
+                )
+            vla_spec = params.control_model.content
+            noise_mlp_spec = params.control_output_mode.content.content.noise_model
+            return Pi0Model(
+                vla_spec,
+                noise_mlp_spec,
+                control_input_spec=vla_spec.input_spec,
+                value_input_spec=params.value_model.content.input_spec,
+                reward_input_spec=params.reward_function.input_spec,
+            )
+
+        control_mlp = params.control_model.content
+        value_mlp = params.value_model.content
+        policy, policy_store = MLPModel.init_policy(
+            input_dimension=int(control_mlp.input_dim),
+            output_dimension=int(control_mlp.output_dim),
+            hidden_layer_dimension=int(control_mlp.hidden_layer_dim),
+            num_layers=int(control_mlp.num_hidden_layers),
+            add_softmax=False,
+            control_policy=True,
+        )
+        value, value_store = MLPModel.init_policy(
+            input_dimension=int(value_mlp.input_dim),
+            output_dimension=int(value_mlp.output_dim),
+            hidden_layer_dimension=int(value_mlp.hidden_layer_dim),
+            num_layers=int(value_mlp.num_hidden_layers),
+            add_softmax=False,
+            control_policy=False,
+        )
+        return MLPModel.init_ppo_trained_model(
+            policy=policy,
+            val_estimator=value,
+            pol_store=policy_store,
+            val_estimator_store=value_store,
+            control_input_spec=control_mlp.input_spec,
+            value_input_spec=value_mlp.input_spec,
+            reward_input_spec=params.reward_function.input_spec,
+            reward_fn=reward_fn,
+            rng_key=rng_key,
+        )
+
+    @staticmethod
+    def _load_checkpoint_into_model(
+        model: PPOTrainedModel,
+        checkpoint_path: str,
+    ) -> None:
+        checkpointer = ocp.PyTreeCheckpointer()
+        model.policy_store = checkpointer.restore(
+            os.path.join(checkpoint_path, "policy"),
+            item=model.get_policy_store(),
+        )
+        model.value_store = checkpointer.restore(
+            os.path.join(checkpoint_path, "value"),
+            item=model.get_value_store(),
+        )
+        logger.info("Checkpoint loaded: checkpoint_path=%s", checkpoint_path)
 
     @staticmethod
     def log_and_send_blocking(
@@ -196,9 +332,7 @@ class TrainingWorkflow:
         logger.info("Training run started: id=%s use_gpu=%s", self.id, use_gpu)
 
         if use_gpu:
-            mjx_sim: MjxSimulator = self.simulator  # type: ignore[assignment]
-            mjx_sim.reset_state()
-            base_mjx_data = mjx_sim._mjx_data
+            base_mjx_data = self.simulator_data
 
         last_epoch_run = -1
         for i in range(self.params.num_epochs):
