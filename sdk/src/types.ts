@@ -373,6 +373,7 @@ export interface TrainingUpdatesMessage {
 
 export enum ControlPolicyOutputMode {
 	TargetPositions = "TargetPositions",
+	TargetPositionsDiff = "TargetPositionsDiff",
 	TargetVelocities = "TargetVelocities",
 	TargetTorques = "TargetTorques",
 }

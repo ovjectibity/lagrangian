@@ -11,6 +11,7 @@ use crate::commondef::record::CheckpointReference;
 #[typeshare]
 pub enum ControlPolicyOutputMode {
     TargetPositions,
+    TargetPositionsDiff,
     TargetVelocities,
     TargetTorques,
 }

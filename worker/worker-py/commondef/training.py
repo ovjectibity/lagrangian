@@ -222,6 +222,7 @@ class TrainingUpdatesMessage(BaseModel):
 
 class ControlPolicyOutputMode(str, Enum):
     TARGETPOSITIONS = "TargetPositions"
+    TARGETPOSITIONSDIFF = "TargetPositionsDiff"
     TARGETVELOCITIES = "TargetVelocities"
     TARGETTORQUES = "TargetTorques"
 class VLAModel(BaseModel):
