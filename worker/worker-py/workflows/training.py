@@ -316,13 +316,6 @@ class TrainingWorkflow:
         )
         logger.info("Checkpoint sent: training_id=%s epoch=%s update=%s", self.id, epoch_index, update_index)
 
-    def _is_gpu_training(self) -> bool:
-        mode = self.training_controller.acceleration_mode
-        return mode in (
-            TrainingAccelerationMode.MLGPUSIMULATIONCPU,
-            TrainingAccelerationMode.MLGPUSIMULATIONGPU,
-        )
-
     def run_training_blocking(
         self,
         tx: TrainingTaskSink,

@@ -70,7 +70,7 @@ class PPOTrainerRuntimeInfo:
 class PPOTrainer:
     def __init__(
         self,
-        simulator: Simulator,
+        # simulator: Simulator,
         model: PPOTrainedModel,
         num_trajs: int,
         traj_depth: int,
@@ -86,7 +86,7 @@ class PPOTrainer:
         self.num_updates = num_updates
         self.epsilon = epsilon
         self.gamma_lambda = gamma_lambda
-        self.simulator = simulator
+        # self.simulator = simulator
         self.model = model
         self.learning_rate = learning_rate
         self._rng_key = rng_key if rng_key is not None else random.PRNGKey(seed)
@@ -102,17 +102,17 @@ class PPOTrainer:
         # self._jit_gen_trajs's cache lifetime: RenderContextPytree's key is
         # static aux_data, so a fresh context on every gen_trajectories_gpu
         # call would force a recompile (or mismatch) every epoch.
-        self._render_ctx: Any = None
-        if any(
-            s.all_cameras for s in (
-                model.get_control_input_spec(),
-                model.get_value_input_spec(),
-                model.get_reward_input_spec(),
-            )
-        ):
-            self._render_ctx = self.simulator._get_render_context(  # type: ignore[attr-defined]
-                nworld=num_trajs
-            ).pytree()
+        # self._render_ctx: Any = None
+        # if any(
+        #     s.all_cameras for s in (
+        #         model.get_control_input_spec(),
+        #         model.get_value_input_spec(),
+        #         model.get_reward_input_spec(),
+        #     )
+        # ):
+        #     self._render_ctx = self.simulator._get_render_context(  # type: ignore[attr-defined]
+        #         nworld=num_trajs
+        #     ).pytree()
 
     @staticmethod
     def _init_adam_state(params: Params) -> dict[str, Any]:
