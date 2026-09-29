@@ -146,7 +146,6 @@ class Simulator(ABC):
         data: Any,
         model: Any,
         render_ctx: Any = None,
-        actuated_qpos_indices: jnp.ndarray | np.ndarray | None = None,
         contact_sensor_addresses: jnp.ndarray | np.ndarray | None = None,
         contact_body_pairs: jnp.ndarray | np.ndarray | None = None,
     ) -> dict[str, jnp.ndarray | np.ndarray]:
@@ -588,19 +587,12 @@ class MjxSimulator(Simulator):
         data: Any,
         model: Any,
         render_ctx: Any = None,
-        actuated_qpos_indices: jnp.ndarray | None = None,
         contact_sensor_addresses: jnp.ndarray | None = None,
         contact_body_pairs: jnp.ndarray | None = None,
     ) -> dict[str, jnp.ndarray]:
         """Extract model inputs from caller-owned MJX data."""
         result: dict[str, jnp.ndarray] = {}
 
-        if input_spec.qdof_state:
-            if actuated_qpos_indices is None:
-                raise ValueError(
-                    "qdof_state requires precomputed actuated_qpos_indices"
-                )
-            result["qdof"] = data.qpos[actuated_qpos_indices]
         if input_spec.qpos_state:
             result["qpos"] = data.qpos[: model.nq]
         if input_spec.qvel_state:
@@ -715,19 +707,12 @@ class MujocoSimulator(Simulator):
         data: Any,
         model: Any,
         render_ctx: mujoco.Renderer | None = None,
-        actuated_qpos_indices: np.ndarray | None = None,
         contact_sensor_addresses: np.ndarray | None = None,
         contact_body_pairs: np.ndarray | None = None,
     ) -> dict[str, np.ndarray]:
         """Extract model inputs from caller-owned MuJoCo data."""
         result: dict[str, np.ndarray] = {}
 
-        if input_spec.qdof_state:
-            if actuated_qpos_indices is None:
-                raise ValueError(
-                    "qdof_state requires precomputed actuated_qpos_indices"
-                )
-            result["qdof"] = data.qpos[actuated_qpos_indices].copy()
         if input_spec.qpos_state:
             result["qpos"] = data.qpos[: model.nq].copy()
         if input_spec.qvel_state:

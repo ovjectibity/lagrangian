@@ -128,7 +128,7 @@ def _build_model_for_testing(
 ) -> TestingModel:
     _null_spec = ModelInputSpec(
         all_cameras=False, qpos_state=False, qvel_state=False,
-        xpos_state=False, xquat_state=False, qdof_state=False, contact_pairs=False,
+        xpos_state=False, xquat_state=False, contact_pairs=False,
     )
     if isinstance(control_model, ControlModelVLA):
         vla_spec = control_model.content

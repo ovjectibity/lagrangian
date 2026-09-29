@@ -72,7 +72,6 @@ function buildTestGraph(modelId) {
               qvel_state: false,
               xpos_state: false,
               xquat_state: false,
-              qdof_state: false,
               contact_pairs: false,
             },
             output: "TargetPositions",

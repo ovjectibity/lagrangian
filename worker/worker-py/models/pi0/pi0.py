@@ -98,7 +98,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     Value store:  a small Flax MLP initialised from value_mlp_spec.
     """
 
-    _STATE_KEY_ORDER = ("cameras", "qdof", "qpos", "qvel", "xpos", "xquat")
+    _STATE_KEY_ORDER = ("cameras", "qpos", "qvel", "xpos", "xquat")
 
     def __init__(
         self,

@@ -53,7 +53,6 @@ export interface ModelInputSpec {
 	qvel_state: boolean;
 	xpos_state: boolean;
 	xquat_state: boolean;
-	qdof_state: boolean;
 	/** Only valid in reward_function.input_spec; forbidden in control/value model specs. */
 	contact_pairs: boolean;
 }

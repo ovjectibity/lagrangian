@@ -290,9 +290,6 @@
         "xquat_state": {
           "type": "boolean"
         },
-        "qdof_state": {
-          "type": "boolean"
-        },
         "contact_pairs": {
           "description": "Only valid in reward_function.input_spec; forbidden in control/value model specs.",
           "type": "boolean"
@@ -304,7 +301,6 @@
         "qvel_state",
         "xpos_state",
         "xquat_state",
-        "qdof_state",
         "contact_pairs"
       ]
     },

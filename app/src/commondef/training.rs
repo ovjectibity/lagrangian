@@ -24,7 +24,6 @@ pub struct ModelInputSpec {
     pub qvel_state: bool,
     pub xpos_state: bool,
     pub xquat_state: bool,
-    pub qdof_state: bool,
     /// Only valid in reward_function.input_spec; forbidden in control/value model specs.
     pub contact_pairs: bool,
 }

@@ -18,7 +18,7 @@ class TestingModel(ABC):
     def get_test_action(self, parts: dict[str, Array]) -> Array:
         """Single-step inference: labeled state parts dict → control action.
 
-        parts keys: "cameras", "qdof", "qpos", "qvel", "xpos", "xquat" (only flags set).
+        parts keys: "cameras", "qpos", "qvel", "xpos", "xquat" (only flags set).
         The model assembles its own model-specific input from these parts and
         returns just the action (the underlying policy produces a stats dict;
         this extracts the action from it). Eager path — the model supplies its
@@ -141,5 +141,3 @@ class PPOTrainedModel(ABC):
     @abstractmethod
     def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
         pass
-
-    

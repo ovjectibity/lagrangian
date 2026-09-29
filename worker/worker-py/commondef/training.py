@@ -28,7 +28,6 @@ class ModelInputSpec(BaseModel):
     qvel_state: bool
     xpos_state: bool
     xquat_state: bool
-    qdof_state: bool
     contact_pairs: bool
     """
     Only valid in reward_function.input_spec; forbidden in control/value model specs.

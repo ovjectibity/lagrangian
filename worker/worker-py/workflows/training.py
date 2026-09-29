@@ -44,7 +44,7 @@ from workflows.ppo_trainer import PPOTrainer
 from models.mlp import MLPModel
 from models.model import PPOTrainedModel
 from models.pi0.pi0 import Pi0Model
-from simulator.simulator import MjxSimulator, MujocoSimulator, Simulator
+from simulator.simulator import MjxSimulator, MujocoSimulator
 
 logger = logging.getLogger(__name__)
 
@@ -113,29 +113,79 @@ class TrainingWorkflow:
                 )
 
         mode = self.training_controller.acceleration_mode
+        needs_render_context = any(
+            input_spec.all_cameras
+            for input_spec in (
+                self.model.get_control_input_spec(),
+                self.model.get_value_input_spec(),
+                self.model.get_reward_input_spec(),
+            )
+        )
         if mode in (
             TrainingAccelerationMode.MLCPUSIMULATIONCPU,
             TrainingAccelerationMode.MLGPUSIMULATIONCPU,
         ):
-            self.simulator: Simulator = MujocoSimulator()
-            self.simulator_data, self.simulator_model = MujocoSimulator.init(
-                model_path=model_path
+            mujoco_data, mujoco_model = MujocoSimulator.init(model_path=model_path)
+            contact_sensor_addresses, contact_body_pairs = (
+                MujocoSimulator._get_contact_pair_sensor_metadata(mujoco_model)
             )
-            self.mujoco_data = self.simulator_data
-            self.mujoco_model = self.simulator_model
+            render_ctx = (
+                MujocoSimulator.get_render_context(mujoco_model)
+                if needs_render_context
+                else None
+            )
+            self.simulator_state: dict[str, Any] = {
+                "simulator_class": MujocoSimulator,
+                "mjx_data": None,
+                "mjx_model": None,
+                "mujoco_data": mujoco_data,
+                "mujoco_model": mujoco_model,
+                "render_ctx": render_ctx,
+                "render_ctx_pytree": None,
+                "contact_sensor_addresses": contact_sensor_addresses,
+                "contact_body_pairs": contact_body_pairs,
+            }
         elif mode == TrainingAccelerationMode.MLGPUSIMULATIONGPU:
-            self.simulator = MjxSimulator()
             (
-                self.simulator_data,
-                self.simulator_model,
-                self.mujoco_data,
-                self.mujoco_model,
+                mjx_data,
+                mjx_model,
+                mujoco_data,
+                mujoco_model,
             ) = MjxSimulator.init(model_path=model_path)
+            contact_sensor_addresses, contact_body_pairs = (
+                MjxSimulator._get_contact_pair_sensor_metadata(mujoco_model)
+            )
+            render_ctx = (
+                MjxSimulator.get_render_context(
+                    mujoco_model,
+                    nworld=self.params.num_trajs,
+                )
+                if needs_render_context
+                else None
+            )
+            self.simulator_state = {
+                "simulator_class": MjxSimulator,
+                "mjx_data": mjx_data,
+                "mjx_model": mjx_model,
+                "mujoco_data": mujoco_data,
+                "mujoco_model": mujoco_model,
+                "render_ctx": render_ctx,
+                "render_ctx_pytree": (
+                    render_ctx.pytree() if render_ctx is not None else None
+                ),
+                "contact_sensor_addresses": jnp.asarray(
+                    contact_sensor_addresses,
+                    dtype=jnp.int32,
+                ),
+                "contact_body_pairs": jnp.asarray(
+                    contact_body_pairs,
+                    dtype=jnp.int32,
+                ),
+            }
         else:
             raise ValueError(f"Unsupported local training acceleration mode: {mode}")
 
         self.trainer = PPOTrainer(
-            simulator=self.simulator,
             model=self.model,
             num_trajs=self.params.num_trajs,
             traj_depth=self.params.num_steps_per_traj,
@@ -321,11 +371,11 @@ class TrainingWorkflow:
         tx: TrainingTaskSink,
         should_stop: Callable[[], bool] | None = None,
     ) -> None:
-        use_gpu = self._is_gpu_training()
+        use_gpu = (
+            self.training_controller.acceleration_mode
+            == TrainingAccelerationMode.MLGPUSIMULATIONGPU
+        )
         logger.info("Training run started: id=%s use_gpu=%s", self.id, use_gpu)
-
-        if use_gpu:
-            base_mjx_data = self.simulator_data
 
         last_epoch_run = -1
         for i in range(self.params.num_epochs):
@@ -347,7 +397,7 @@ class TrainingWorkflow:
                 control_wstates, value_wstates, model_outputs, policy_output, rewards = (
                     self.trainer.gen_trajectories_gpu(
                         self.params.num_trajs,
-                        base_mjx_data,
+                        self.simulator_state,
                         epoch_rng,
                     )
                 )

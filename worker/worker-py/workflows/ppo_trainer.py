@@ -12,7 +12,7 @@ import jax.numpy as jnp
 from jax import random
 
 from commondef.training import ControlPolicyOutputMode
-from simulator.simulator import Simulator
+from simulator.simulator import MjxSimulator, Simulator
 from models.model import PPOTrainedModel
 
 
@@ -394,10 +394,12 @@ class PPOTrainer:
     def gen_trajectory_gpu(
         self,
         mjx_data: Any,
+        mjx_model: Any,
         rng_key: Array,
-        control_state_fn: Callable[[Any, Any], dict[str, Array]],
-        value_state_fn: Callable[[Any, Any], dict[str, Array]],
-        reward_state_fn: Callable[[Any, Any], dict[str, Array]],
+        simulator_class: type[Simulator],
+        control_state_fn: Callable[[Any, Any, Any], dict[str, Array]],
+        value_state_fn: Callable[[Any, Any, Any], dict[str, Array]],
+        reward_state_fn: Callable[[Any, Any, Any], dict[str, Array]],
         render_ctx: Any = None,
         policy_store: Params | None = None,
     ) -> tuple[dict[str, Array], dict[str, Array], dict[str, Array], Array, Array]:
@@ -407,12 +409,13 @@ class PPOTrainer:
         so the scan body is JAX-traceable.
 
         Args:
-            mjx_data: initial mjx simulation state (from MjxSimulator after reset)
+            mjx_data: initial MJX simulation data
+            mjx_model: MJX simulation model
             rng_key:  JAX RNG key for action sampling
-            control_state_fn, value_state_fn, reward_state_fn: built by the
-                caller via MjxSimulator.make_state_fn(spec); each is a pure
-                (data, render_ctx) -> dict closure that only ever renders a
-                single world (one trajectory is one world).
+            simulator_class: stateless MJX simulator implementation
+            control_state_fn, value_state_fn, reward_state_fn: pure
+                (data, model, render_ctx) -> dict functions whose input specs
+                and fixed contact metadata are captured by the caller.
             render_ctx: caller-managed camera render handle (already
                 .pytree()'d), broadcast to every trajectory by the outer vmap
                 in gen_trajectories_gpu (sized nworld=num_trajs there). None
@@ -433,8 +436,7 @@ class PPOTrainer:
         if policy_store is None:
             policy_store = self.model.get_policy_store()
         output_mode = self.model.get_control_policy_output_mode()
-        simulator_step_fn = self.simulator.forward_dyn_pure  # type: ignore[attr-defined]
-        action_output_size = self.get_action_output_size()
+        action_output_size = simulator_class.nv(mjx_data)
 
         logger.info("gen_trajectory_gpu: output_mode=%s action_output_size=%s", output_mode, action_output_size)
         logger.info("gen_trajectory_gpu: launching lax.scan over %s steps", self.traj_depth)
@@ -446,26 +448,31 @@ class PPOTrainer:
             data, rng = carry
             rng, step_key = jax.random.split(rng)
 
-            control_parts = control_state_fn(data, render_ctx)
-            value_parts = value_state_fn(data, render_ctx)
-            reward_parts_pre = reward_state_fn(data, render_ctx)
+            control_parts = control_state_fn(data, mjx_model, render_ctx)
+            value_parts = value_state_fn(data, mjx_model, render_ctx)
+            reward_parts_pre = reward_state_fn(data, mjx_model, render_ctx)
 
             # Thread a fresh per-step key in via the dict; control_parts itself is
             # stored without it (log-prob recompute is deterministic).
             pol_output = policy_fn(policy_store, {**control_parts, "rng_key": step_key})
             sampled_action = pol_output["sampled_action"]
 
-            if output_mode == ControlPolicyOutputMode.TARGETTORQUES:
-                controls = sampled_action
-            elif output_mode == ControlPolicyOutputMode.TARGETPOSITIONS:
-                controls = sampled_action
-            elif output_mode == ControlPolicyOutputMode.TARGETVELOCITIES:
-                controls = sampled_action
-            else:
-                raise ValueError(f"Unsupported control mode: {output_mode}")
-
-            data_next, _, _, _ = simulator_step_fn(data, controls)
-            reward_parts_post = reward_state_fn(data_next, render_ctx)
+            controls = simulator_class.get_actuator_input_from_control_input(
+                mjx_model,
+                data,
+                sampled_action,
+                output_mode,
+            )
+            data_next = simulator_class.forward_dyn_pure(
+                data,
+                mjx_model,
+                controls,
+            )
+            reward_parts_post = reward_state_fn(
+                data_next,
+                mjx_model,
+                render_ctx,
+            )
             reward = reward_fn(reward_parts_pre, reward_parts_post)
 
             # control_parts / value_parts are labeled dicts; the policy/value fns
@@ -482,7 +489,11 @@ class PPOTrainer:
         # Append terminal value-state parts so the leading axis is traj_depth+1.
         # value_states_t is a dict of [traj_depth, ...] leaves; concat each leaf
         # with the terminal [...] leaf along axis 0.
-        terminal_value_parts = value_state_fn(data_final, render_ctx)
+        terminal_value_parts = value_state_fn(
+            data_final,
+            mjx_model,
+            render_ctx,
+        )
         value_wstates = jax.tree_util.tree_map(
             lambda seq, term: jnp.concatenate([seq, term[None]], axis=0),
             value_states_t, terminal_value_parts,
@@ -494,14 +505,14 @@ class PPOTrainer:
     def gen_trajectories_gpu(
         self,
         num_trajs: int,
-        mjx_data: Any,
+        simulator_state: dict[str, Any],
         rng_key: Array,
     ) -> tuple[dict[str, Array], dict[str, Array], dict[str, Array], Array, Array]:
         """Generate num_trajs trajectories in parallel via vmap on GPU.
 
         Args:
             num_trajs: number of parallel trajectories
-            mjx_data:  initial mjx simulation state (will be replicated across trajs)
+            simulator_state: caller-owned simulator structures and render context
             rng_key:   base RNG key; split into num_trajs sub-keys
 
         Returns:
@@ -521,21 +532,86 @@ class PPOTrainer:
         policy_store = self.model.get_policy_store()
         logger.info("gen_trajectories_gpu: split %s RNG keys, launching jit(vmap)", num_trajs)
 
-        control_state_fn = self.simulator.make_state_fn(self.model.get_control_input_spec())  # type: ignore[attr-defined]
-        value_state_fn = self.simulator.make_state_fn(self.model.get_value_input_spec())  # type: ignore[attr-defined]
-        reward_state_fn = self.simulator.make_state_fn(self.model.get_reward_input_spec())  # type: ignore[attr-defined]
-        # Built once in __init__ (sized nworld=num_trajs), reused for the
-        # trainer's lifetime; broadcast (in_axes=None) to every trajectory.
-        render_ctx = self._render_ctx
+        simulator_class = simulator_state["simulator_class"]
+        if simulator_class is not MjxSimulator:
+            raise ValueError("gen_trajectories_gpu requires MjxSimulator state")
+        mjx_data = simulator_state["mjx_data"]
+        mjx_model = simulator_state["mjx_model"]
+        if mjx_data is None or mjx_model is None:
+            raise ValueError("MJX data and model are required for GPU trajectories")
 
-        def single_traj(
-            ps: Params, md: Any, key: Array, ctx: Any,
-        ) -> tuple[dict[str, Array], dict[str, Array], dict[str, Array], Array, Array]:
-            return self.gen_trajectory_gpu(
-                md, key, control_state_fn, value_state_fn, reward_state_fn, ctx, ps
+        render_ctx = simulator_state["render_ctx_pytree"]
+        contact_sensor_addresses = simulator_state["contact_sensor_addresses"]
+        contact_body_pairs = simulator_state["contact_body_pairs"]
+        control_input_spec = self.model.get_control_input_spec()
+        value_input_spec = self.model.get_value_input_spec()
+        reward_input_spec = self.model.get_reward_input_spec()
+
+        def control_state_fn(
+            data: Any,
+            model: Any,
+            ctx: Any,
+        ) -> dict[str, Array]:
+            return simulator_class.get_model_state_pure(
+                control_input_spec,
+                data,
+                model,
+                ctx,
+                contact_sensor_addresses,
+                contact_body_pairs,
             )
 
-        all_trajs = jax.vmap(single_traj, in_axes=(None, None, 0, None))
+        def value_state_fn(
+            data: Any,
+            model: Any,
+            ctx: Any,
+        ) -> dict[str, Array]:
+            return simulator_class.get_model_state_pure(
+                value_input_spec,
+                data,
+                model,
+                ctx,
+                contact_sensor_addresses,
+                contact_body_pairs,
+            )
+
+        def reward_state_fn(
+            data: Any,
+            model: Any,
+            ctx: Any,
+        ) -> dict[str, Array]:
+            return simulator_class.get_model_state_pure(
+                reward_input_spec,
+                data,
+                model,
+                ctx,
+                contact_sensor_addresses,
+                contact_body_pairs,
+            )
+
+        def single_traj(
+            ps: Params,
+            model: Any,
+            data: Any,
+            key: Array,
+            ctx: Any,
+        ) -> tuple[dict[str, Array], dict[str, Array], dict[str, Array], Array, Array]:
+            return self.gen_trajectory_gpu(
+                data,
+                model,
+                key,
+                simulator_class,
+                control_state_fn,
+                value_state_fn,
+                reward_state_fn,
+                ctx,
+                ps,
+            )
+
+        all_trajs = jax.vmap(
+            single_traj,
+            in_axes=(None, None, None, 0, None),
+        )
 
         if self._jit_gen_trajs is None:
             ##DEBUG TRACING & COMPILE:
@@ -545,7 +621,13 @@ class PPOTrainer:
 
             # Go one step further: lower to StableHLO
             t0 = time.time()
-            lowered = jax.jit(all_trajs).lower(policy_store, mjx_data, keys, render_ctx)
+            lowered = jax.jit(all_trajs).lower(
+                policy_store,
+                mjx_model,
+                mjx_data,
+                keys,
+                render_ctx,
+            )
             t1 = time.time()
             logger.info("gen_trajectories_gpu: tracing+lowering took %.2fs", t1 - t0)
             # print(lowered.as_text())  # StableHLO text representation
@@ -560,7 +642,13 @@ class PPOTrainer:
             self._jit_gen_trajs = compiled
 
         t_exec = time.time()
-        result = self._jit_gen_trajs(policy_store, mjx_data, keys, render_ctx)
+        result = self._jit_gen_trajs(
+            policy_store,
+            mjx_model,
+            mjx_data,
+            keys,
+            render_ctx,
+        )
         jax.block_until_ready(result)
         t_exec_done = time.time()
         logger.info("gen_trajectories_gpu: execution took %.2fs", t_exec_done - t_exec)
