@@ -36,14 +36,17 @@ Params = Any
 _LOG_TWO_PI = jnp.log(2.0 * jnp.pi)
 
 
-def _init_mlp(mlp_spec: MLPModelSpec, seed: int = 42) -> tuple[Callable[[Params, Array], Array], Params]:
+def _init_mlp(
+    mlp_spec: MLPModelSpec,
+    rng_key: Array,
+) -> tuple[Callable[[Params, Array], Array], Params]:
     module = FlaxMLP(
         num_hidden_layers=mlp_spec.num_hidden_layers,
         hidden_layer_dim=mlp_spec.hidden_layer_dim,
         output_dim=mlp_spec.output_dim,
     )
     params = module.init(
-        random.PRNGKey(seed),
+        rng_key,
         jnp.zeros((mlp_spec.input_dim,), dtype=jnp.float32),
     )
     return module.apply, params
@@ -109,8 +112,11 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         reward_input_spec: ModelInputSpec,
         value_mlp_spec: MLPModelSpec | None = None,
         reward_fn: Callable[[dict[str, Array], dict[str, Array]], float] | None = None,
-        seed: int = 0,
+        rng_key: Array | None = None,
     ) -> None:
+        root_rng = rng_key if rng_key is not None else random.PRNGKey(0)
+        noise_rng, value_rng, sampling_rng = random.split(root_rng, 3)
+
         checkpoint_dir = os.environ.get("PI0_CHECKPOINT_DIR", "/opt/lagrangian/pi0")
         logger.info("Pi0Model: loading checkpoint from %s", checkpoint_dir)
         self._pi0 = Pi0Jax.from_checkpoint(checkpoint_dir)
@@ -123,7 +129,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         # FlowNoise σ_φ: only wired for training; the test path uses the
         # deterministic Euler ODE and never touches the noise model.
         if noise_mlp_spec is not None:
-            self._noise_fn, noise_store = _init_mlp(noise_mlp_spec, seed + 2)
+            self._noise_fn, noise_store = _init_mlp(noise_mlp_spec, noise_rng)
             self._policy_store["noise"] = noise_store
         else:
             self._noise_fn = None
@@ -134,14 +140,17 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         self._reward_fn = reward_fn
 
         if value_mlp_spec is not None:
-            self._value_fn, self._value_store = _init_mlp(value_mlp_spec, seed + 1)
+            self._value_fn, self._value_store = _init_mlp(
+                value_mlp_spec,
+                value_rng,
+            )
         else:
             self._value_fn = None
             self._value_store = None
 
         # Held key for eager sampling (get_policy_output / get_test_action); the
         # scan threads fresh per-step keys via policy_input["rng_key"] instead.
-        self._rng_key = random.PRNGKey(seed)
+        self._rng_key = sampling_rng
         self._last_task: str = ""
 
     # ------------------------------------------------------------------

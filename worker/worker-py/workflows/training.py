@@ -245,6 +245,9 @@ class TrainingWorkflow:
                 control_input_spec=vla_spec.input_spec,
                 value_input_spec=params.value_model.content.input_spec,
                 reward_input_spec=params.reward_function.input_spec,
+                value_mlp_spec=params.value_model.content,
+                reward_fn=reward_fn,
+                rng_key=rng_key,
             )
 
         control_mlp = params.control_model.content
