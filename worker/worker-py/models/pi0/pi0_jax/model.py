@@ -53,7 +53,7 @@ class Pi0Jax:
         trainable_params: Params,
         arch: dict,
         config: dict,
-        n_action_steps: int = 10,
+        n_action_steps: int = 1,
     ) -> None:
         self._frozen = frozen_params
         self._trainable = trainable_params
@@ -83,7 +83,7 @@ class Pi0Jax:
     def from_checkpoint(
         cls,
         path: str,
-        n_action_steps: int = 10,
+        n_action_steps: int = 1,
     ) -> "Pi0Jax":
         """Load from a Pi-0 checkpoint directory.
 

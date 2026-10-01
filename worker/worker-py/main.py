@@ -139,6 +139,7 @@ def _build_model_for_testing(
             value_input_spec=_null_spec,
             reward_input_spec=_null_spec,
             rng_key=rng_key,
+            n_action_steps=1,
         )
 
     control_mlp = control_model.content

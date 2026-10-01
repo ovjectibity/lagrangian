@@ -248,6 +248,7 @@ class TrainingWorkflow:
                 value_mlp_spec=params.value_model.content,
                 reward_fn=reward_fn,
                 rng_key=rng_key,
+                n_action_steps=1,
             )
 
         control_mlp = params.control_model.content

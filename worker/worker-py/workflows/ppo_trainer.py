@@ -186,11 +186,14 @@ class PPOTrainer:
             logger.debug("Got the pol_output in gen_trajectory: %s", pol_output)
             sampled_action = pol_output["sampled_action"]
             sampled_action_log_prob = pol_output["sampled_action_log_prob"]
+            # Chunked policies such as Pi0 return [action_steps, action_dim];
+            # this workload currently executes only the first action per step.
+            action = sampled_action[0] if sampled_action.ndim == 2 else sampled_action
 
             controls = simulator_class.get_actuator_input_from_control_input(
                 model,
                 data,
-                np.asarray(sampled_action),
+                np.asarray(action),
                 output_mode,
             )
             data = simulator_class.forward_dyn_pure(data, model, controls)
@@ -209,7 +212,7 @@ class PPOTrainer:
             control_wstates.append(control_parts)
             value_wstates.append(value_parts)
             policy_outputs.append(pol_output)
-            policy_output_samples.append(sampled_action)
+            policy_output_samples.append(action)
             policy_output_samples_log_prob.append(sampled_action_log_prob)
         logger.info("gen_trajectory: step loop done, computing terminal state")
         # Only the value path needs the terminal state (for GAE/RTG); control does not.
@@ -477,11 +480,14 @@ class PPOTrainer:
             # stored without it (log-prob recompute is deterministic).
             pol_output = policy_fn(policy_store, {**control_parts, "rng_key": step_key})
             sampled_action = pol_output["sampled_action"]
+            # Chunked policies such as Pi0 return [action_steps, action_dim];
+            # this workload currently executes only the first action per step.
+            action = sampled_action[0] if sampled_action.ndim == 2 else sampled_action
 
             controls = simulator_class.get_actuator_input_from_control_input(
                 mjx_model,
                 data,
-                sampled_action,
+                action,
                 output_mode,
             )
             data_next = simulator_class.forward_dyn_pure(
@@ -498,7 +504,7 @@ class PPOTrainer:
 
             # control_parts / value_parts are labeled dicts; the policy/value fns
             # assemble their own inputs, so we carry the dicts through the scan.
-            return (data_next, rng), (control_parts, value_parts, pol_output, sampled_action, reward)
+            return (data_next, rng), (control_parts, value_parts, pol_output, action, reward)
 
         (data_final, _), (control_states_t, value_states_t, policy_outputs, action_samples, rewards) = (
             jax.lax.scan(scan_body, (mjx_data, rng_key), None, length=self.traj_depth)

@@ -113,13 +113,17 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         value_mlp_spec: MLPModelSpec | None = None,
         reward_fn: Callable[[dict[str, Array], dict[str, Array]], float] | None = None,
         rng_key: Array | None = None,
+        n_action_steps: int = 1,
     ) -> None:
         root_rng = rng_key if rng_key is not None else random.PRNGKey(0)
         noise_rng, value_rng, sampling_rng = random.split(root_rng, 3)
 
         checkpoint_dir = os.environ.get("PI0_CHECKPOINT_DIR", "/opt/lagrangian/pi0")
         logger.info("Pi0Model: loading checkpoint from %s", checkpoint_dir)
-        self._pi0 = Pi0Jax.from_checkpoint(checkpoint_dir)
+        self._pi0 = Pi0Jax.from_checkpoint(
+            checkpoint_dir,
+            n_action_steps=n_action_steps,
+        )
         logger.info("Pi0Model: checkpoint loaded")
 
         self._vla_spec = vla_spec
@@ -408,8 +412,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
             key = parts["rng_key"]
             feats = {k: v for k, v in parts.items() if k != "rng_key"}
             images, proprio = Pi0Model._split_observation(feats)
-            actions = pi0.infer(params["pi0"], frozen, images, proprio, task, key)
-            return actions[0]
+            return pi0.infer(params["pi0"], frozen, images, proprio, task, key)
 
         return _test_policy
 

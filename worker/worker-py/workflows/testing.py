@@ -175,6 +175,11 @@ class TestingWorkflow:
             actions = jax.vmap(
                 lambda p, k: test_policy_fn(params, {**p, "rng_key": k})
             )(parts_batched, env_keys)
+            # Batched chunked policies such as Pi0 return
+            # [num_envs, action_steps, action_dim]; execute only the first
+            # action for each environment during this simulator step.
+            if actions.ndim == 3:
+                actions = actions[:, 0]
             bd_next = jax.vmap(lambda d, a: mjx_sim.forward_dyn_pure(d, a)[0])(bd, actions)
             return (bd_next, rng), (parts_batched["cameras"], bd_next.xpos[:, :nbody], bd_next.xquat[:, :nbody])
 
@@ -238,6 +243,10 @@ class TestingWorkflow:
                 parts = self.simulator.get_model_state(control_spec, raw_render_ctx)
                 # Pass the labeled parts dict; get_policy_output splits cameras from proprio.
                 action = self.model.get_test_action(parts)
+                # Chunked policies such as Pi0 return [action_steps, action_dim];
+                # this workload currently executes only the first action per step.
+                if action.ndim == 2:
+                    action = action[0]
                 self.simulator.forward_dyn(action)
                 xpos, xquat = self.simulator.get_simul_update()
                 # cameras: [ncam, H, W, C] float32 in [0, 1] when requested; frames
