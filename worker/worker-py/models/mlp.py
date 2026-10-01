@@ -17,15 +17,19 @@ class MLPModel(PPOTrainedModel, TestingModel):
     def __init__(
         self,
         policy: Callable[[Params, Array], Array],
-        value: Callable[[Params, Array], Array],
         policy_store: Params,
-        value_store: Params,
         control_input_spec: ModelInputSpec,
         value_input_spec: ModelInputSpec,
         reward_input_spec: ModelInputSpec,
+        value: Callable[[Params, Array], Array] | None = None,
+        value_store: Params | None = None,
         reward_fn: Callable[[dict[str, Array], dict[str, Array]], float] | None = None,
         rng_key: Array | None = None,
     ) -> None:
+        if (value is None) != (value_store is None):
+            raise ValueError(
+                "value and value_store must either both be provided or both be None"
+            )
         self.control_output_mode = ControlPolicyOutputMode.TARGETPOSITIONS
         self.policy = policy
         self.value = value
@@ -215,14 +219,20 @@ class MLPModel(PPOTrainedModel, TestingModel):
         return log_prob_fn
 
     def get_value_output(self, parts: dict[str, Array]) -> float:
-        val = self.get_value_fn()(self.value_store, parts)
+        val = self.get_value_fn()(self.get_value_store(), parts)
         val_arr = np.asarray(jax.device_get(val), dtype=np.float64).reshape(-1)
         if val_arr.size == 0:
             raise ValueError("Expected non-empty value output")
         return float(val_arr[0])
 
     def get_value_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
-        return lambda store, parts: self.value(store, jnp.concatenate(list(parts.values()), axis=-1))
+        if self.value is None:
+            raise RuntimeError("No value estimator initialized in MLPModel")
+        value = self.value
+        return lambda store, parts: value(
+            store,
+            jnp.concatenate(list(parts.values()), axis=-1),
+        )
 
     def get_policy_store(self) -> Params:
         return self.policy_store
@@ -231,9 +241,13 @@ class MLPModel(PPOTrainedModel, TestingModel):
         return self.policy_store
 
     def get_value_store(self) -> Params:
+        if self.value_store is None:
+            raise RuntimeError("No value estimator store initialized in MLPModel")
         return self.value_store
 
     def get_value_store_mut(self) -> Params:
+        if self.value_store is None:
+            raise RuntimeError("No value estimator store initialized in MLPModel")
         return self.value_store
 
     def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:

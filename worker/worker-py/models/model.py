@@ -42,6 +42,11 @@ class TestingModel(ABC):
         """Params passed as first arg to get_pure_test_fn."""
         ...
 
+    @abstractmethod
+    def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
+        """Control signal semantics used for simulator actuator mapping."""
+        ...
+
 
 class PPOTrainedModel(ABC):
     @classmethod

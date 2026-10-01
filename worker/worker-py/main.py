@@ -51,26 +51,17 @@ from pydantic import ValidationError
 from websockets.exceptions import ConnectionClosed
 
 from commondef.remoteworkermessages import (
-    ControlModelVLA,
     RemoteWorkerServerMessageTypes,
     StartTestMessage,
     StartTrainingMessage,
     StopTestMessage,
     StopTrainingMessage,
-    TrainingAccelerationMode,
 )
-from commondef.training import ModelInputSpec
-from models.mlp import MLPModel
-from models.model import TestingModel
-from models.pi0.pi0 import Pi0Model
-from simulator.simulator import MjxSimulator, MujocoSimulator, Simulator
+from commondef.testing import TestMethodCustom
 from workflows.testing import CallbackTestingTaskSink, TestingWorkflow
 from workflows.training import CallbackTrainingTaskSink, TrainingWorkflow
 
 logger = logging.getLogger(__name__)
-
-Array = jax.Array
-
 
 @dataclass
 class TrainingTaskState:
@@ -120,56 +111,6 @@ def _extract_presented_secret(websocket: Any) -> str | None:
         if secret_q:
             return secret_q[0]
     return None
-
-
-def _build_model_for_testing(
-    control_model: Any,
-    rng_key: Any = None,
-) -> TestingModel:
-    _null_spec = ModelInputSpec(
-        all_cameras=False, qpos_state=False, qvel_state=False,
-        xpos_state=False, xquat_state=False, contact_pairs=False,
-    )
-    if isinstance(control_model, ControlModelVLA):
-        vla_spec = control_model.content
-        return Pi0Model(
-            vla_spec,
-            noise_mlp_spec=None,
-            control_input_spec=vla_spec.input_spec,
-            value_input_spec=_null_spec,
-            reward_input_spec=_null_spec,
-            rng_key=rng_key,
-            n_action_steps=1,
-        )
-
-    control_mlp = control_model.content
-    policy, policy_store = MLPModel.init_policy(
-        input_dimension=int(control_mlp.input_dim),
-        output_dimension=int(control_mlp.output_dim),
-        hidden_layer_dimension=int(control_mlp.hidden_layer_dim),
-        num_layers=int(control_mlp.num_hidden_layers),
-        add_softmax=False,
-        control_policy=True,
-    )
-    value, value_store = MLPModel.init_policy(
-        input_dimension=int(control_mlp.input_dim),
-        output_dimension=1,
-        hidden_layer_dimension=int(control_mlp.hidden_layer_dim),
-        num_layers=1,
-        add_softmax=False,
-        control_policy=False,
-    )
-    return MLPModel.init_ppo_trained_model(
-        policy=policy,
-        val_estimator=value,
-        pol_store=policy_store,
-        val_estimator_store=value_store,
-        control_input_spec=control_mlp.input_spec,
-        value_input_spec=_null_spec,
-        reward_input_spec=_null_spec,
-        reward_fn=None,
-        rng_key=rng_key,
-    )
 
 
 def _extract_sim_model_from_zip(
@@ -446,10 +387,17 @@ async def handle_connection(
                     continue
 
                 test_controller = start_msg.test_graph.test_job_controller
-                test_params = test_controller.test_params
-                test_acceleration = test_controller.acceleration_mode
+                if not isinstance(test_controller.test_method, TestMethodCustom):
+                    await send_queue.put(_log_message_payload(
+                        "Test not started: only custom test methods are currently supported",
+                        training_id=test_id,
+                    ))
+                    continue
+                test_method = test_controller.test_method.content
 
-                sim_model_zip = start_msg.simulation_models.get(test_params.simulation_model)
+                sim_model_zip = start_msg.simulation_models.get(
+                    test_method.simulation_model
+                )
                 test_model_path: str | None = None
                 test_model_tmpdir: tempfile.TemporaryDirectory | None = None
                 if sim_model_zip:
@@ -461,48 +409,32 @@ async def handle_connection(
                             f"Test not started: sim model extraction failed: {exc}"
                         ))
                         continue
-
-                use_mjx = test_acceleration != TrainingAccelerationMode.MLCPUSIMULATIONCPU
-
-                # Single RNG seed for testing, split for the model (eager
-                # sequential sampling) and the workflow (batched scan).
-                test_model_rng, test_workflow_rng = jax.random.split(jax.random.PRNGKey(0))
+                if test_model_path is None:
+                    await send_queue.put(_log_message_payload(
+                        "Test not started: simulation model not found",
+                        training_id=test_id,
+                    ))
+                    continue
 
                 try:
-                    test_model = _build_model_for_testing(
-                        test_params.control_model, rng_key=test_model_rng
+                    workflow = TestingWorkflow(
+                        test_id=test_id,
+                        test_controller=test_controller,
+                        model_path=test_model_path,
+                        rng_key=jax.random.PRNGKey(0),
                     )
                 except Exception as exc:
-                    logger.exception("Model build failed for test_id=%s", test_id)
+                    logger.exception(
+                        "Failed to initialize testing workflow for test_id=%s",
+                        test_id,
+                    )
                     await send_queue.put(_log_message_payload(
-                        f"Test not started: model build failed: {exc}"
+                        f"Test not started: initialization failed: {exc}",
+                        training_id=test_id,
                     ))
                     if test_model_tmpdir is not None:
                         test_model_tmpdir.cleanup()
                     continue
-
-                try:
-                    test_simulator: Simulator = (
-                        MjxSimulator(model_path=test_model_path, mjcf=None)
-                        if use_mjx
-                        else MujocoSimulator(model_path=test_model_path, mjcf=None)
-                    )
-                except Exception as exc:
-                    logger.exception("Simulator creation failed for test_id=%s", test_id)
-                    await send_queue.put(_log_message_payload(
-                        f"Test not started: simulator creation failed: {exc}"
-                    ))
-                    if test_model_tmpdir is not None:
-                        test_model_tmpdir.cleanup()
-                    continue
-
-                workflow = TestingWorkflow(
-                    test_id=test_id,
-                    test_controller=test_controller,
-                    simulator=test_simulator,
-                    model=test_model,
-                    rng_key=test_workflow_rng,
-                )
                 stop_event = threading.Event()
                 sink = CallbackTestingTaskSink(thread_safe_send)
                 _test_tmpdir_ref = test_model_tmpdir

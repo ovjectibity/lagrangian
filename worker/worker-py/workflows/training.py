@@ -131,22 +131,21 @@ class TrainingWorkflow:
                 contact_sensor_addresses, contact_body_pairs = (
                     MujocoSimulator._get_contact_pair_sensor_metadata(mujoco_model)
                 )
-                render_ctx = (
-                    MujocoSimulator.get_render_context(mujoco_model)
-                    if needs_render_context
-                    else None
-                )
                 self.simulator_state = {
                     "simulator_class": MujocoSimulator,
                     "mjx_data": None,
                     "mjx_model": None,
                     "mujoco_data": mujoco_data,
                     "mujoco_model": mujoco_model,
-                    "render_ctx": render_ctx,
+                    "render_ctx": None,
                     "render_ctx_pytree": None,
                     "contact_sensor_addresses": contact_sensor_addresses,
                     "contact_body_pairs": contact_body_pairs,
                 }
+                if needs_render_context:
+                    self.simulator_state["render_ctx"] = (
+                        MujocoSimulator.get_render_context(mujoco_model)
+                    )
             elif mode == TrainingAccelerationMode.MLGPUSIMULATIONGPU:
                 (
                     mjx_data,
@@ -157,21 +156,13 @@ class TrainingWorkflow:
                 contact_sensor_addresses, contact_body_pairs = (
                     MjxSimulator._get_contact_pair_sensor_metadata(mujoco_model)
                 )
-                render_ctx = (
-                    MjxSimulator.get_render_context(
-                        mujoco_model,
-                        nworld=self.params.num_trajs,
-                    )
-                    if needs_render_context
-                    else None
-                )
                 self.simulator_state = {
                     "simulator_class": MjxSimulator,
                     "mjx_data": mjx_data,
                     "mjx_model": mjx_model,
                     "mujoco_data": mujoco_data,
                     "mujoco_model": mujoco_model,
-                    "render_ctx": render_ctx,
+                    "render_ctx": None,
                     "render_ctx_pytree": None,
                     "contact_sensor_addresses": jnp.asarray(
                         contact_sensor_addresses,
@@ -182,7 +173,12 @@ class TrainingWorkflow:
                         dtype=jnp.int32,
                     ),
                 }
-                if render_ctx is not None:
+                if needs_render_context:
+                    render_ctx = MjxSimulator.get_render_context(
+                        mujoco_model,
+                        nworld=self.params.num_trajs,
+                    )
+                    self.simulator_state["render_ctx"] = render_ctx
                     self.simulator_state["render_ctx_pytree"] = render_ctx.pytree()
             else:
                 raise ValueError(
