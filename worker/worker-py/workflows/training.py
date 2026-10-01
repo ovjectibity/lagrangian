@@ -434,7 +434,10 @@ class TrainingWorkflow:
                     if freq.type == CheckpointFrequencyTypes.POST_UPDATE
                     else None
                 )
-                trajs = self.trainer.gen_trajectories(self.params.num_trajs)
+                trajs = self.trainer.gen_trajectories(
+                    self.params.num_trajs,
+                    self.simulator_state,
+                )
                 runtime_info = self.trainer.train_an_epoch(trajs, post_update_callback)
                 mean_entropy = self.trainer.get_rollout_mean_entropy(trajs)
                 mean_reward = self.trainer.get_rollout_mean_reward(trajs)

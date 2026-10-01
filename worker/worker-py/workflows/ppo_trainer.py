@@ -9,10 +9,10 @@ logger = logging.getLogger(__name__)
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import random
 
-from commondef.training import ControlPolicyOutputMode
-from simulator.simulator import MjxSimulator, Simulator
+from simulator.simulator import MjxSimulator, MujocoSimulator, Simulator
 from models.model import PPOTrainedModel
 
 
@@ -70,7 +70,6 @@ class PPOTrainerRuntimeInfo:
 class PPOTrainer:
     def __init__(
         self,
-        # simulator: Simulator,
         model: PPOTrainedModel,
         num_trajs: int,
         traj_depth: int,
@@ -86,7 +85,6 @@ class PPOTrainer:
         self.num_updates = num_updates
         self.epsilon = epsilon
         self.gamma_lambda = gamma_lambda
-        # self.simulator = simulator
         self.model = model
         self.learning_rate = learning_rate
         self._rng_key = rng_key if rng_key is not None else random.PRNGKey(seed)
@@ -94,25 +92,6 @@ class PPOTrainer:
         self.value_opt = self._init_adam_state(self.model.get_value_store())
         self._jit_gen_trajs: Any = None
         self._jit_train_epoch: Any = None
-
-        # One render context covers all num_trajs worlds at once (nworld=N
-        # means one render() call renders every trajectory's cameras
-        # together, not one context per trajectory). Built once here (GPU
-        # path only) and reused for the trainer's lifetime, matching
-        # self._jit_gen_trajs's cache lifetime: RenderContextPytree's key is
-        # static aux_data, so a fresh context on every gen_trajectories_gpu
-        # call would force a recompile (or mismatch) every epoch.
-        # self._render_ctx: Any = None
-        # if any(
-        #     s.all_cameras for s in (
-        #         model.get_control_input_spec(),
-        #         model.get_value_input_spec(),
-        #         model.get_reward_input_spec(),
-        #     )
-        # ):
-        #     self._render_ctx = self.simulator._get_render_context(  # type: ignore[attr-defined]
-        #         nworld=num_trajs
-        #     ).pytree()
 
     @staticmethod
     def _init_adam_state(params: Params) -> dict[str, Any]:
@@ -150,47 +129,79 @@ class PPOTrainer:
         new_state = {"m": m, "v": v, "t": t}
         return new_params, new_state
 
-    def get_action_output_size(self) -> int:
-        return self.simulator.nu()
-
-    def gen_trajectory(self) -> Trajectory:
+    def gen_trajectory(self, simulator_state: dict[str, Any]) -> Trajectory:
         logger.info("gen_trajectory: start (traj_depth=%s)", self.traj_depth)
-        # action_output_size = self.get_action_output_size()
+        simulator_class = simulator_state["simulator_class"]
+        if simulator_class is not MujocoSimulator:
+            raise ValueError("gen_trajectory requires MujocoSimulator state")
+        data = simulator_state["mujoco_data"]
+        model = simulator_state["mujoco_model"]
+        if data is None or model is None:
+            raise ValueError("MuJoCo data and model are required for CPU trajectories")
+        render_ctx = simulator_state["render_ctx"]
+        contact_sensor_addresses = simulator_state["contact_sensor_addresses"]
+        contact_body_pairs = simulator_state["contact_body_pairs"]
+
         control_input_spec = self.model.get_control_input_spec()
         value_input_spec = self.model.get_value_input_spec()
         reward_input_spec = self.model.get_reward_input_spec()
         policy_fn = self.model.get_policy_fn()
         policy_store = self.model.get_policy_store()
+        output_mode = self.model.get_control_policy_output_mode()
         control_wstates: list[dict[str, Array]] = []
         value_wstates: list[dict[str, Array]] = []
         model_outputs: list[dict[str, Array]] = []
         model_output_samples: list[Array] = []
         model_output_samples_log_prob: list[float] = []
         rewards: list[float] = []
-        self.simulator.reset_state()
-        logger.info("gen_trajectory: reset_state done, entering step loop")
+        logger.info("gen_trajectory: entering step loop")
         for step in range(self.traj_depth):
             logger.info("gen_trajectory: step %s/%s", step, self.traj_depth)
-            control_parts = self.simulator.get_model_state(control_input_spec)
-            value_parts = self.simulator.get_model_state(value_input_spec)
-            reward_parts_pre = self.simulator.get_model_state(reward_input_spec)
+            control_parts = simulator_class.get_model_state_pure(
+                control_input_spec,
+                data,
+                model,
+                render_ctx,
+                contact_sensor_addresses,
+                contact_body_pairs,
+            )
+            value_parts = simulator_class.get_model_state_pure(
+                value_input_spec,
+                data,
+                model,
+                render_ctx,
+                contact_sensor_addresses,
+                contact_body_pairs,
+            )
+            reward_parts_pre = simulator_class.get_model_state_pure(
+                reward_input_spec,
+                data,
+                model,
+                render_ctx,
+                contact_sensor_addresses,
+                contact_body_pairs,
+            )
             self._rng_key, step_key = jax.random.split(self._rng_key)
             pol_output = policy_fn(policy_store, {**control_parts, "rng_key": step_key})
-            logger.debug("Got the pol_output in gen_trajectory: {pol_output}")
+            logger.debug("Got the pol_output in gen_trajectory: %s", pol_output)
             sampled_action = pol_output["sampled_action"]
             sampled_action_log_prob = pol_output["sampled_action_log_prob"]
 
-            output_mode = self.model.get_control_policy_output_mode()
-            if output_mode == ControlPolicyOutputMode.TARGETTORQUES:
-                controls = sampled_action
-            elif output_mode == ControlPolicyOutputMode.TARGETPOSITIONS:
-                controls = self.simulator.modify_target_position(sampled_action)
-            elif output_mode == ControlPolicyOutputMode.TARGETVELOCITIES:
-                controls = self.simulator.get_target_controls_from_target_velocities(sampled_action)
-            else:
-                raise ValueError(f"Unsupported control mode: {output_mode}")
-            self.simulator.forward_dyn(jnp.asarray(controls))
-            reward_parts_post = self.simulator.get_model_state(reward_input_spec)
+            controls = simulator_class.get_actuator_input_from_control_input(
+                model,
+                data,
+                np.asarray(sampled_action),
+                output_mode,
+            )
+            data = simulator_class.forward_dyn_pure(data, model, controls)
+            reward_parts_post = simulator_class.get_model_state_pure(
+                reward_input_spec,
+                data,
+                model,
+                render_ctx,
+                contact_sensor_addresses,
+                contact_body_pairs,
+            )
             reward = float(self.model.get_reward(reward_parts_pre, reward_parts_post))
             logger.info("gen_trajectory: step %s/%s reward=%.4f", step, self.traj_depth, reward)
             rewards.append(reward)
@@ -202,7 +213,14 @@ class PPOTrainer:
             model_output_samples_log_prob.append(sampled_action_log_prob)
         logger.info("gen_trajectory: step loop done, computing terminal state")
         # Only the value path needs the terminal state (for GAE/RTG); control does not.
-        terminal_value_parts = self.simulator.get_model_state(value_input_spec)
+        terminal_value_parts = simulator_class.get_model_state_pure(
+            value_input_spec,
+            data,
+            model,
+            render_ctx,
+            contact_sensor_addresses,
+            contact_body_pairs,
+        )
         value_wstates.append(terminal_value_parts)
         v_terminal = float(self.model.get_value_output(value_wstates[-1]))
         logger.info("gen_trajectory: computing rtg and log probs")
@@ -222,11 +240,15 @@ class PPOTrainer:
             rtgs=rtgs,
         )
 
-    def gen_trajectories(self, num_trajs: int) -> list[Trajectory]:
+    def gen_trajectories(
+        self,
+        num_trajs: int,
+        simulator_state: dict[str, Any],
+    ) -> list[Trajectory]:
         trajs = []
         for i in range(num_trajs):
             logger.info("gen_trajectories: starting traj %s/%s", i + 1, num_trajs)
-            traj = self.gen_trajectory()
+            traj = self.gen_trajectory(simulator_state)
             logger.info("gen_trajectories: completed traj %s/%s", i + 1, num_trajs)
             trajs.append(traj)
         return trajs
@@ -436,9 +458,8 @@ class PPOTrainer:
         if policy_store is None:
             policy_store = self.model.get_policy_store()
         output_mode = self.model.get_control_policy_output_mode()
-        action_output_size = simulator_class.nv(mjx_data)
 
-        logger.info("gen_trajectory_gpu: output_mode=%s action_output_size=%s", output_mode, action_output_size)
+        logger.info("gen_trajectory_gpu: output_mode=%s", output_mode)
         logger.info("gen_trajectory_gpu: launching lax.scan over %s steps", self.traj_depth)
 
         def scan_body(
@@ -679,7 +700,7 @@ class PPOTrainer:
             "train_an_epoch_gpu: start (num_trajs=%s traj_depth=%s action_size=%s)",
             num_trajs_in,
             self.traj_depth,
-            self.get_action_output_size(),
+            policy_output.shape[-1],
         )
         policy_log_prob_fn = self.model.get_policy_output_log_prob_fn()
         value_fn = self.model.get_value_fn()
