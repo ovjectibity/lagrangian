@@ -89,121 +89,149 @@ class TrainingWorkflow:
         self.id = training_id
         self.training_controller = training_controller
         self.params: PPOTrainingMethod = training_controller.training_method.content
+        self.simulator_state: dict[str, Any] = {}
 
-        root_rng = rng_key if rng_key is not None else jax.random.PRNGKey(0)
-        model_rng, workflow_rng = jax.random.split(root_rng)
-        self._rng_key, trainer_key = jax.random.split(workflow_rng)
+        try:
+            root_rng = rng_key if rng_key is not None else jax.random.PRNGKey(0)
+            model_rng, workflow_rng = jax.random.split(root_rng)
+            self._rng_key, trainer_key = jax.random.split(workflow_rng)
 
-        reward_fn = self._load_user_reward_fn(
-            self.params.reward_function.reward_function_code
-        )
-        self.model = self._build_model_for_training(
-            self.params,
-            reward_fn,
-            rng_key=model_rng,
-        )
-        for checkpoint_path in checkpoint_paths or []:
+            reward_fn = self._load_user_reward_fn(
+                self.params.reward_function.reward_function_code
+            )
+            self.model = self._build_model_for_training(
+                self.params,
+                reward_fn,
+                rng_key=model_rng,
+            )
+            for checkpoint_path in checkpoint_paths or []:
+                try:
+                    self._load_checkpoint_into_model(self.model, checkpoint_path)
+                except Exception:
+                    logger.exception(
+                        "Checkpoint load failed: training_id=%s checkpoint_path=%s",
+                        self.id,
+                        checkpoint_path,
+                    )
+
+            mode = self.training_controller.acceleration_mode
+            needs_render_context = any(
+                input_spec.all_cameras
+                for input_spec in (
+                    self.model.get_control_input_spec(),
+                    self.model.get_value_input_spec(),
+                    self.model.get_reward_input_spec(),
+                )
+            )
+            if mode in (
+                TrainingAccelerationMode.MLCPUSIMULATIONCPU,
+                TrainingAccelerationMode.MLGPUSIMULATIONCPU,
+            ):
+                mujoco_data, mujoco_model = MujocoSimulator.init(model_path=model_path)
+                contact_sensor_addresses, contact_body_pairs = (
+                    MujocoSimulator._get_contact_pair_sensor_metadata(mujoco_model)
+                )
+                render_ctx = (
+                    MujocoSimulator.get_render_context(mujoco_model)
+                    if needs_render_context
+                    else None
+                )
+                self.simulator_state = {
+                    "simulator_class": MujocoSimulator,
+                    "mjx_data": None,
+                    "mjx_model": None,
+                    "mujoco_data": mujoco_data,
+                    "mujoco_model": mujoco_model,
+                    "render_ctx": render_ctx,
+                    "render_ctx_pytree": None,
+                    "contact_sensor_addresses": contact_sensor_addresses,
+                    "contact_body_pairs": contact_body_pairs,
+                }
+            elif mode == TrainingAccelerationMode.MLGPUSIMULATIONGPU:
+                (
+                    mjx_data,
+                    mjx_model,
+                    mujoco_data,
+                    mujoco_model,
+                ) = MjxSimulator.init(model_path=model_path)
+                contact_sensor_addresses, contact_body_pairs = (
+                    MjxSimulator._get_contact_pair_sensor_metadata(mujoco_model)
+                )
+                render_ctx = (
+                    MjxSimulator.get_render_context(
+                        mujoco_model,
+                        nworld=self.params.num_trajs,
+                    )
+                    if needs_render_context
+                    else None
+                )
+                self.simulator_state = {
+                    "simulator_class": MjxSimulator,
+                    "mjx_data": mjx_data,
+                    "mjx_model": mjx_model,
+                    "mujoco_data": mujoco_data,
+                    "mujoco_model": mujoco_model,
+                    "render_ctx": render_ctx,
+                    "render_ctx_pytree": None,
+                    "contact_sensor_addresses": jnp.asarray(
+                        contact_sensor_addresses,
+                        dtype=jnp.int32,
+                    ),
+                    "contact_body_pairs": jnp.asarray(
+                        contact_body_pairs,
+                        dtype=jnp.int32,
+                    ),
+                }
+                if render_ctx is not None:
+                    self.simulator_state["render_ctx_pytree"] = render_ctx.pytree()
+            else:
+                raise ValueError(
+                    f"Unsupported local training acceleration mode: {mode}"
+                )
+
+            self.trainer = PPOTrainer(
+                model=self.model,
+                num_trajs=self.params.num_trajs,
+                traj_depth=self.params.num_steps_per_traj,
+                num_updates=self.params.num_updates,
+                epsilon=self.params.epsilon,
+                gamma_lambda=(self.params.gamma, self.params.lambda_),
+                rng_key=trainer_key,
+            )
+            self._ckpt_dir = f"/tmp/checkpoints/{training_id}"
+            os.makedirs(self._ckpt_dir, exist_ok=True)
+            self._checkpointer = ocp.PyTreeCheckpointer()
+            logger.info(
+                "TrainingWorkflow initialized: id=%s epochs=%s epsilon=%s "
+                "acceleration=%s",
+                self.id,
+                self.params.num_epochs,
+                self.params.epsilon,
+                self.training_controller.acceleration_mode,
+            )
+        except Exception:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        """Release caller-owned rendering resources, if any."""
+        render_ctx = self.simulator_state.get("render_ctx")
+        self.simulator_state["render_ctx"] = None
+        self.simulator_state["render_ctx_pytree"] = None
+        if render_ctx is None:
+            return
+
+        close = getattr(render_ctx, "close", None)
+        if callable(close):
             try:
-                self._load_checkpoint_into_model(self.model, checkpoint_path)
+                close()
             except Exception:
                 logger.exception(
-                    "Checkpoint load failed: training_id=%s checkpoint_path=%s",
+                    "Failed to close training render context: training_id=%s",
                     self.id,
-                    checkpoint_path,
                 )
-
-        mode = self.training_controller.acceleration_mode
-        needs_render_context = any(
-            input_spec.all_cameras
-            for input_spec in (
-                self.model.get_control_input_spec(),
-                self.model.get_value_input_spec(),
-                self.model.get_reward_input_spec(),
-            )
-        )
-        if mode in (
-            TrainingAccelerationMode.MLCPUSIMULATIONCPU,
-            TrainingAccelerationMode.MLGPUSIMULATIONCPU,
-        ):
-            mujoco_data, mujoco_model = MujocoSimulator.init(model_path=model_path)
-            contact_sensor_addresses, contact_body_pairs = (
-                MujocoSimulator._get_contact_pair_sensor_metadata(mujoco_model)
-            )
-            render_ctx = (
-                MujocoSimulator.get_render_context(mujoco_model)
-                if needs_render_context
-                else None
-            )
-            self.simulator_state: dict[str, Any] = {
-                "simulator_class": MujocoSimulator,
-                "mjx_data": None,
-                "mjx_model": None,
-                "mujoco_data": mujoco_data,
-                "mujoco_model": mujoco_model,
-                "render_ctx": render_ctx,
-                "render_ctx_pytree": None,
-                "contact_sensor_addresses": contact_sensor_addresses,
-                "contact_body_pairs": contact_body_pairs,
-            }
-        elif mode == TrainingAccelerationMode.MLGPUSIMULATIONGPU:
-            (
-                mjx_data,
-                mjx_model,
-                mujoco_data,
-                mujoco_model,
-            ) = MjxSimulator.init(model_path=model_path)
-            contact_sensor_addresses, contact_body_pairs = (
-                MjxSimulator._get_contact_pair_sensor_metadata(mujoco_model)
-            )
-            render_ctx = (
-                MjxSimulator.get_render_context(
-                    mujoco_model,
-                    nworld=self.params.num_trajs,
-                )
-                if needs_render_context
-                else None
-            )
-            self.simulator_state = {
-                "simulator_class": MjxSimulator,
-                "mjx_data": mjx_data,
-                "mjx_model": mjx_model,
-                "mujoco_data": mujoco_data,
-                "mujoco_model": mujoco_model,
-                "render_ctx": render_ctx,
-                "render_ctx_pytree": (
-                    render_ctx.pytree() if render_ctx is not None else None
-                ),
-                "contact_sensor_addresses": jnp.asarray(
-                    contact_sensor_addresses,
-                    dtype=jnp.int32,
-                ),
-                "contact_body_pairs": jnp.asarray(
-                    contact_body_pairs,
-                    dtype=jnp.int32,
-                ),
-            }
-        else:
-            raise ValueError(f"Unsupported local training acceleration mode: {mode}")
-
-        self.trainer = PPOTrainer(
-            model=self.model,
-            num_trajs=self.params.num_trajs,
-            traj_depth=self.params.num_steps_per_traj,
-            num_updates=self.params.num_updates,
-            epsilon=self.params.epsilon,
-            gamma_lambda=(self.params.gamma, self.params.lambda_),
-            rng_key=trainer_key,
-        )
-        self._ckpt_dir = f"/tmp/checkpoints/{training_id}"
-        os.makedirs(self._ckpt_dir, exist_ok=True)
-        self._checkpointer = ocp.PyTreeCheckpointer()
-        logger.info(
-            "TrainingWorkflow initialized: id=%s epochs=%s epsilon=%s acceleration=%s",
-            self.id,
-            self.params.num_epochs,
-            self.params.epsilon,
-            self.training_controller.acceleration_mode,
-        )
+                return
+        logger.info("Training render context released: training_id=%s", self.id)
 
     @staticmethod
     def _load_user_reward_fn(code: str) -> Any:
@@ -371,6 +399,18 @@ class TrainingWorkflow:
         logger.info("Checkpoint sent: training_id=%s epoch=%s update=%s", self.id, epoch_index, update_index)
 
     def run_training_blocking(
+        self,
+        tx: TrainingTaskSink,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> None:
+        try:
+            self._run_training_blocking(tx, should_stop)
+        finally:
+            # Cleanup runs in the same worker thread as training, so an
+            # asyncio cancellation cannot close a renderer still in use.
+            self.close()
+
+    def _run_training_blocking(
         self,
         tx: TrainingTaskSink,
         should_stop: Callable[[], bool] | None = None,
