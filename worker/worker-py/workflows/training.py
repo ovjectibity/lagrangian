@@ -394,7 +394,7 @@ class TrainingWorkflow:
             if use_gpu:
                 logger.info("Getting trajectories for epoch=%s",i)
                 self._rng_key, epoch_rng = jax.random.split(self._rng_key)
-                control_wstates, value_wstates, model_outputs, policy_output, rewards = (
+                control_wstates, value_wstates, model_outputs, action_samples, rewards = (
                     self.trainer.gen_trajectories_gpu(
                         self.params.num_trajs,
                         self.simulator_state,
@@ -403,7 +403,7 @@ class TrainingWorkflow:
                 )
                 logger.info("Got trajectories for epoch=%s. Training the epoch now",i)
                 runtime_info = self.trainer.train_an_epoch_gpu(
-                    control_wstates, value_wstates, policy_output, rewards, model_outputs
+                    control_wstates, value_wstates, model_outputs, action_samples, rewards
                 )
                 logger.info("Trained the epoch=%s. ",i)
                 mean_entropy = 0.0  # entropy not computed in GPU path yet
