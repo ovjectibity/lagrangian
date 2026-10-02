@@ -321,7 +321,7 @@ class TestingWorkflow:
         contact_body_pairs = self.simulator_state["contact_body_pairs"]
         has_cameras = control_spec.all_cameras and int(mjx_model.ncam) > 0
 
-        def state_fn(data: Any) -> dict[str, Array]:
+        def state_fn(data: Any) -> tuple[dict[str, Array], Any]:
             return simulator_class.get_model_state_pure(
                 control_spec,
                 data,
@@ -335,7 +335,7 @@ class TestingWorkflow:
             bd, rng = carry
             rng, step_key = jax.random.split(rng)
             env_keys = jax.random.split(step_key, num_parallel_envs)
-            parts_batched = jax.vmap(state_fn)(bd)
+            parts_batched, bd = jax.vmap(state_fn)(bd)
             # Pass the labeled parts dict straight to the policy (it splits
             # cameras from proprio internally); thread a fresh per-env sampling
             # key in via "rng_key".
@@ -423,7 +423,7 @@ class TestingWorkflow:
                 logger.info("Test run stop requested: id=%s", self.id)
                 break
             logger.info("Running the sequential test loop at timestep: %s", i)
-            parts = simulator_class.get_model_state_pure(
+            parts, data = simulator_class.get_model_state_pure(
                 control_spec,
                 data,
                 model,

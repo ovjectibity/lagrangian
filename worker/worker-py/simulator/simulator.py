@@ -148,7 +148,7 @@ class Simulator(ABC):
         render_ctx: Any = None,
         contact_sensor_addresses: jnp.ndarray | np.ndarray | None = None,
         contact_body_pairs: jnp.ndarray | np.ndarray | None = None,
-    ) -> dict[str, jnp.ndarray | np.ndarray]:
+    ) -> tuple[dict[str, jnp.ndarray | np.ndarray], Any]:
         """render_ctx: caller-managed camera render handle, required only when
         input_spec.all_cameras is set. See Simulator.get_render_context for
         how to build one.
@@ -156,6 +156,10 @@ class Simulator(ABC):
         Contact pairs are returned only when ``input_spec.contact_pairs`` and
         both contact metadata arrays are supplied. The arrays are generated
         once by ``_get_contact_pair_sensor_metadata`` for the incoming model.
+
+        MJX rendering updates an internal execution token in ``data``. Callers
+        that render inside a loop must carry the returned data into the next
+        iteration so rendering operations remain correctly ordered.
         """
         pass
 
@@ -589,9 +593,10 @@ class MjxSimulator(Simulator):
         render_ctx: Any = None,
         contact_sensor_addresses: jnp.ndarray | None = None,
         contact_body_pairs: jnp.ndarray | None = None,
-    ) -> dict[str, jnp.ndarray]:
-        """Extract model inputs from caller-owned MJX data."""
+    ) -> tuple[dict[str, jnp.ndarray], Any]:
+        """Extract model inputs and return the possibly updated MJX data."""
         result: dict[str, jnp.ndarray] = {}
+        updated_data = data
 
         if input_spec.qpos_state:
             result["qpos"] = data.qpos[: model.nq]
@@ -606,7 +611,7 @@ class MjxSimulator(Simulator):
                 raise ValueError(
                     "all_cameras requested but no MJX render context was provided"
                 )
-            rgb_packed, _ = mjx.render(model, data, render_ctx)
+            rgb_packed, updated_data = mjx.render(model, data, render_ctx)
             result["cameras"] = jnp.stack(
                 [
                     mjx.get_rgb(render_ctx, cam_id, rgb_packed)
@@ -629,7 +634,7 @@ class MjxSimulator(Simulator):
             result["qpos"] = data.qpos[: model.nq]
             result["qvel"] = data.qvel[: model.nv]
 
-        return result
+        return result, updated_data
 
 class MujocoSimulator(Simulator):
     @staticmethod
@@ -709,8 +714,8 @@ class MujocoSimulator(Simulator):
         render_ctx: mujoco.Renderer | None = None,
         contact_sensor_addresses: np.ndarray | None = None,
         contact_body_pairs: np.ndarray | None = None,
-    ) -> dict[str, np.ndarray]:
-        """Extract model inputs from caller-owned MuJoCo data."""
+    ) -> tuple[dict[str, np.ndarray], Any]:
+        """Extract model inputs and return the unchanged MuJoCo data."""
         result: dict[str, np.ndarray] = {}
 
         if input_spec.qpos_state:
@@ -746,7 +751,7 @@ class MujocoSimulator(Simulator):
             result["qpos"] = data.qpos[: model.nq].copy()
             result["qvel"] = data.qvel[: model.nv].copy()
 
-        return result
+        return result, data
 
     @staticmethod
     def get_render_context(
