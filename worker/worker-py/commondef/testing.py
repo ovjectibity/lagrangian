@@ -45,15 +45,9 @@ class LiberoDatasetType(str, Enum):
     LIBEROGOAL = "LiberoGoal"
     LIBEROOBJECT = "LiberoObject"
     LIBEROSEQUENTIAL = "LiberoSequential"
-class DatasetTaskSequencing(str, Enum):
-    PARALLELTASKSPARALLELENVS = "ParallelTasksParallelEnvs"
-    SEQUENTIALTASKSPARALLELENVS = "SequentialTasksParallelEnvs"
-    FULLYSEQUENTIAL = "FullySequential"
 class LiberoDatasetParams(BaseModel):
-    tasks: Optional[List[int]] = Field(default=None)
     tasks_index: Optional[List[int]] = Field(default=None)
     libero_dataset_type: LiberoDatasetType
-    tasks_sequencing: DatasetTaskSequencing
     num_envs_per_task: int
 
 class ModelForward(BaseModel):

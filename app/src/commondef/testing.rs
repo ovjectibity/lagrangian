@@ -14,17 +14,16 @@ use crate::commondef::training::{
 pub struct CustomTestMethodTestParams {
     pub num_timesteps: i32,
     pub num_parallel_envs: u32
-    // pub control_output_mode: ControlOutputMode,
-    // pub reward_function: Option<RewardSystem>
+    //TODO: Add reward function for eval
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
-#[typeshare]
-pub enum DatasetTaskSequencing {
-    ParallelTasksParallelEnvs,
-    SequentialTasksParallelEnvs,
-    FullySequential
-}
+// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+// #[typeshare]
+// pub enum DatasetTaskSequencing {
+//     ParallelTasksParallelEnvs,
+//     SequentialTasksParallelEnvs,
+//     FullySequential
+// }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
@@ -39,10 +38,10 @@ pub enum LiberoDatasetType {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct LiberoDatasetParams {
-    pub tasks: Option<Vec<i32>>,
+    // pub tasks: Option<Vec<i32>>,
     pub tasks_index: Option<Vec<i32>>,
     pub libero_dataset_type: LiberoDatasetType,
-    pub tasks_sequencing: DatasetTaskSequencing,
+    // pub tasks_sequencing: DatasetTaskSequencing,
     pub num_envs_per_task: i32
 }
 
@@ -57,7 +56,6 @@ pub enum Dataset {
 #[typeshare]
 pub struct DatasetMethod {
     pub dataset: Dataset,
-    // pub test_params: DatasetTestMethodTestParams,
     pub control_model: ControlModel
 }
 
@@ -81,7 +79,6 @@ pub enum TestMethod {
 #[typeshare]
 pub struct TestJobController {
     pub test_method: TestMethod, 
-    // pub test_params: TestParams,
     pub compute_instance: ComputeInstance,
     pub acceleration_mode: TrainingAccelerationMode,
 }

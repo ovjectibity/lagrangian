@@ -566,6 +566,10 @@ class PPOTrainer:
         mjx_model = simulator_state["mjx_model"]
         if mjx_data is None or mjx_model is None:
             raise ValueError("MJX data and model are required for GPU trajectories")
+        batched_data = jax.tree_util.tree_map(
+            lambda x: jnp.stack([x] * num_trajs),
+            mjx_data,
+        )
 
         render_ctx = simulator_state["render_ctx_pytree"]
         contact_sensor_addresses = simulator_state["contact_sensor_addresses"]
@@ -637,13 +641,15 @@ class PPOTrainer:
 
         all_trajs = jax.vmap(
             single_traj,
-            in_axes=(None, None, None, 0, None),
+            in_axes=(None, None, 0, 0, None),
         )
 
         if self._jit_gen_trajs is None:
             ##DEBUG TRACING & COMPILE:
             # See what JAX will actually compile before running it
-            # jaxpr = jax.make_jaxpr(all_trajs)(policy_store, mjx_data, keys)
+            # jaxpr = jax.make_jaxpr(all_trajs)(
+            #     policy_store, mjx_model, batched_data, keys, render_ctx
+            # )
             # print(jaxpr)  # full trace as a Jaxpr (JAX's IR before HLO lowering)
 
             # Go one step further: lower to StableHLO
@@ -651,7 +657,7 @@ class PPOTrainer:
             lowered = jax.jit(all_trajs).lower(
                 policy_store,
                 mjx_model,
-                mjx_data,
+                batched_data,
                 keys,
                 render_ctx,
             )
@@ -672,7 +678,7 @@ class PPOTrainer:
         result = self._jit_gen_trajs(
             policy_store,
             mjx_model,
-            mjx_data,
+            batched_data,
             keys,
             render_ctx,
         )

@@ -370,16 +370,6 @@
     "LiberoDatasetParams": {
       "type": "object",
       "properties": {
-        "tasks": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "integer",
-            "format": "int32"
-          }
-        },
         "tasks_index": {
           "type": [
             "array",
@@ -393,9 +383,6 @@
         "libero_dataset_type": {
           "$ref": "#/definitions/LiberoDatasetType"
         },
-        "tasks_sequencing": {
-          "$ref": "#/definitions/DatasetTaskSequencing"
-        },
         "num_envs_per_task": {
           "type": "integer",
           "format": "int32"
@@ -403,7 +390,6 @@
       },
       "required": [
         "libero_dataset_type",
-        "tasks_sequencing",
         "num_envs_per_task"
       ]
     },
@@ -415,14 +401,6 @@
         "LiberoGoal",
         "LiberoObject",
         "LiberoSequential"
-      ]
-    },
-    "DatasetTaskSequencing": {
-      "type": "string",
-      "enum": [
-        "ParallelTasksParallelEnvs",
-        "SequentialTasksParallelEnvs",
-        "FullySequential"
       ]
     },
     "ComputeInstance": {

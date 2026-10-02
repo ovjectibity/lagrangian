@@ -120,17 +120,9 @@ export enum LiberoDatasetType {
 	LiberoSequential = "LiberoSequential",
 }
 
-export enum DatasetTaskSequencing {
-	ParallelTasksParallelEnvs = "ParallelTasksParallelEnvs",
-	SequentialTasksParallelEnvs = "SequentialTasksParallelEnvs",
-	FullySequential = "FullySequential",
-}
-
 export interface LiberoDatasetParams {
-	tasks?: number[];
 	tasks_index?: number[];
 	libero_dataset_type: LiberoDatasetType;
-	tasks_sequencing: DatasetTaskSequencing;
 	num_envs_per_task: number;
 }
 
