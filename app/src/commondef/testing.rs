@@ -32,17 +32,18 @@ pub enum LiberoDatasetType {
     Libero90,
     LiberoGoal,
     LiberoObject,
-    LiberoSequential
+    LiberoSpatial
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct LiberoDatasetParams {
     // pub tasks: Option<Vec<i32>>,
-    pub tasks_index: Option<Vec<i32>>,
+    pub tasks_index: Vec<i32>,
     pub libero_dataset_type: LiberoDatasetType,
     // pub tasks_sequencing: DatasetTaskSequencing,
-    pub num_envs_per_task: i32
+    pub num_envs_per_task: i32,
+    pub num_timesteps: i32
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]

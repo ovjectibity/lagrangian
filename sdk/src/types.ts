@@ -117,13 +117,14 @@ export enum LiberoDatasetType {
 	Libero90 = "Libero90",
 	LiberoGoal = "LiberoGoal",
 	LiberoObject = "LiberoObject",
-	LiberoSequential = "LiberoSequential",
+	LiberoSpatial = "LiberoSpatial",
 }
 
 export interface LiberoDatasetParams {
-	tasks_index?: number[];
+	tasks_index: number[];
 	libero_dataset_type: LiberoDatasetType;
 	num_envs_per_task: number;
+	num_timesteps: number;
 }
 
 export interface LogStream {

@@ -371,10 +371,7 @@
       "type": "object",
       "properties": {
         "tasks_index": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "type": "array",
           "items": {
             "type": "integer",
             "format": "int32"
@@ -386,11 +383,17 @@
         "num_envs_per_task": {
           "type": "integer",
           "format": "int32"
+        },
+        "num_timesteps": {
+          "type": "integer",
+          "format": "int32"
         }
       },
       "required": [
+        "tasks_index",
         "libero_dataset_type",
-        "num_envs_per_task"
+        "num_envs_per_task",
+        "num_timesteps"
       ]
     },
     "LiberoDatasetType": {
@@ -400,7 +403,7 @@
         "Libero90",
         "LiberoGoal",
         "LiberoObject",
-        "LiberoSequential"
+        "LiberoSpatial"
       ]
     },
     "ComputeInstance": {

@@ -44,11 +44,12 @@ class LiberoDatasetType(str, Enum):
     LIBERO90 = "Libero90"
     LIBEROGOAL = "LiberoGoal"
     LIBEROOBJECT = "LiberoObject"
-    LIBEROSEQUENTIAL = "LiberoSequential"
+    LIBEROSPATIAL = "LiberoSpatial"
 class LiberoDatasetParams(BaseModel):
-    tasks_index: Optional[List[int]] = Field(default=None)
+    tasks_index: List[int]
     libero_dataset_type: LiberoDatasetType
     num_envs_per_task: int
+    num_timesteps: int
 
 class ModelForward(BaseModel):
     xpos: List[float]

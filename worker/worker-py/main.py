@@ -57,7 +57,7 @@ from commondef.remoteworkermessages import (
     StopTestMessage,
     StopTrainingMessage,
 )
-from commondef.testing import TestMethodCustom
+from commondef.testing import TestMethodCustom, TestMethodDataset
 from workflows.testing import CallbackTestingTaskSink, TestingWorkflow
 from workflows.training import CallbackTrainingTaskSink, TrainingWorkflow
 
@@ -387,31 +387,36 @@ async def handle_connection(
                     continue
 
                 test_controller = start_msg.test_graph.test_job_controller
-                if not isinstance(test_controller.test_method, TestMethodCustom):
-                    await send_queue.put(_log_message_payload(
-                        "Test not started: only custom test methods are currently supported",
-                        training_id=test_id,
-                    ))
-                    continue
-                test_method = test_controller.test_method.content
-
-                sim_model_zip = start_msg.simulation_models.get(
-                    test_method.simulation_model
-                )
                 test_model_path: str | None = None
                 test_model_tmpdir: tempfile.TemporaryDirectory | None = None
-                if sim_model_zip:
-                    try:
-                        test_model_tmpdir, test_model_path = _extract_sim_model_from_zip(sim_model_zip)
-                    except Exception as exc:
-                        logger.exception("Failed to extract sim model for test_id=%s", test_id)
+                test_method = test_controller.test_method
+                if isinstance(test_method, TestMethodCustom):
+                    sim_model_zip = start_msg.simulation_models.get(
+                        test_method.content.simulation_model
+                    )
+                    if sim_model_zip:
+                        try:
+                            test_model_tmpdir, test_model_path = (
+                                _extract_sim_model_from_zip(sim_model_zip)
+                            )
+                        except Exception as exc:
+                            logger.exception(
+                                "Failed to extract sim model for test_id=%s",
+                                test_id,
+                            )
+                            await send_queue.put(_log_message_payload(
+                                f"Test not started: sim model extraction failed: {exc}"
+                            ))
+                            continue
+                    if test_model_path is None:
                         await send_queue.put(_log_message_payload(
-                            f"Test not started: sim model extraction failed: {exc}"
+                            "Test not started: simulation model not found",
+                            training_id=test_id,
                         ))
                         continue
-                if test_model_path is None:
+                elif not isinstance(test_method, TestMethodDataset):
                     await send_queue.put(_log_message_payload(
-                        "Test not started: simulation model not found",
+                        "Test not started: unsupported testing method",
                         training_id=test_id,
                     ))
                     continue
