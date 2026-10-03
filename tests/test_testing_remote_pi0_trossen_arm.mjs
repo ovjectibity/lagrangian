@@ -57,9 +57,14 @@ async function uploadModel(client) {
 function buildTestGraph(modelId) {
   return {
     test_job_controller: {
-      test_params: {
-        num_timesteps: NUM_TIMESTEPS,
-        control_model: {
+      test_method: {
+        type: "Custom",
+        content: {
+          test_params: {
+            num_timesteps: NUM_TIMESTEPS,
+            num_parallel_envs: NUM_ENVS,
+          },
+          control_model: {
           type: "VLA",
           content: {
             model_type: {
@@ -76,9 +81,9 @@ function buildTestGraph(modelId) {
             },
             output: "TargetPositions",
           },
+          },
+          simulation_model: modelId,
         },
-        simulation_model: modelId,
-        num_parallel_envs: NUM_ENVS,
       },
       compute_instance: "AWSG4dn",
       acceleration_mode: "MLGPUSimulationGPU",
@@ -90,8 +95,7 @@ async function runTest(client, testGraph) {
   const { id: testId } = await client.simulations.start(testGraph);
   console.log(`  test_id=${testId}`);
 
-  // Each update is a TestUpdateMessage: simulation_state is [env][timestep] of
-  // ModelForward { xpos, xquat }; frames is the flattened CameraFrames.
+  // Each update is task-indexed: simulation_state[task][env][timestep].
   const frames = [];
   for await (const frame of client.simulations.streamUpdates(testId)) {
     frames.push(frame);
@@ -106,7 +110,7 @@ async function runTest(client, testGraph) {
   if (!frames[0].simulation_state[0][0].xquat.length)  throw new Error("empty xquat in first frame");
 
   // all_cameras is enabled, so each update must carry camera frames.
-  const cf = frames[0].frames;
+  const cf = frames[0].frames[0];
   if (!cf)                throw new Error("expected camera frames (all_cameras=true) but none received");
   if (!cf.frames.length)  throw new Error("camera frames buffer is empty");
   const expectedLen = cf.nenv * cf.t * cf.ncam * cf.h * cf.w * 3;

@@ -68,11 +68,16 @@ async function fetchMlpCheckpoint(client) {
 function buildTestGraph(modelId, controlModel) {
   return {
     test_job_controller: {
-      test_params: {
-        num_timesteps: NUM_TIMESTEPS,
-        control_model: controlModel,
-        simulation_model: modelId,
-        num_parallel_envs: 1,
+      test_method: {
+        type: "Custom",
+        content: {
+          test_params: {
+            num_timesteps: NUM_TIMESTEPS,
+            num_parallel_envs: 1,
+          },
+          control_model: controlModel,
+          simulation_model: modelId,
+        },
       },
       compute_instance: "AWSG4dn",
       acceleration_mode: "AllOnServer",
@@ -84,8 +89,7 @@ async function runTest(client, testGraph, label) {
   const { id: testId } = await client.simulations.start(testGraph);
   console.log(`  test_id=${testId}`);
 
-  // Each update is a TestUpdateMessage: simulation_state is [env][timestep] of
-  // ModelForward { xpos, xquat }; frames (cameras) is absent here (all_cameras=false).
+  // Each update is task-indexed: simulation_state[task][env][timestep].
   const frames = [];
   for await (const frame of client.simulations.streamUpdates(testId)) {
     frames.push(frame);

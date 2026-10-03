@@ -22,36 +22,42 @@ function decodeSimulFrame(buf: ArrayBuffer): TestUpdateMessage {
   const env = TestingStreamMessage.decode(new Uint8Array(buf));
   const update = env.testUpdate;
   if (!update) {
-    return { id: "", simulation_state: [] };
+    return { id: "", simulation_state: {}, frames: {} };
   }
 
-  // EnvUpdates[] -> ModelForward[][]; drop the proto-only `nbody` field.
-  const simulation_state: ModelForward[][] = (
-    update.simulationState ?? []
-  ).map((envUpdates) =>
-    (envUpdates.updates ?? []).map((mf) => ({
-      xpos: mf.xpos ?? [],
-      xquat: mf.xquat ?? [],
-    })),
+  // TaskUpdates[] -> task-indexed ModelForward[][]; drop the proto-only
+  // `nbody` field.
+  const simulation_state: Record<number, ModelForward[][]> = Object.fromEntries(
+    (update.simulationState ?? []).map((taskUpdates) => [
+      Number(taskUpdates.taskIndex ?? 0),
+      (taskUpdates.environments ?? []).map((envUpdates) =>
+        (envUpdates.updates ?? []).map((mf) => ({
+          xpos: mf.xpos ?? [],
+          xquat: mf.xquat ?? [],
+        })),
+      ),
+    ]),
+  );
+
+  const frames: Record<number, CameraFrames> = Object.fromEntries(
+    (update.frames ?? []).map((frame) => [
+      Number(frame.taskIndex ?? 0),
+      {
+        frames: Array.from(frame.frames ?? new Uint8Array()),
+        nenv: Number(frame.nenv ?? 0),
+        ncam: Number(frame.ncam ?? 0),
+        t: Number(frame.t ?? 0),
+        h: Number(frame.h ?? 0),
+        w: Number(frame.w ?? 0),
+      },
+    ]),
   );
 
   const result: TestUpdateMessage = {
     id: update.id ?? "",
     simulation_state,
+    frames,
   };
-
-  if (update.frames) {
-    const f = update.frames;
-    const frames: CameraFrames = {
-      frames: Array.from(f.frames ?? new Uint8Array()),
-      nenv: Number(f.nenv ?? 0),
-      ncam: Number(f.ncam ?? 0),
-      t: Number(f.t ?? 0),
-      h: Number(f.h ?? 0),
-      w: Number(f.w ?? 0),
-    };
-    result.frames = frames;
-  }
 
   return result;
 }
