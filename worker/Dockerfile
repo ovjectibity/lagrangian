@@ -20,6 +20,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        cmake \
         software-properties-common \
         libgl1 \
         libglib2.0-0 \
