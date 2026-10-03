@@ -931,6 +931,7 @@
         "type": "string",
         "enum": [
           "TargetPositions",
+          "TargetPositionsDiff",
           "TargetVelocities",
           "TargetTorques"
         ]
@@ -941,6 +942,83 @@
           "name": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "CustomTestMethod": {
+        "type": "object",
+        "required": [
+          "test_params",
+          "control_model",
+          "simulation_model"
+        ],
+        "properties": {
+          "control_model": {
+            "$ref": "#/components/schemas/ControlModel"
+          },
+          "simulation_model": {
+            "type": "string"
+          },
+          "test_params": {
+            "$ref": "#/components/schemas/CustomTestMethodTestParams"
+          }
+        }
+      },
+      "CustomTestMethodTestParams": {
+        "type": "object",
+        "required": [
+          "num_timesteps",
+          "num_parallel_envs"
+        ],
+        "properties": {
+          "num_parallel_envs": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "num_timesteps": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "Dataset": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/LiberoDatasetParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Libero"
+                ]
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        }
+      },
+      "DatasetMethod": {
+        "type": "object",
+        "required": [
+          "dataset",
+          "control_model"
+        ],
+        "properties": {
+          "control_model": {
+            "$ref": "#/components/schemas/ControlModel"
+          },
+          "dataset": {
+            "$ref": "#/components/schemas/Dataset"
           }
         }
       },
@@ -1091,6 +1169,45 @@
           "Mesh"
         ]
       },
+      "LiberoDatasetParams": {
+        "type": "object",
+        "required": [
+          "tasks_index",
+          "libero_dataset_type",
+          "num_envs_per_task",
+          "num_timesteps"
+        ],
+        "properties": {
+          "libero_dataset_type": {
+            "$ref": "#/components/schemas/LiberoDatasetType"
+          },
+          "num_envs_per_task": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "num_timesteps": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tasks_index": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        }
+      },
+      "LiberoDatasetType": {
+        "type": "string",
+        "enum": [
+          "Libero10",
+          "Libero90",
+          "LiberoGoal",
+          "LiberoObject",
+          "LiberoSpatial"
+        ]
+      },
       "MLPModel": {
         "type": "object",
         "required": [
@@ -1180,7 +1297,6 @@
           "qvel_state",
           "xpos_state",
           "xquat_state",
-          "qdof_state",
           "contact_pairs"
         ],
         "properties": {
@@ -1190,9 +1306,6 @@
           "contact_pairs": {
             "type": "boolean",
             "description": "Only valid in reward_function.input_spec; forbidden in control/value model specs."
-          },
-          "qdof_state": {
-            "type": "boolean"
           },
           "qpos_state": {
             "type": "boolean"
@@ -1493,7 +1606,7 @@
       "TestJobController": {
         "type": "object",
         "required": [
-          "test_params",
+          "test_method",
           "compute_instance",
           "acceleration_mode"
         ],
@@ -1504,35 +1617,52 @@
           "compute_instance": {
             "$ref": "#/components/schemas/ComputeInstance"
           },
-          "test_params": {
-            "$ref": "#/components/schemas/TestParams"
+          "test_method": {
+            "$ref": "#/components/schemas/TestMethod"
           }
         }
       },
-      "TestParams": {
-        "type": "object",
-        "required": [
-          "num_timesteps",
-          "control_model",
-          "simulation_model",
-          "num_parallel_envs"
-        ],
-        "properties": {
-          "control_model": {
-            "$ref": "#/components/schemas/ControlModel"
+      "TestMethod": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/CustomTestMethod"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Custom"
+                ]
+              }
+            }
           },
-          "num_parallel_envs": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "num_timesteps": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "simulation_model": {
-            "type": "string"
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/DatasetMethod"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Dataset"
+                ]
+              }
+            }
           }
+        ],
+        "discriminator": {
+          "propertyName": "type"
         }
       },
       "TestStartedResponse": {
@@ -1561,26 +1691,28 @@
         "type": "object",
         "required": [
           "id",
-          "simulation_state"
+          "simulation_state",
+          "frames"
         ],
         "properties": {
           "frames": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/CameraFrames"
-              }
-            ],
-            "nullable": true
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CameraFrames"
+            }
           },
           "id": {
             "type": "string"
           },
           "simulation_state": {
-            "type": "array",
-            "items": {
+            "type": "object",
+            "additionalProperties": {
               "type": "array",
               "items": {
-                "$ref": "#/components/schemas/ModelForward"
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ModelForward"
+                }
               }
             }
           }

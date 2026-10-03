@@ -6,8 +6,8 @@ from __future__ import annotations
 from commondef.training import *
 
 from enum import Enum
-from pydantic import BaseModel, Field
-from typing import Dict, List, Literal, Optional, Union
+from pydantic import BaseModel
+from typing import Dict, List, Literal, Union
 
 
 class CameraFrames(BaseModel):
@@ -87,5 +87,5 @@ class StopTestMessage(BaseModel):
 class TestUpdateMessage(BaseModel):
     id: str
     simulation_state: Dict[int, List[List[ModelForward]]]
-    frames: Optional[CameraFrames] = Field(default=None)
+    frames: Dict[int, CameraFrames]
 

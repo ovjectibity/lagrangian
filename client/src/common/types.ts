@@ -307,7 +307,7 @@ export interface TestRun {
 export interface TestUpdateMessage {
 	id: string;
 	simulation_state: Record<number, ModelForward[][]>;
-	frames?: CameraFrames;
+	frames: Record<number, CameraFrames>;
 }
 
 export interface TrainingExperiment {
