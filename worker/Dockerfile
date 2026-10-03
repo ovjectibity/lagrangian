@@ -13,6 +13,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
     XLA_FLAGS=--xla_dump_to=/tmp/xla_dump \
     XLA_PYTHON_CLIENT_PREALLOCATE=false \
+    MUJOCO_GL=egl \
+    PYOPENGL_PLATFORM=egl \
     WS_PING_TIMEOUT_SECONDS=none \
     PI0_CHECKPOINT_DIR=/opt/lagrangian/pi0
 
@@ -22,6 +24,7 @@ RUN apt-get update \
         ca-certificates \
         cmake \
         software-properties-common \
+        libegl1 \
         libgl1 \
         libglib2.0-0 \
         curl \
