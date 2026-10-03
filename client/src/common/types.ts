@@ -306,7 +306,7 @@ export interface TestRun {
 
 export interface TestUpdateMessage {
 	id: string;
-	simulation_state: ModelForward[][];
+	simulation_state: Record<number, ModelForward[][]>;
 	frames?: CameraFrames;
 }
 

@@ -86,6 +86,6 @@ class StopTestMessage(BaseModel):
 
 class TestUpdateMessage(BaseModel):
     id: str
-    simulation_state: List[List[ModelForward]]
+    simulation_state: Dict[int, List[List[ModelForward]]]
     frames: Optional[CameraFrames] = Field(default=None)
 

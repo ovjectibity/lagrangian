@@ -212,8 +212,114 @@ export namespace lagrangian {
             public static getTypeUrl(typeUrlPrefix?: string): string;
         }
 
+        /** Properties of a TaskUpdates. */
+        interface ITaskUpdates {
+
+            /** TaskUpdates taskIndex */
+            taskIndex?: (number|Long|null);
+
+            /** TaskUpdates environments */
+            environments?: (lagrangian.testing.IEnvUpdates[]|null);
+        }
+
+        /** Represents a TaskUpdates. */
+        class TaskUpdates implements ITaskUpdates {
+
+            /**
+             * Constructs a new TaskUpdates.
+             * @param [properties] Properties to set
+             */
+            constructor(properties?: lagrangian.testing.ITaskUpdates);
+
+            /** TaskUpdates taskIndex. */
+            public taskIndex: (number|Long);
+
+            /** TaskUpdates environments. */
+            public environments: lagrangian.testing.IEnvUpdates[];
+
+            /**
+             * Creates a new TaskUpdates instance using the specified properties.
+             * @param [properties] Properties to set
+             * @returns TaskUpdates instance
+             */
+            public static create(properties?: lagrangian.testing.ITaskUpdates): lagrangian.testing.TaskUpdates;
+
+            /**
+             * Encodes the specified TaskUpdates message. Does not implicitly {@link lagrangian.testing.TaskUpdates.verify|verify} messages.
+             * @param message TaskUpdates message or plain object to encode
+             * @param [writer] Writer to encode to
+             * @returns Writer
+             */
+            public static encode(message: lagrangian.testing.ITaskUpdates, writer?: $protobuf.Writer): $protobuf.Writer;
+
+            /**
+             * Encodes the specified TaskUpdates message, length delimited. Does not implicitly {@link lagrangian.testing.TaskUpdates.verify|verify} messages.
+             * @param message TaskUpdates message or plain object to encode
+             * @param [writer] Writer to encode to
+             * @returns Writer
+             */
+            public static encodeDelimited(message: lagrangian.testing.ITaskUpdates, writer?: $protobuf.Writer): $protobuf.Writer;
+
+            /**
+             * Decodes a TaskUpdates message from the specified reader or buffer.
+             * @param reader Reader or buffer to decode from
+             * @param [length] Message length if known beforehand
+             * @returns TaskUpdates
+             * @throws {Error} If the payload is not a reader or valid buffer
+             * @throws {$protobuf.util.ProtocolError} If required fields are missing
+             */
+            public static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): lagrangian.testing.TaskUpdates;
+
+            /**
+             * Decodes a TaskUpdates message from the specified reader or buffer, length delimited.
+             * @param reader Reader or buffer to decode from
+             * @returns TaskUpdates
+             * @throws {Error} If the payload is not a reader or valid buffer
+             * @throws {$protobuf.util.ProtocolError} If required fields are missing
+             */
+            public static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): lagrangian.testing.TaskUpdates;
+
+            /**
+             * Verifies a TaskUpdates message.
+             * @param message Plain object to verify
+             * @returns `null` if valid, otherwise the reason why it is not
+             */
+            public static verify(message: { [k: string]: any }): (string|null);
+
+            /**
+             * Creates a TaskUpdates message from a plain object. Also converts values to their respective internal types.
+             * @param object Plain object
+             * @returns TaskUpdates
+             */
+            public static fromObject(object: { [k: string]: any }): lagrangian.testing.TaskUpdates;
+
+            /**
+             * Creates a plain object from a TaskUpdates message. Also converts values to other types if specified.
+             * @param message TaskUpdates
+             * @param [options] Conversion options
+             * @returns Plain object
+             */
+            public static toObject(message: lagrangian.testing.TaskUpdates, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+            /**
+             * Converts this TaskUpdates to JSON.
+             * @returns JSON object
+             */
+            public toJSON(): { [k: string]: any };
+
+            /**
+             * Gets the default type url for TaskUpdates
+             * @param [typeUrlPrefix] your custom typeUrlPrefix(default "type.googleapis.com")
+             * @returns The default type url
+             */
+            public static getTypeUrl(typeUrlPrefix?: string): string;
+        }
+
         /** Properties of a CameraFrames. */
         interface ICameraFrames {
+
+            /** CameraFrames taskIndex */
+            taskIndex?: (number|Long|null);
 
             /** CameraFrames nenv */
             nenv?: (number|Long|null);
@@ -242,6 +348,9 @@ export namespace lagrangian {
              * @param [properties] Properties to set
              */
             constructor(properties?: lagrangian.testing.ICameraFrames);
+
+            /** CameraFrames taskIndex. */
+            public taskIndex: (number|Long);
 
             /** CameraFrames nenv. */
             public nenv: (number|Long);
@@ -346,10 +455,10 @@ export namespace lagrangian {
             id?: (string|null);
 
             /** TestUpdate simulationState */
-            simulationState?: (lagrangian.testing.IEnvUpdates[]|null);
+            simulationState?: (lagrangian.testing.ITaskUpdates[]|null);
 
             /** TestUpdate frames */
-            frames?: (lagrangian.testing.ICameraFrames|null);
+            frames?: (lagrangian.testing.ICameraFrames[]|null);
         }
 
         /** Represents a TestUpdate. */
@@ -365,10 +474,10 @@ export namespace lagrangian {
             public id: string;
 
             /** TestUpdate simulationState. */
-            public simulationState: lagrangian.testing.IEnvUpdates[];
+            public simulationState: lagrangian.testing.ITaskUpdates[];
 
             /** TestUpdate frames. */
-            public frames?: (lagrangian.testing.ICameraFrames|null);
+            public frames: lagrangian.testing.ICameraFrames[];
 
             /**
              * Creates a new TestUpdate instance using the specified properties.

@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15testing_updates.proto\x12\x12lagrangian.testing\":\n\x0cModelForward\x12\r\n\x05nbody\x18\x01 \x01(\x03\x12\x0c\n\x04xpos\x18\x02 \x03(\x01\x12\r\n\x05xquat\x18\x03 \x03(\x01\"?\n\nEnvUpdates\x12\x31\n\x07updates\x18\x01 \x03(\x0b\x32 .lagrangian.testing.ModelForward\"[\n\x0c\x43\x61meraFrames\x12\x0c\n\x04nenv\x18\x01 \x01(\x03\x12\x0c\n\x04ncam\x18\x02 \x01(\x03\x12\t\n\x01t\x18\x03 \x01(\x03\x12\t\n\x01h\x18\x04 \x01(\x03\x12\t\n\x01w\x18\x05 \x01(\x03\x12\x0e\n\x06\x66rames\x18\x06 \x01(\x0c\"\x94\x01\n\nTestUpdate\x12\n\n\x02id\x18\x01 \x01(\t\x12\x38\n\x10simulation_state\x18\x02 \x03(\x0b\x32\x1e.lagrangian.testing.EnvUpdates\x12\x35\n\x06\x66rames\x18\x03 \x01(\x0b\x32 .lagrangian.testing.CameraFramesH\x00\x88\x01\x01\x42\t\n\x07_frames\"X\n\x14TestingStreamMessage\x12\x35\n\x0btest_update\x18\x01 \x01(\x0b\x32\x1e.lagrangian.testing.TestUpdateH\x00\x42\t\n\x07messageb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15testing_updates.proto\x12\x12lagrangian.testing\":\n\x0cModelForward\x12\r\n\x05nbody\x18\x01 \x01(\x03\x12\x0c\n\x04xpos\x18\x02 \x03(\x01\x12\r\n\x05xquat\x18\x03 \x03(\x01\"?\n\nEnvUpdates\x12\x31\n\x07updates\x18\x01 \x03(\x0b\x32 .lagrangian.testing.ModelForward\"W\n\x0bTaskUpdates\x12\x12\n\ntask_index\x18\x01 \x01(\x03\x12\x34\n\x0c\x65nvironments\x18\x02 \x03(\x0b\x32\x1e.lagrangian.testing.EnvUpdates\"o\n\x0c\x43\x61meraFrames\x12\x12\n\ntask_index\x18\x01 \x01(\x03\x12\x0c\n\x04nenv\x18\x02 \x01(\x03\x12\x0c\n\x04ncam\x18\x03 \x01(\x03\x12\t\n\x01t\x18\x04 \x01(\x03\x12\t\n\x01h\x18\x05 \x01(\x03\x12\t\n\x01w\x18\x06 \x01(\x03\x12\x0e\n\x06\x66rames\x18\x07 \x01(\x0c\"\x85\x01\n\nTestUpdate\x12\n\n\x02id\x18\x01 \x01(\t\x12\x39\n\x10simulation_state\x18\x02 \x03(\x0b\x32\x1f.lagrangian.testing.TaskUpdates\x12\x30\n\x06\x66rames\x18\x03 \x03(\x0b\x32 .lagrangian.testing.CameraFrames\"X\n\x14TestingStreamMessage\x12\x35\n\x0btest_update\x18\x01 \x01(\x0b\x32\x1e.lagrangian.testing.TestUpdateH\x00\x42\t\n\x07messageb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -35,10 +35,12 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_MODELFORWARD']._serialized_end=103
   _globals['_ENVUPDATES']._serialized_start=105
   _globals['_ENVUPDATES']._serialized_end=168
-  _globals['_CAMERAFRAMES']._serialized_start=170
-  _globals['_CAMERAFRAMES']._serialized_end=261
-  _globals['_TESTUPDATE']._serialized_start=264
-  _globals['_TESTUPDATE']._serialized_end=412
-  _globals['_TESTINGSTREAMMESSAGE']._serialized_start=414
-  _globals['_TESTINGSTREAMMESSAGE']._serialized_end=502
+  _globals['_TASKUPDATES']._serialized_start=170
+  _globals['_TASKUPDATES']._serialized_end=257
+  _globals['_CAMERAFRAMES']._serialized_start=259
+  _globals['_CAMERAFRAMES']._serialized_end=370
+  _globals['_TESTUPDATE']._serialized_start=373
+  _globals['_TESTUPDATE']._serialized_end=506
+  _globals['_TESTINGSTREAMMESSAGE']._serialized_start=508
+  _globals['_TESTINGSTREAMMESSAGE']._serialized_end=596
 # @@protoc_insertion_point(module_scope)

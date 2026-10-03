@@ -39,32 +39,63 @@ UPDATE_CHUNK_SIZE = 10
 
 def _build_stream_bytes(
     test_id: str,
-    sim_state: list[list[tuple[Any, Any]]],
-    frames_u8: Any | None,
+    task_sim_states: list[tuple[int, list[list[tuple[Any, Any]]]]],
+    task_frames_u8: list[tuple[int, Any]] | None,
 ) -> bytes:
-    """Build a `TestingStreamMessage` from an env-major [env][t] matrix of
-    (xpos, xquat) plus optional camera frames, and let protobuf serialize it.
+    """Build a `TestingStreamMessage` from task-major pose and frame updates.
 
-    `frames_u8`, if present, is a uint8 array of shape [nenv, t, ncam, h, w, c]
-    (protobuf's `bytes` field needs raw bytes, hence the `.tobytes()`).
-    See docs/user/specs/testing_updates.proto.
+    `task_sim_states` has shape [task][env][t], with each leaf containing an
+    `(xpos, xquat)` pair. `task_frames_u8`, if present, contains one
+    `(task_index, frames)` entry per task with camera output, where `frames`
+    has shape [env, t, camera, height, width, channel]. Protobuf's `bytes`
+    field receives each contiguous raw u8 buffer.
     """
     update = pb.TestUpdate(
         id=test_id,
         simulation_state=[
-            pb.EnvUpdates(updates=[
-                pb.ModelForward(nbody=len(xpos) // 3, xpos=xpos, xquat=xquat)
-                for xpos, xquat in env_updates
-            ])
-            for env_updates in sim_state
+            pb.TaskUpdates(
+                task_index=task_index,
+                environments=[
+                    pb.EnvUpdates(updates=[
+                        pb.ModelForward(
+                            nbody=len(xpos) // 3,
+                            xpos=xpos,
+                            xquat=xquat,
+                        )
+                        for xpos, xquat in env_updates
+                    ])
+                    for env_updates in task_sim_state
+                ],
+            )
+            for task_index, task_sim_state in task_sim_states
         ],
     )
-    if frames_u8 is not None:
-        nenv, t, ncam, h, w = (int(d) for d in frames_u8.shape[:5])
-        update.frames.CopyFrom(pb.CameraFrames(
-            nenv=nenv, t=t, ncam=ncam, h=h, w=w,
-            frames=np.ascontiguousarray(frames_u8).tobytes(),
-        ))
+    if task_frames_u8 is not None:
+        state_task_indices = {task_index for task_index, _ in task_sim_states}
+        frame_task_indices: set[int] = set()
+        for task_index, frames_u8 in task_frames_u8:
+            if task_index not in state_task_indices:
+                raise ValueError(
+                    "Camera frames must reference a task present in simulation state"
+                )
+            if task_index in frame_task_indices:
+                raise ValueError("Camera frames may contain only one entry per task")
+            if len(frames_u8.shape) != 6:
+                raise ValueError(
+                    "Camera frames must have shape "
+                    "[env, t, camera, height, width, channel]"
+                )
+            frame_task_indices.add(task_index)
+            nenv, t, ncam, h, w = (int(d) for d in frames_u8.shape[:5])
+            update.frames.add(
+                task_index=task_index,
+                nenv=nenv,
+                t=t,
+                ncam=ncam,
+                h=h,
+                w=w,
+                frames=np.ascontiguousarray(frames_u8).tobytes(),
+            )
     return pb.TestingStreamMessage(test_update=update).SerializeToString()
 
 
@@ -519,7 +550,13 @@ class TestingWorkflow:
                         (camera_frames * 255.0).round().astype(jnp.uint8)
                     ).transpose(1, 0, 2, 3, 4, 5)
                 tx.send_test_updates(
-                    _build_stream_bytes(self.id, sim_state, frames_u8)
+                    _build_stream_bytes(
+                        self.id,
+                        [(0 if task_index is None else task_index, sim_state)],
+                        None if frames_u8 is None else [
+                            (0 if task_index is None else task_index, frames_u8)
+                        ],
+                    )
                 )
                 remaining -= chunk
 
@@ -626,5 +663,11 @@ class TestingWorkflow:
                     )
                     sim_state = [[(xpos, xquat)]]
                     tx.send_test_updates(
-                        _build_stream_bytes(self.id, sim_state, frames_u8)
+                        _build_stream_bytes(
+                            self.id,
+                            [(0 if task_index is None else task_index, sim_state)],
+                            None if frames_u8 is None else [
+                                (0 if task_index is None else task_index, frames_u8)
+                            ],
+                        )
                     )

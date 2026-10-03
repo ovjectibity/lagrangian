@@ -612,12 +612,301 @@ export const lagrangian = $root.lagrangian = (() => {
             return EnvUpdates;
         })();
 
+        testing.TaskUpdates = (function() {
+
+            /**
+             * Properties of a TaskUpdates.
+             * @memberof lagrangian.testing
+             * @interface ITaskUpdates
+             * @property {number|Long|null} [taskIndex] TaskUpdates taskIndex
+             * @property {Array.<lagrangian.testing.IEnvUpdates>|null} [environments] TaskUpdates environments
+             */
+
+            /**
+             * Constructs a new TaskUpdates.
+             * @memberof lagrangian.testing
+             * @classdesc Represents a TaskUpdates.
+             * @implements ITaskUpdates
+             * @constructor
+             * @param {lagrangian.testing.ITaskUpdates=} [properties] Properties to set
+             */
+            function TaskUpdates(properties) {
+                this.environments = [];
+                if (properties)
+                    for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                        if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                            this[keys[i]] = properties[keys[i]];
+            }
+
+            /**
+             * TaskUpdates taskIndex.
+             * @member {number|Long} taskIndex
+             * @memberof lagrangian.testing.TaskUpdates
+             * @instance
+             */
+            TaskUpdates.prototype.taskIndex = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+            /**
+             * TaskUpdates environments.
+             * @member {Array.<lagrangian.testing.IEnvUpdates>} environments
+             * @memberof lagrangian.testing.TaskUpdates
+             * @instance
+             */
+            TaskUpdates.prototype.environments = $util.emptyArray;
+
+            /**
+             * Creates a new TaskUpdates instance using the specified properties.
+             * @function create
+             * @memberof lagrangian.testing.TaskUpdates
+             * @static
+             * @param {lagrangian.testing.ITaskUpdates=} [properties] Properties to set
+             * @returns {lagrangian.testing.TaskUpdates} TaskUpdates instance
+             */
+            TaskUpdates.create = function create(properties) {
+                return new TaskUpdates(properties);
+            };
+
+            /**
+             * Encodes the specified TaskUpdates message. Does not implicitly {@link lagrangian.testing.TaskUpdates.verify|verify} messages.
+             * @function encode
+             * @memberof lagrangian.testing.TaskUpdates
+             * @static
+             * @param {lagrangian.testing.ITaskUpdates} message TaskUpdates message or plain object to encode
+             * @param {$protobuf.Writer} [writer] Writer to encode to
+             * @returns {$protobuf.Writer} Writer
+             */
+            TaskUpdates.encode = function encode(message, writer, q) {
+                if (!writer)
+                    writer = $Writer.create();
+                if (q === undefined)
+                    q = 0;
+                if (q > $util.recursionLimit)
+                    throw Error("max depth exceeded");
+                if (message.taskIndex != null && Object.hasOwnProperty.call(message, "taskIndex"))
+                    writer.uint32(/* id 1, wireType 0 =*/8).int64(message.taskIndex);
+                if (message.environments != null && message.environments.length)
+                    for (let i = 0; i < message.environments.length; ++i)
+                        $root.lagrangian.testing.EnvUpdates.encode(message.environments[i], writer.uint32(/* id 2, wireType 2 =*/18).fork(), q + 1).ldelim();
+                return writer;
+            };
+
+            /**
+             * Encodes the specified TaskUpdates message, length delimited. Does not implicitly {@link lagrangian.testing.TaskUpdates.verify|verify} messages.
+             * @function encodeDelimited
+             * @memberof lagrangian.testing.TaskUpdates
+             * @static
+             * @param {lagrangian.testing.ITaskUpdates} message TaskUpdates message or plain object to encode
+             * @param {$protobuf.Writer} [writer] Writer to encode to
+             * @returns {$protobuf.Writer} Writer
+             */
+            TaskUpdates.encodeDelimited = function encodeDelimited(message, writer) {
+                return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+            };
+
+            /**
+             * Decodes a TaskUpdates message from the specified reader or buffer.
+             * @function decode
+             * @memberof lagrangian.testing.TaskUpdates
+             * @static
+             * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+             * @param {number} [length] Message length if known beforehand
+             * @returns {lagrangian.testing.TaskUpdates} TaskUpdates
+             * @throws {Error} If the payload is not a reader or valid buffer
+             * @throws {$protobuf.util.ProtocolError} If required fields are missing
+             */
+            TaskUpdates.decode = function decode(reader, length, error, long) {
+                if (!(reader instanceof $Reader))
+                    reader = $Reader.create(reader);
+                if (long === undefined)
+                    long = 0;
+                if (long > $Reader.recursionLimit)
+                    throw Error("maximum nesting depth exceeded");
+                let end = length === undefined ? reader.len : reader.pos + length, message = new $root.lagrangian.testing.TaskUpdates();
+                while (reader.pos < end) {
+                    let tag = reader.uint32();
+                    if (tag === error)
+                        break;
+                    switch (tag >>> 3) {
+                    case 1: {
+                            message.taskIndex = reader.int64();
+                            break;
+                        }
+                    case 2: {
+                            if (!(message.environments && message.environments.length))
+                                message.environments = [];
+                            message.environments.push($root.lagrangian.testing.EnvUpdates.decode(reader, reader.uint32(), undefined, long + 1));
+                            break;
+                        }
+                    default:
+                        reader.skipType(tag & 7, long);
+                        break;
+                    }
+                }
+                return message;
+            };
+
+            /**
+             * Decodes a TaskUpdates message from the specified reader or buffer, length delimited.
+             * @function decodeDelimited
+             * @memberof lagrangian.testing.TaskUpdates
+             * @static
+             * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+             * @returns {lagrangian.testing.TaskUpdates} TaskUpdates
+             * @throws {Error} If the payload is not a reader or valid buffer
+             * @throws {$protobuf.util.ProtocolError} If required fields are missing
+             */
+            TaskUpdates.decodeDelimited = function decodeDelimited(reader) {
+                if (!(reader instanceof $Reader))
+                    reader = new $Reader(reader);
+                return this.decode(reader, reader.uint32());
+            };
+
+            /**
+             * Verifies a TaskUpdates message.
+             * @function verify
+             * @memberof lagrangian.testing.TaskUpdates
+             * @static
+             * @param {Object.<string,*>} message Plain object to verify
+             * @returns {string|null} `null` if valid, otherwise the reason why it is not
+             */
+            TaskUpdates.verify = function verify(message, long) {
+                if (typeof message !== "object" || message === null)
+                    return "object expected";
+                if (long === undefined)
+                    long = 0;
+                if (long > $util.recursionLimit)
+                    return "maximum nesting depth exceeded";
+                if (message.taskIndex != null && Object.hasOwnProperty.call(message, "taskIndex"))
+                    if (!$util.isInteger(message.taskIndex) && !(message.taskIndex && $util.isInteger(message.taskIndex.low) && $util.isInteger(message.taskIndex.high)))
+                        return "taskIndex: integer|Long expected";
+                if (message.environments != null && Object.hasOwnProperty.call(message, "environments")) {
+                    if (!Array.isArray(message.environments))
+                        return "environments: array expected";
+                    for (let i = 0; i < message.environments.length; ++i) {
+                        let error = $root.lagrangian.testing.EnvUpdates.verify(message.environments[i], long + 1);
+                        if (error)
+                            return "environments." + error;
+                    }
+                }
+                return null;
+            };
+
+            /**
+             * Creates a TaskUpdates message from a plain object. Also converts values to their respective internal types.
+             * @function fromObject
+             * @memberof lagrangian.testing.TaskUpdates
+             * @static
+             * @param {Object.<string,*>} object Plain object
+             * @returns {lagrangian.testing.TaskUpdates} TaskUpdates
+             */
+            TaskUpdates.fromObject = function fromObject(object, long) {
+                if (object instanceof $root.lagrangian.testing.TaskUpdates)
+                    return object;
+                if (!$util.isObject(object))
+                    throw TypeError(".lagrangian.testing.TaskUpdates: object expected");
+                if (long === undefined)
+                    long = 0;
+                if (long > $util.recursionLimit)
+                    throw Error("maximum nesting depth exceeded");
+                let message = new $root.lagrangian.testing.TaskUpdates();
+                if (object.taskIndex != null)
+                    if ($util.Long)
+                        message.taskIndex = $util.Long.fromValue(object.taskIndex, false);
+                    else if (typeof object.taskIndex === "string")
+                        message.taskIndex = parseInt(object.taskIndex, 10);
+                    else if (typeof object.taskIndex === "number")
+                        message.taskIndex = object.taskIndex;
+                    else if (typeof object.taskIndex === "object")
+                        message.taskIndex = new $util.LongBits(object.taskIndex.low >>> 0, object.taskIndex.high >>> 0).toNumber();
+                if (object.environments) {
+                    if (!Array.isArray(object.environments))
+                        throw TypeError(".lagrangian.testing.TaskUpdates.environments: array expected");
+                    message.environments = [];
+                    for (let i = 0; i < object.environments.length; ++i) {
+                        if (!$util.isObject(object.environments[i]))
+                            throw TypeError(".lagrangian.testing.TaskUpdates.environments: object expected");
+                        message.environments[i] = $root.lagrangian.testing.EnvUpdates.fromObject(object.environments[i], long + 1);
+                    }
+                }
+                return message;
+            };
+
+            /**
+             * Creates a plain object from a TaskUpdates message. Also converts values to other types if specified.
+             * @function toObject
+             * @memberof lagrangian.testing.TaskUpdates
+             * @static
+             * @param {lagrangian.testing.TaskUpdates} message TaskUpdates
+             * @param {$protobuf.IConversionOptions} [options] Conversion options
+             * @returns {Object.<string,*>} Plain object
+             */
+            TaskUpdates.toObject = function toObject(message, options, q) {
+                if (!options)
+                    options = {};
+                if (q === undefined)
+                    q = 0;
+                if (q > $util.recursionLimit)
+                    throw Error("max depth exceeded");
+                let object = {};
+                if (options.arrays || options.defaults)
+                    object.environments = [];
+                if (options.defaults)
+                    if ($util.Long) {
+                        let long = new $util.Long(0, 0, false);
+                        object.taskIndex = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : typeof BigInt !== "undefined" && options.longs === BigInt ? long.toBigInt() : long;
+                    } else
+                        object.taskIndex = options.longs === String ? "0" : typeof BigInt !== "undefined" && options.longs === BigInt ? BigInt("0") : 0;
+                if (message.taskIndex != null && Object.hasOwnProperty.call(message, "taskIndex"))
+                    if (typeof BigInt !== "undefined" && options.longs === BigInt)
+                        object.taskIndex = typeof message.taskIndex === "number" ? BigInt(message.taskIndex) : $util.Long.fromBits(message.taskIndex.low >>> 0, message.taskIndex.high >>> 0, false).toBigInt();
+                    else if (typeof message.taskIndex === "number")
+                        object.taskIndex = options.longs === String ? String(message.taskIndex) : message.taskIndex;
+                    else
+                        object.taskIndex = options.longs === String ? $util.Long.prototype.toString.call(message.taskIndex) : options.longs === Number ? new $util.LongBits(message.taskIndex.low >>> 0, message.taskIndex.high >>> 0).toNumber() : message.taskIndex;
+                if (message.environments && message.environments.length) {
+                    object.environments = [];
+                    for (let j = 0; j < message.environments.length; ++j)
+                        object.environments[j] = $root.lagrangian.testing.EnvUpdates.toObject(message.environments[j], options, q + 1);
+                }
+                return object;
+            };
+
+            /**
+             * Converts this TaskUpdates to JSON.
+             * @function toJSON
+             * @memberof lagrangian.testing.TaskUpdates
+             * @instance
+             * @returns {Object.<string,*>} JSON object
+             */
+            TaskUpdates.prototype.toJSON = function toJSON() {
+                return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+            };
+
+            /**
+             * Gets the default type url for TaskUpdates
+             * @function getTypeUrl
+             * @memberof lagrangian.testing.TaskUpdates
+             * @static
+             * @param {string} [typeUrlPrefix] your custom typeUrlPrefix(default "type.googleapis.com")
+             * @returns {string} The default type url
+             */
+            TaskUpdates.getTypeUrl = function getTypeUrl(typeUrlPrefix) {
+                if (typeUrlPrefix === undefined) {
+                    typeUrlPrefix = "type.googleapis.com";
+                }
+                return typeUrlPrefix + "/lagrangian.testing.TaskUpdates";
+            };
+
+            return TaskUpdates;
+        })();
+
         testing.CameraFrames = (function() {
 
             /**
              * Properties of a CameraFrames.
              * @memberof lagrangian.testing
              * @interface ICameraFrames
+             * @property {number|Long|null} [taskIndex] CameraFrames taskIndex
              * @property {number|Long|null} [nenv] CameraFrames nenv
              * @property {number|Long|null} [ncam] CameraFrames ncam
              * @property {number|Long|null} [t] CameraFrames t
@@ -640,6 +929,14 @@ export const lagrangian = $root.lagrangian = (() => {
                         if (properties[keys[i]] != null && keys[i] !== "__proto__")
                             this[keys[i]] = properties[keys[i]];
             }
+
+            /**
+             * CameraFrames taskIndex.
+             * @member {number|Long} taskIndex
+             * @memberof lagrangian.testing.CameraFrames
+             * @instance
+             */
+            CameraFrames.prototype.taskIndex = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
 
             /**
              * CameraFrames nenv.
@@ -717,18 +1014,20 @@ export const lagrangian = $root.lagrangian = (() => {
                     q = 0;
                 if (q > $util.recursionLimit)
                     throw Error("max depth exceeded");
+                if (message.taskIndex != null && Object.hasOwnProperty.call(message, "taskIndex"))
+                    writer.uint32(/* id 1, wireType 0 =*/8).int64(message.taskIndex);
                 if (message.nenv != null && Object.hasOwnProperty.call(message, "nenv"))
-                    writer.uint32(/* id 1, wireType 0 =*/8).int64(message.nenv);
+                    writer.uint32(/* id 2, wireType 0 =*/16).int64(message.nenv);
                 if (message.ncam != null && Object.hasOwnProperty.call(message, "ncam"))
-                    writer.uint32(/* id 2, wireType 0 =*/16).int64(message.ncam);
+                    writer.uint32(/* id 3, wireType 0 =*/24).int64(message.ncam);
                 if (message.t != null && Object.hasOwnProperty.call(message, "t"))
-                    writer.uint32(/* id 3, wireType 0 =*/24).int64(message.t);
+                    writer.uint32(/* id 4, wireType 0 =*/32).int64(message.t);
                 if (message.h != null && Object.hasOwnProperty.call(message, "h"))
-                    writer.uint32(/* id 4, wireType 0 =*/32).int64(message.h);
+                    writer.uint32(/* id 5, wireType 0 =*/40).int64(message.h);
                 if (message.w != null && Object.hasOwnProperty.call(message, "w"))
-                    writer.uint32(/* id 5, wireType 0 =*/40).int64(message.w);
+                    writer.uint32(/* id 6, wireType 0 =*/48).int64(message.w);
                 if (message.frames != null && Object.hasOwnProperty.call(message, "frames"))
-                    writer.uint32(/* id 6, wireType 2 =*/50).bytes(message.frames);
+                    writer.uint32(/* id 7, wireType 2 =*/58).bytes(message.frames);
                 return writer;
             };
 
@@ -770,26 +1069,30 @@ export const lagrangian = $root.lagrangian = (() => {
                         break;
                     switch (tag >>> 3) {
                     case 1: {
-                            message.nenv = reader.int64();
+                            message.taskIndex = reader.int64();
                             break;
                         }
                     case 2: {
-                            message.ncam = reader.int64();
+                            message.nenv = reader.int64();
                             break;
                         }
                     case 3: {
-                            message.t = reader.int64();
+                            message.ncam = reader.int64();
                             break;
                         }
                     case 4: {
-                            message.h = reader.int64();
+                            message.t = reader.int64();
                             break;
                         }
                     case 5: {
-                            message.w = reader.int64();
+                            message.h = reader.int64();
                             break;
                         }
                     case 6: {
+                            message.w = reader.int64();
+                            break;
+                        }
+                    case 7: {
                             message.frames = reader.bytes();
                             break;
                         }
@@ -832,6 +1135,9 @@ export const lagrangian = $root.lagrangian = (() => {
                     long = 0;
                 if (long > $util.recursionLimit)
                     return "maximum nesting depth exceeded";
+                if (message.taskIndex != null && Object.hasOwnProperty.call(message, "taskIndex"))
+                    if (!$util.isInteger(message.taskIndex) && !(message.taskIndex && $util.isInteger(message.taskIndex.low) && $util.isInteger(message.taskIndex.high)))
+                        return "taskIndex: integer|Long expected";
                 if (message.nenv != null && Object.hasOwnProperty.call(message, "nenv"))
                     if (!$util.isInteger(message.nenv) && !(message.nenv && $util.isInteger(message.nenv.low) && $util.isInteger(message.nenv.high)))
                         return "nenv: integer|Long expected";
@@ -871,6 +1177,15 @@ export const lagrangian = $root.lagrangian = (() => {
                 if (long > $util.recursionLimit)
                     throw Error("maximum nesting depth exceeded");
                 let message = new $root.lagrangian.testing.CameraFrames();
+                if (object.taskIndex != null)
+                    if ($util.Long)
+                        message.taskIndex = $util.Long.fromValue(object.taskIndex, false);
+                    else if (typeof object.taskIndex === "string")
+                        message.taskIndex = parseInt(object.taskIndex, 10);
+                    else if (typeof object.taskIndex === "number")
+                        message.taskIndex = object.taskIndex;
+                    else if (typeof object.taskIndex === "object")
+                        message.taskIndex = new $util.LongBits(object.taskIndex.low >>> 0, object.taskIndex.high >>> 0).toNumber();
                 if (object.nenv != null)
                     if ($util.Long)
                         message.nenv = $util.Long.fromValue(object.nenv, false);
@@ -944,6 +1259,11 @@ export const lagrangian = $root.lagrangian = (() => {
                 if (options.defaults) {
                     if ($util.Long) {
                         let long = new $util.Long(0, 0, false);
+                        object.taskIndex = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : typeof BigInt !== "undefined" && options.longs === BigInt ? long.toBigInt() : long;
+                    } else
+                        object.taskIndex = options.longs === String ? "0" : typeof BigInt !== "undefined" && options.longs === BigInt ? BigInt("0") : 0;
+                    if ($util.Long) {
+                        let long = new $util.Long(0, 0, false);
                         object.nenv = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : typeof BigInt !== "undefined" && options.longs === BigInt ? long.toBigInt() : long;
                     } else
                         object.nenv = options.longs === String ? "0" : typeof BigInt !== "undefined" && options.longs === BigInt ? BigInt("0") : 0;
@@ -975,6 +1295,13 @@ export const lagrangian = $root.lagrangian = (() => {
                             object.frames = $util.newBuffer(object.frames);
                     }
                 }
+                if (message.taskIndex != null && Object.hasOwnProperty.call(message, "taskIndex"))
+                    if (typeof BigInt !== "undefined" && options.longs === BigInt)
+                        object.taskIndex = typeof message.taskIndex === "number" ? BigInt(message.taskIndex) : $util.Long.fromBits(message.taskIndex.low >>> 0, message.taskIndex.high >>> 0, false).toBigInt();
+                    else if (typeof message.taskIndex === "number")
+                        object.taskIndex = options.longs === String ? String(message.taskIndex) : message.taskIndex;
+                    else
+                        object.taskIndex = options.longs === String ? $util.Long.prototype.toString.call(message.taskIndex) : options.longs === Number ? new $util.LongBits(message.taskIndex.low >>> 0, message.taskIndex.high >>> 0).toNumber() : message.taskIndex;
                 if (message.nenv != null && Object.hasOwnProperty.call(message, "nenv"))
                     if (typeof BigInt !== "undefined" && options.longs === BigInt)
                         object.nenv = typeof message.nenv === "number" ? BigInt(message.nenv) : $util.Long.fromBits(message.nenv.low >>> 0, message.nenv.high >>> 0, false).toBigInt();
@@ -1051,8 +1378,8 @@ export const lagrangian = $root.lagrangian = (() => {
              * @memberof lagrangian.testing
              * @interface ITestUpdate
              * @property {string|null} [id] TestUpdate id
-             * @property {Array.<lagrangian.testing.IEnvUpdates>|null} [simulationState] TestUpdate simulationState
-             * @property {lagrangian.testing.ICameraFrames|null} [frames] TestUpdate frames
+             * @property {Array.<lagrangian.testing.ITaskUpdates>|null} [simulationState] TestUpdate simulationState
+             * @property {Array.<lagrangian.testing.ICameraFrames>|null} [frames] TestUpdate frames
              */
 
             /**
@@ -1065,6 +1392,7 @@ export const lagrangian = $root.lagrangian = (() => {
              */
             function TestUpdate(properties) {
                 this.simulationState = [];
+                this.frames = [];
                 if (properties)
                     for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
                         if (properties[keys[i]] != null && keys[i] !== "__proto__")
@@ -1081,7 +1409,7 @@ export const lagrangian = $root.lagrangian = (() => {
 
             /**
              * TestUpdate simulationState.
-             * @member {Array.<lagrangian.testing.IEnvUpdates>} simulationState
+             * @member {Array.<lagrangian.testing.ITaskUpdates>} simulationState
              * @memberof lagrangian.testing.TestUpdate
              * @instance
              */
@@ -1089,20 +1417,11 @@ export const lagrangian = $root.lagrangian = (() => {
 
             /**
              * TestUpdate frames.
-             * @member {lagrangian.testing.ICameraFrames|null|undefined} frames
+             * @member {Array.<lagrangian.testing.ICameraFrames>} frames
              * @memberof lagrangian.testing.TestUpdate
              * @instance
              */
-            TestUpdate.prototype.frames = null;
-
-            // OneOf field names bound to virtual getters and setters
-            let $oneOfFields;
-
-            // Virtual OneOf for proto3 optional field
-            Object.defineProperty(TestUpdate.prototype, "_frames", {
-                get: $util.oneOfGetter($oneOfFields = ["frames"]),
-                set: $util.oneOfSetter($oneOfFields)
-            });
+            TestUpdate.prototype.frames = $util.emptyArray;
 
             /**
              * Creates a new TestUpdate instance using the specified properties.
@@ -1136,9 +1455,10 @@ export const lagrangian = $root.lagrangian = (() => {
                     writer.uint32(/* id 1, wireType 2 =*/10).string(message.id);
                 if (message.simulationState != null && message.simulationState.length)
                     for (let i = 0; i < message.simulationState.length; ++i)
-                        $root.lagrangian.testing.EnvUpdates.encode(message.simulationState[i], writer.uint32(/* id 2, wireType 2 =*/18).fork(), q + 1).ldelim();
-                if (message.frames != null && Object.hasOwnProperty.call(message, "frames"))
-                    $root.lagrangian.testing.CameraFrames.encode(message.frames, writer.uint32(/* id 3, wireType 2 =*/26).fork(), q + 1).ldelim();
+                        $root.lagrangian.testing.TaskUpdates.encode(message.simulationState[i], writer.uint32(/* id 2, wireType 2 =*/18).fork(), q + 1).ldelim();
+                if (message.frames != null && message.frames.length)
+                    for (let i = 0; i < message.frames.length; ++i)
+                        $root.lagrangian.testing.CameraFrames.encode(message.frames[i], writer.uint32(/* id 3, wireType 2 =*/26).fork(), q + 1).ldelim();
                 return writer;
             };
 
@@ -1186,11 +1506,13 @@ export const lagrangian = $root.lagrangian = (() => {
                     case 2: {
                             if (!(message.simulationState && message.simulationState.length))
                                 message.simulationState = [];
-                            message.simulationState.push($root.lagrangian.testing.EnvUpdates.decode(reader, reader.uint32(), undefined, long + 1));
+                            message.simulationState.push($root.lagrangian.testing.TaskUpdates.decode(reader, reader.uint32(), undefined, long + 1));
                             break;
                         }
                     case 3: {
-                            message.frames = $root.lagrangian.testing.CameraFrames.decode(reader, reader.uint32(), undefined, long + 1);
+                            if (!(message.frames && message.frames.length))
+                                message.frames = [];
+                            message.frames.push($root.lagrangian.testing.CameraFrames.decode(reader, reader.uint32(), undefined, long + 1));
                             break;
                         }
                     default:
@@ -1232,7 +1554,6 @@ export const lagrangian = $root.lagrangian = (() => {
                     long = 0;
                 if (long > $util.recursionLimit)
                     return "maximum nesting depth exceeded";
-                let properties = {};
                 if (message.id != null && Object.hasOwnProperty.call(message, "id"))
                     if (!$util.isString(message.id))
                         return "id: string expected";
@@ -1240,15 +1561,16 @@ export const lagrangian = $root.lagrangian = (() => {
                     if (!Array.isArray(message.simulationState))
                         return "simulationState: array expected";
                     for (let i = 0; i < message.simulationState.length; ++i) {
-                        let error = $root.lagrangian.testing.EnvUpdates.verify(message.simulationState[i], long + 1);
+                        let error = $root.lagrangian.testing.TaskUpdates.verify(message.simulationState[i], long + 1);
                         if (error)
                             return "simulationState." + error;
                     }
                 }
                 if (message.frames != null && Object.hasOwnProperty.call(message, "frames")) {
-                    properties._frames = 1;
-                    {
-                        let error = $root.lagrangian.testing.CameraFrames.verify(message.frames, long + 1);
+                    if (!Array.isArray(message.frames))
+                        return "frames: array expected";
+                    for (let i = 0; i < message.frames.length; ++i) {
+                        let error = $root.lagrangian.testing.CameraFrames.verify(message.frames[i], long + 1);
                         if (error)
                             return "frames." + error;
                     }
@@ -1283,13 +1605,18 @@ export const lagrangian = $root.lagrangian = (() => {
                     for (let i = 0; i < object.simulationState.length; ++i) {
                         if (!$util.isObject(object.simulationState[i]))
                             throw TypeError(".lagrangian.testing.TestUpdate.simulationState: object expected");
-                        message.simulationState[i] = $root.lagrangian.testing.EnvUpdates.fromObject(object.simulationState[i], long + 1);
+                        message.simulationState[i] = $root.lagrangian.testing.TaskUpdates.fromObject(object.simulationState[i], long + 1);
                     }
                 }
-                if (object.frames != null) {
-                    if (!$util.isObject(object.frames))
-                        throw TypeError(".lagrangian.testing.TestUpdate.frames: object expected");
-                    message.frames = $root.lagrangian.testing.CameraFrames.fromObject(object.frames, long + 1);
+                if (object.frames) {
+                    if (!Array.isArray(object.frames))
+                        throw TypeError(".lagrangian.testing.TestUpdate.frames: array expected");
+                    message.frames = [];
+                    for (let i = 0; i < object.frames.length; ++i) {
+                        if (!$util.isObject(object.frames[i]))
+                            throw TypeError(".lagrangian.testing.TestUpdate.frames: object expected");
+                        message.frames[i] = $root.lagrangian.testing.CameraFrames.fromObject(object.frames[i], long + 1);
+                    }
                 }
                 return message;
             };
@@ -1311,8 +1638,10 @@ export const lagrangian = $root.lagrangian = (() => {
                 if (q > $util.recursionLimit)
                     throw Error("max depth exceeded");
                 let object = {};
-                if (options.arrays || options.defaults)
+                if (options.arrays || options.defaults) {
                     object.simulationState = [];
+                    object.frames = [];
+                }
                 if (options.defaults)
                     object.id = "";
                 if (message.id != null && Object.hasOwnProperty.call(message, "id"))
@@ -1320,12 +1649,12 @@ export const lagrangian = $root.lagrangian = (() => {
                 if (message.simulationState && message.simulationState.length) {
                     object.simulationState = [];
                     for (let j = 0; j < message.simulationState.length; ++j)
-                        object.simulationState[j] = $root.lagrangian.testing.EnvUpdates.toObject(message.simulationState[j], options, q + 1);
+                        object.simulationState[j] = $root.lagrangian.testing.TaskUpdates.toObject(message.simulationState[j], options, q + 1);
                 }
-                if (message.frames != null && Object.hasOwnProperty.call(message, "frames")) {
-                    object.frames = $root.lagrangian.testing.CameraFrames.toObject(message.frames, options, q + 1);
-                    if (options.oneofs)
-                        object._frames = "frames";
+                if (message.frames && message.frames.length) {
+                    object.frames = [];
+                    for (let j = 0; j < message.frames.length; ++j)
+                        object.frames[j] = $root.lagrangian.testing.CameraFrames.toObject(message.frames[j], options, q + 1);
                 }
                 return object;
             };

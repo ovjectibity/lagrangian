@@ -33,6 +33,13 @@ message EnvUpdates {
   repeated ModelForward updates = 1;   // indexed by timestep t
 }
 
+// One task's environment updates. Its position in `TestUpdate.simulation_state`
+// is its position in the requested task list.
+message TaskUpdates {
+  int64 task_index = 1; // actual LIBERO task index
+  repeated EnvUpdates environments = 2;   // indexed by environment
+}
+
 // Flattened camera buffer plus its dimensions.
 //
 // Dimensions come first so a reader knows how to interpret the `frames` byte
@@ -40,21 +47,23 @@ message EnvUpdates {
 // on-wire field order is not guaranteed — this ordering is for schema
 // readability only.)
 //
-// Logical shape of `frames`: [nenv, t, ncam, h, w, 3], row-major, u8.
+// Logical shape of `frames`: [ntask, nenv, t, ncam, h, w, 3], row-major, u8.
 message CameraFrames {
-  int64 nenv = 1;
-  int64 ncam = 2;
-  int64 t = 3;
-  int64 h = 4;
-  int64 w = 5;
-  bytes frames = 6;            // raw u8 image data, no per-element overhead
+  int64 task_index = 1;
+  int64 nenv = 2;
+  int64 ncam = 3;
+  int64 t = 4;
+  int64 h = 5;
+  int64 w = 6;
+  bytes frames = 7;            // raw u8 image data, no per-element overhead
 }
 
-// A full testing update: the [env][t] matrix of forwards plus optional cameras.
+// A full testing update: the [task][env][t] matrix of forwards plus optional
+// cameras.
 message TestUpdate {
   string id = 1;
-  repeated EnvUpdates simulation_state = 2;   // [env][t]
-  optional CameraFrames frames = 3;
+  repeated TaskUpdates simulation_state = 2;  // [task][env][t]
+  repeated CameraFrames frames = 3;
 }
 
 // Top-level envelope for the binary channel. The set `oneof` arm is the message

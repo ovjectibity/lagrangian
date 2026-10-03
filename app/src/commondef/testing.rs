@@ -110,8 +110,8 @@ pub struct TestUpdateMessage {
     pub id: String,
     //The first dimension here is for the env index and 
     //the second one for the sequence of update 
-    pub simulation_state: Vec<Vec<ModelForward>>,
-    pub frames: Option<CameraFrames>
+    pub simulation_state: HashMap<i32,Vec<Vec<ModelForward>>>,
+    pub frames: HashMap<i32,CameraFrames>
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
