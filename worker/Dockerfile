@@ -37,7 +37,7 @@ WORKDIR /opt/lagrangian/worker
 
 COPY worker-py/pyproject.toml worker-py/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-install-project
+    CMAKE_POLICY_VERSION_MINIMUM=3.5 uv sync --locked --no-dev --no-install-project
 
 COPY worker-py/ ./
 

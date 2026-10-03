@@ -22,9 +22,7 @@ pub struct CheckpointResponse {
 
 #[route_doc(tag = "Checkpoints", ok = CheckpointsResponse)]
 #[get("/checkpoints")]
-pub async fn list_checkpoints()
--> Result<Json<CheckpointsResponse>, Status>
-{
+pub async fn list_checkpoints() -> Result<Json<CheckpointsResponse>, Status> {
     let checkpoints = crate::postgres_orm()
         .get_all_checkpoint_refs()
         .await
@@ -39,10 +37,7 @@ pub async fn list_checkpoints()
     params(checkpoint_id = "Checkpoint UUID"),
 )]
 #[get("/checkpoints/<checkpoint_id>")]
-pub async fn get_checkpoint(
-    checkpoint_id: String,
-) -> Result<Json<CheckpointResponse>, Status>
-{
+pub async fn get_checkpoint(checkpoint_id: String) -> Result<Json<CheckpointResponse>, Status> {
     let checkpoint = crate::postgres_orm()
         .get_checkpoint_ref(&checkpoint_id)
         .await

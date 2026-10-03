@@ -1,20 +1,16 @@
-use rocket::State;
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::tokio::sync::{broadcast, mpsc};
+use rocket::State;
+use rocket_ws as ws;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use utoipa::ToSchema;
 use uuid::Uuid;
-use rocket_ws as ws;
-use std::sync::{Arc};
 
 use crate::api::{route_doc, ApiState};
-use crate::commondef::record::{
-    TestGraphRecord, TestRunStatus,
-};
-use crate::commondef::testing::{
-    StopTestMessage, TestGraph,
-};
+use crate::commondef::record::{TestGraphRecord, TestRunStatus};
+use crate::commondef::testing::{StopTestMessage, TestGraph, TestMethod};
 use crate::commondef::training::TrainingAccelerationMode;
 use crate::workflows::local_worker_controller::LocalWorkerController;
 
@@ -52,23 +48,19 @@ pub struct TestStoppedResponse {
     body = StartTestBody,
     errors(400),
 )]
-#[post(
-    "/testing/start",
-    format = "json",
-    data = "<body>"
-)]
+#[post("/testing/start", format = "json", data = "<body>")]
 pub async fn start_test(
     body: Json<StartTestBody>,
     state: &State<Arc<ApiState>>,
-) -> Result<
-    Json<TestStartedResponse>,
-    Status,
->
-{
+) -> Result<Json<TestStartedResponse>, Status> {
     let test_id = Uuid::new_v4().to_string();
     let test_graph = body.into_inner().test_graph;
 
-    let control_spec = match &test_graph.test_job_controller.test_params.control_model {
+    let control_model = match &test_graph.test_job_controller.test_method {
+        TestMethod::Custom(method) => &method.control_model,
+        TestMethod::Dataset(method) => &method.control_model,
+    };
+    let control_spec = match control_model {
         crate::commondef::training::ControlModel::MLP(m) => &m.input_spec,
         crate::commondef::training::ControlModel::VLA(m) => &m.input_spec,
     };
@@ -78,22 +70,22 @@ pub async fn start_test(
 
     let is_local = matches!(
         test_graph.test_job_controller.acceleration_mode,
-        TrainingAccelerationMode::AllOnServer
-        | TrainingAccelerationMode::MLCPUSimulationCPU,
+        TrainingAccelerationMode::AllOnServer | TrainingAccelerationMode::MLCPUSimulationCPU,
     );
 
-    // Resolve simulation model path from DB
-    let sim_model_id = test_graph
-        .test_job_controller
-        .test_params
-        .simulation_model
-        .clone();
-    let model_ref = crate::postgres_orm()
-        .get_model_reference(&sim_model_id)
-        .await
-        .map_err(|_| Status::InternalServerError)?
-        .ok_or(Status::BadRequest)?;
-    let model_path = model_ref.path.clone();
+    // Dataset tests provide task MJCFs from the dataset. Only custom tests
+    // need a user-provided simulation model to be resolved and uploaded.
+    let model_path = match &test_graph.test_job_controller.test_method {
+        TestMethod::Custom(method) => {
+            let model_ref = crate::postgres_orm()
+                .get_model_reference(&method.simulation_model)
+                .await
+                .map_err(|_| Status::InternalServerError)?
+                .ok_or(Status::BadRequest)?;
+            Some(model_ref.path.clone())
+        }
+        TestMethod::Dataset(_) => None,
+    };
 
     // DB records
     let logs_id = format!("logs-{}", test_id);
@@ -122,15 +114,11 @@ pub async fn start_test(
         .await;
 
     let _ = crate::postgres_orm()
-        .update_test_run_status(
-            &test_id,
-            &TestRunStatus::Ongoing,
-        )
+        .update_test_run_status(&test_id, &TestRunStatus::Ongoing)
         .await;
 
     // Broadcast channel of raw binary simul frames (fanned out to WS subscribers)
-    let (sse_tx, _) =
-        broadcast::channel::<Vec<u8>>(512);
+    let (sse_tx, _) = broadcast::channel::<Vec<u8>>(512);
     state
         .simul_senders
         .lock()
@@ -138,8 +126,7 @@ pub async fn start_test(
         .insert(test_id.clone(), sse_tx.clone());
 
     // Internal mpsc for the testing workflow
-    let (tx_test, mut rx_test) =
-        mpsc::channel::<TestTaskMessage>(64);
+    let (tx_test, mut rx_test) = mpsc::channel::<TestTaskMessage>(64);
 
     // Relay: mpsc → broadcast. Protobuf frames are forwarded verbatim.
     let relay_sse_tx = sse_tx.clone();
@@ -154,23 +141,14 @@ pub async fn start_test(
                 }
                 //TODO: This needs to be handled.
                 TestTaskMessage::StopTestMessage(_) => {
-                    if let Some(x) = state_c
-                        .simul_senders.lock()
-                        .await
-                        .remove(&test_id_c) {
-                            drop(x);
+                    if let Some(x) = state_c.simul_senders.lock().await.remove(&test_id_c) {
+                        drop(x);
                     }
-                    state_c
-                        .simul_tasks.lock()
-                        .await
-                        .remove(&test_id_c);
+                    state_c.simul_tasks.lock().await.remove(&test_id_c);
                     let _ = crate::postgres_orm()
-                            .update_test_run_status(
-                                &test_id_c,
-                                &TestRunStatus::Completed,
-                            )
-                            .await;
-                },
+                        .update_test_run_status(&test_id_c, &TestRunStatus::Completed)
+                        .await;
+                }
             }
         }
     });
@@ -179,63 +157,33 @@ pub async fn start_test(
         let tx_c = tx_test.clone();
         let id_c = test_id.clone();
         let h = rocket::tokio::spawn(async move {
-            spawn_local_test_task(
-                id_c,
-                test_graph,
-                Some(model_path),
-                tx_c,
-            )
-            .await;
+            spawn_local_test_task(id_c, test_graph, model_path, tx_c).await;
         });
 
-        state
-            .simul_tasks
-            .lock()
-            .await
-            .insert(test_id.clone(), h);
+        state.simul_tasks.lock().await.insert(test_id.clone(), h);
     } else {
-        let remote_cfg =
-            match crate::build_remote_worker_config() {
-                Ok(c) => c,
-                Err(e) => {
-                    println!(
-                        "remote cfg failed: {:?}",
-                        e
-                    );
-                    return Err(
-                        Status::InternalServerError,
-                    );
-                }
-            };
+        let remote_cfg = match crate::build_remote_worker_config() {
+            Ok(c) => c,
+            Err(e) => {
+                println!("remote cfg failed: {:?}", e);
+                return Err(Status::InternalServerError);
+            }
+        };
         crate::ensure_remote_worker_shutdown_hook();
 
         let tx_c = tx_test.clone();
         let id_c = test_id.clone();
-        let worker_slot =
-            crate::remote_worker_slot().clone();
+        let worker_slot = crate::remote_worker_slot().clone();
         print!("Spawning remote test task for start_test");
         let h = rocket::tokio::spawn(async move {
-            spawn_remote_test_task(
-                id_c,
-                test_graph,
-                Some(model_path),
-                remote_cfg,
-                worker_slot,
-                tx_c,
-            )
-            .await;
+            spawn_remote_test_task(id_c, test_graph, model_path, remote_cfg, worker_slot, tx_c)
+                .await;
         });
 
-        state
-            .simul_tasks
-            .lock()
-            .await
-            .insert(test_id.clone(), h);
+        state.simul_tasks.lock().await.insert(test_id.clone(), h);
     }
 
-    Ok(Json(TestStartedResponse {
-        id: test_id,
-    }))
+    Ok(Json(TestStartedResponse { id: test_id }))
 }
 
 #[route_doc(
@@ -247,41 +195,23 @@ pub async fn start_test(
 pub async fn stop_test(
     test_id: String,
     state: &State<Arc<ApiState>>,
-) -> Result<
-    Json<TestStoppedResponse>,
-    Status,
->
-{
-    if let Some(h) = state
-        .simul_tasks
-        .lock()
-        .await
-        .remove(&test_id)
-    {
+) -> Result<Json<TestStoppedResponse>, Status> {
+    if let Some(h) = state.simul_tasks.lock().await.remove(&test_id) {
         h.abort();
     }
     let _ = crate::postgres_orm()
-        .update_test_run_status(
-            &test_id,
-            &TestRunStatus::StoppedByUser,
-        )
+        .update_test_run_status(&test_id, &TestRunStatus::StoppedByUser)
         .await;
-    Ok(Json(TestStoppedResponse {
-        id: test_id,
-    }))
+    Ok(Json(TestStoppedResponse { id: test_id }))
 }
 
-#[route_doc(
-    tag = "Testing",
-    params(test_id = "Test run UUID"),
-)]
+#[route_doc(tag = "Testing", params(test_id = "Test run UUID"))]
 #[get("/testing/<test_id>/updates")]
 pub async fn test_updates(
     test_id: String,
     state: &State<Arc<ApiState>>,
     ws: ws::WebSocket,
-) -> ws::Channel<'static>
-{
+) -> ws::Channel<'static> {
     let rx = state
         .simul_senders
         .lock()
@@ -289,35 +219,37 @@ pub async fn test_updates(
         .get(&test_id)
         .map(|tx| tx.subscribe());
 
-    ws.channel(move |mut stream| Box::pin(async move {
-        use rocket::futures::{SinkExt, StreamExt};
-        if let Some(mut rx) = rx {
-            loop {
-                rocket::tokio::select! {
-                    msg = rx.recv() => match msg {
-                        Ok(bytes) => {
-                            if stream.send(ws::Message::Binary(bytes)).await.is_err() {
-                                break;
+    ws.channel(move |mut stream| {
+        Box::pin(async move {
+            use rocket::futures::{SinkExt, StreamExt};
+            if let Some(mut rx) = rx {
+                loop {
+                    rocket::tokio::select! {
+                        msg = rx.recv() => match msg {
+                            Ok(bytes) => {
+                                if stream.send(ws::Message::Binary(bytes)).await.is_err() {
+                                    break;
+                                }
                             }
-                        }
-                        Err(broadcast::error::RecvError::Closed) => {
-                            //Close the websocket
-                            let _ = stream.close(None).await;
-                            break;
+                            Err(broadcast::error::RecvError::Closed) => {
+                                //Close the websocket
+                                let _ = stream.close(None).await;
+                                break;
+                            },
+                            Err(broadcast::error::RecvError::Lagged(_)) => continue,
                         },
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    },
-                    incoming = stream.next() => match incoming {
-                        None
-                        | Some(Ok(ws::Message::Close(_)))
-                        | Some(Err(_)) => break,
-                        Some(Ok(_)) => {}
-                    },
+                        incoming = stream.next() => match incoming {
+                            None
+                            | Some(Ok(ws::Message::Close(_)))
+                            | Some(Err(_)) => break,
+                            Some(Ok(_)) => {}
+                        },
+                    }
                 }
             }
-        }
-        Ok(())
-    }))
+            Ok(())
+        })
+    })
 }
 
 // ── Remote test helpers ───────────────────────
@@ -343,14 +275,9 @@ async fn spawn_local_test_task(
     };
 
     let result = controller
-        .run_test_job(
-            test_id.clone(),
-            test_graph,
-            model_path,
-            |frame: Vec<u8>| {
-                let _ = tx.try_send(TestTaskMessage::TestUpdateBytes(frame));
-            },
-        )
+        .run_test_job(test_id.clone(), test_graph, model_path, |frame: Vec<u8>| {
+            let _ = tx.try_send(TestTaskMessage::TestUpdateBytes(frame));
+        })
         .await;
 
     if let Err(e) = result {
@@ -371,57 +298,33 @@ async fn spawn_remote_test_task(
     test_id: String,
     test_graph: TestGraph,
     model_path: Option<String>,
-    remote_cfg: crate::workflows
-        ::remote_worker_controller
-        ::RemoteWorkerControllerConfig,
+    remote_cfg: crate::workflows::remote_worker_controller::RemoteWorkerControllerConfig,
     worker_slot: crate::RemoteWorkerSlot,
     tx: mpsc::Sender<TestTaskMessage>,
 ) {
-    use crate::workflows
-        ::remote_worker_controller
-        ::RemoteWorkerController;
+    use crate::workflows::remote_worker_controller::RemoteWorkerController;
 
     let mut guard = worker_slot.lock().await;
     if guard.is_none() {
-        match RemoteWorkerController::initialize(
-            remote_cfg,
-        )
-        .await
-        {
+        match RemoteWorkerController::initialize(remote_cfg).await {
             Ok(w) => *guard = Some(w),
             Err(e) => {
-                println!(
-                    "Remote worker init: {:?}",
-                    e
-                );
+                println!("Remote worker init: {:?}", e);
                 let _ = tx
-                    .send(
-                        TestTaskMessage::StopTestMessage(
-                            StopTestMessage {
-                                id: test_id.clone(),
-                            },
-                        ),
-                    )
+                    .send(TestTaskMessage::StopTestMessage(StopTestMessage {
+                        id: test_id.clone(),
+                    }))
                     .await;
                 return;
             }
         }
     }
-    let worker = guard
-        .as_mut()
-        .expect("worker initialised");
+    let worker = guard.as_mut().expect("worker initialised");
 
     let result = worker
-        .run_test_job(
-            test_id.clone(),
-            test_graph,
-            model_path,
-            |frame: Vec<u8>| {
-                let _ = tx.try_send(
-                    TestTaskMessage::TestUpdateBytes(frame),
-                );
-            },
-        )
+        .run_test_job(test_id.clone(), test_graph, model_path, |frame: Vec<u8>| {
+            let _ = tx.try_send(TestTaskMessage::TestUpdateBytes(frame));
+        })
         .await;
 
     drop(guard);
@@ -429,17 +332,12 @@ async fn spawn_remote_test_task(
         println!("Remote test failed: {:?}", e);
     }
     let _ = tx
-        .send(TestTaskMessage::StopTestMessage(
-            StopTestMessage {
-                id: test_id.clone(),
-            },
-        ))
+        .send(TestTaskMessage::StopTestMessage(StopTestMessage {
+            id: test_id.clone(),
+        }))
         .await;
 
     let _ = crate::postgres_orm()
-        .update_test_run_status(
-            &test_id,
-            &TestRunStatus::Completed,
-        )
+        .update_test_run_status(&test_id, &TestRunStatus::Completed)
         .await;
 }

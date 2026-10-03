@@ -12,27 +12,25 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use http::HeaderValue;
 use tokio::net::TcpStream;
 use tokio::time::sleep;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::commondef::remoteworkermessages::{
     RemoteWorkerClientMessage, RemoteWorkerServerMessage, WorkerTrainingUpdatesMessage,
 };
-use crate::commondef::testing::{
-    StartTestMessage, StopTestMessage, TestGraph,
-};
+use crate::commondef::testing::{StartTestMessage, StopTestMessage, TestGraph};
 use crate::commondef::training::{
-    Checkpoint, StartTrainingMessage, StopTrainingMessage, TrainingGraph,
-    TrainingJobController, TrainingMethod,
+    Checkpoint, StartTrainingMessage, StopTrainingMessage, TrainingGraph, TrainingJobController,
+    TrainingMethod,
 };
 
 pub type DynError = Box<dyn std::error::Error + Send + Sync>;
@@ -62,13 +60,17 @@ pub fn load_mjcf_package_zip_base64(model_path: &str) -> Result<(String, String)
         let entrypoint = find_xml_in_zip_root(&zip_bytes)?;
         println!(
             "Using model zip directly {:?} ({} bytes), entrypoint={}",
-            path, zip_bytes.len(), entrypoint
+            path,
+            zip_bytes.len(),
+            entrypoint
         );
         return Ok((BASE64.encode(&zip_bytes), entrypoint));
     }
 
     let model_path = Path::new(model_path);
-    let model_dir = model_path.parent().ok_or("model_path has no parent directory")?;
+    let model_dir = model_path
+        .parent()
+        .ok_or("model_path has no parent directory")?;
     let default_entrypoint = model_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -297,17 +299,18 @@ impl CommonWorkerController {
             None => None,
         };
 
-        let sim_model_id = test_graph
-            .test_job_controller
-            .test_params
-            .simulation_model
-            .clone();
         let mut simulation_models = std::collections::HashMap::new();
-        if let Some(ref zip_b64) = model_zip_base64 {
-            simulation_models.insert(sim_model_id, zip_b64.clone());
+        if let (crate::commondef::testing::TestMethod::Custom(method), Some(zip_b64)) = (
+            &test_graph.test_job_controller.test_method,
+            model_zip_base64,
+        ) {
+            simulation_models.insert(method.simulation_model.clone(), zip_b64);
         }
 
-        println!("Sending StartTestingMessage to remote worker {:?}",self.config);
+        println!(
+            "Sending StartTestingMessage to remote worker {:?}",
+            self.config
+        );
         self.send_to_worker(&RemoteWorkerServerMessage::StartTestingMessage(
             StartTestMessage {
                 id: test_id.clone(),

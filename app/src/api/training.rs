@@ -1,17 +1,16 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-use rocket::State;
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::tokio::sync::{broadcast, mpsc};
+use rocket::State;
+use rocket_ws as ws;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use rocket_ws as ws;
 
+use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD
-    as BASE64;
 
 use crate::api::{route_doc, ApiState};
 use crate::commondef::clientmessages as cm;
@@ -19,17 +18,8 @@ use crate::commondef::record::TrainingRunStatus;
 
 use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
 use crate::commondef::training::{
-    Checkpoint,
-    CheckpointType,
-    ControlModel,
-    ModelType,
-    RewardLanguage,
-    StopTrainingMessage,
-    TrainingGraph,
-    TrainingJobController,
-    TrainingMethod,
-    TrainingUpdate,
-    TrainingUpdatesMessage,
+    Checkpoint, CheckpointType, ControlModel, ModelType, RewardLanguage, StopTrainingMessage,
+    TrainingGraph, TrainingJobController, TrainingMethod, TrainingUpdate, TrainingUpdatesMessage,
     ValueModel,
 };
 use crate::workflows::local_worker_controller::LocalWorkerController;
@@ -69,47 +59,26 @@ async fn run_training_relay(
     exp_id: String,
     mut rx: mpsc::Receiver<TrainingTaskMessage>,
     sse_tx: broadcast::Sender<String>,
-    state: Arc<(
-        tokio::sync::Mutex<
-            std::collections::HashMap<
-                String,
-                broadcast::Sender<String>,
-            >
-        >,
-    )>,
+    state: Arc<(tokio::sync::Mutex<std::collections::HashMap<String, broadcast::Sender<String>>>,)>,
 ) {
     let logs_id = format!("logs-{}", run_id);
     let metrics_id = format!("metrics-{}", run_id);
 
     while let Some(msg) = rx.recv().await {
         match msg {
-            TrainingTaskMessage::TrainingUpdates(m) =>
-            {
+            TrainingTaskMessage::TrainingUpdates(m) => {
                 // Flush to Mongo immediately
                 let mg = crate::mongo_orm().clone();
                 for u in &m.updates {
                     if !u.metrics.is_empty() {
-                        let _ = mg
-                            .append_metrics(
-                                &metrics_id,
-                                &u.metrics,
-                            )
-                            .await;
+                        let _ = mg.append_metrics(&metrics_id, &u.metrics).await;
                     }
                     if !u.logs.is_empty() {
-                        let _ = mg
-                            .append_logs(
-                                &logs_id,
-                                &u.logs,
-                            )
-                            .await;
+                        let _ = mg.append_logs(&logs_id, &u.logs).await;
                     }
                 }
-                let ev = cm::ClientMessage
-                    ::TrainingUpdatesMessage(m);
-                if let Ok(json) =
-                    serde_json::to_string(&ev)
-                {
+                let ev = cm::ClientMessage::TrainingUpdatesMessage(m);
+                if let Ok(json) = serde_json::to_string(&ev) {
                     sse_tx.send(json).ok();
                 }
             }
@@ -122,11 +91,8 @@ async fn run_training_relay(
                         &TrainingRunStatus::Completed,
                     )
                     .await;
-                let ev = cm::ClientMessage
-                    ::StopTrainingMessage(m);
-                if let Ok(json) =
-                    serde_json::to_string(&ev)
-                {
+                let ev = cm::ClientMessage::StopTrainingMessage(m);
+                if let Ok(json) = serde_json::to_string(&ev) {
                     sse_tx.send(json).ok();
                 }
                 break;
@@ -143,8 +109,7 @@ async fn run_training_relay(
 async fn resolve_mlp_json<M: serde::Serialize>(
     model: Option<M>,
     src_id: Option<&str>,
-) -> Option<String>
-{
+) -> Option<String> {
     if let Some(m) = model {
         return serde_json::to_string(&m).ok();
     }
@@ -157,9 +122,7 @@ async fn resolve_mlp_json<M: serde::Serialize>(
             .and_then(|r| {
                 r.control_model_params
                     .as_ref()
-                    .and_then(|m| {
-                        serde_json::to_string(m).ok()
-                    })
+                    .and_then(|m| serde_json::to_string(m).ok())
             });
     }
     None
@@ -167,74 +130,51 @@ async fn resolve_mlp_json<M: serde::Serialize>(
 
 // ── Model-type validation ─────────────────────
 
-fn validate_model_types(
-    controller: &TrainingJobController,
-) -> Result<(), &'static str> {
-    let TrainingMethod::PPO(ref p) =
-        controller.training_method;
+fn validate_model_types(controller: &TrainingJobController) -> Result<(), &'static str> {
+    let TrainingMethod::PPO(ref p) = controller.training_method;
 
     let control_spec = match &p.control_model {
         ControlModel::MLP(m) => &m.input_spec,
         ControlModel::VLA(m) => &m.input_spec,
     };
     if control_spec.contact_pairs {
-        return Err(
-            "contact_pairs is not allowed in control model input_spec",
-        );
+        return Err("contact_pairs is not allowed in control model input_spec");
     }
     let ValueModel::MLP(ref vm) = p.value_model;
     if vm.input_spec.contact_pairs {
-        return Err(
-            "contact_pairs is not allowed in value model input_spec",
-        );
+        return Err("contact_pairs is not allowed in value model input_spec");
     }
 
     match &p.control_model {
         ControlModel::MLP(m) => {
             if matches!(
                 &m.model_type,
-                ModelType::Checkpoint(
-                    CheckpointType::Pretrained(_)
-                )
+                ModelType::Checkpoint(CheckpointType::Pretrained(_))
             ) {
-                return Err(
-                    "Pretrained model type is not \
-                     allowed for MLP control models",
-                );
+                return Err("Pretrained model type is not \
+                     allowed for MLP control models");
             }
         }
-        ControlModel::VLA(m) => {
-            match &m.model_type {
-                ModelType::New => {
-                    return Err(
-                        "VLA model must specify a \
-                         pretrained checkpoint, not New",
-                    );
-                }
-                ModelType::Checkpoint(
-                    CheckpointType::Checkpoint(_),
-                ) => {
-                    return Err(
-                        "Checkpoint (non-pretrained) is \
+        ControlModel::VLA(m) => match &m.model_type {
+            ModelType::New => {
+                return Err("VLA model must specify a \
+                         pretrained checkpoint, not New");
+            }
+            ModelType::Checkpoint(CheckpointType::Checkpoint(_)) => {
+                return Err("Checkpoint (non-pretrained) is \
                          not supported for VLA models; \
-                         only Pretrained(Pi0) is valid",
-                    );
-                }
-                _ => {}
+                         only Pretrained(Pi0) is valid");
             }
-        }
+            _ => {}
+        },
     }
 
     if matches!(
         &vm.model_type,
-        ModelType::Checkpoint(
-            CheckpointType::Pretrained(_)
-        )
+        ModelType::Checkpoint(CheckpointType::Pretrained(_))
     ) {
-        return Err(
-            "Pretrained model type is not allowed \
-             for value models",
-        );
+        return Err("Pretrained model type is not allowed \
+             for value models");
     }
 
     Ok(())
@@ -263,12 +203,9 @@ pub async fn start_training(
     run_id: String,
     body: Json<StartTrainingBody>,
     state: &State<Arc<ApiState>>,
-) -> Result<Json<TrainingStartedResponse>, Status>
-{
-    let training_graph =
-        body.into_inner().training_graph;
-    let controller =
-        training_graph.training_job_controller.clone();
+) -> Result<Json<TrainingStartedResponse>, Status> {
+    let training_graph = body.into_inner().training_graph;
+    let controller = training_graph.training_job_controller.clone();
 
     if let Err(e) = validate_model_types(&controller) {
         println!("start_training: invalid model types: {e}");
@@ -277,8 +214,7 @@ pub async fn start_training(
 
     let is_local = matches!(
         controller.acceleration_mode,
-        crate::commondef::training
-            ::TrainingAccelerationMode::AllOnServer,
+        crate::commondef::training::TrainingAccelerationMode::AllOnServer,
     );
 
     // Mark run Ongoing
@@ -292,8 +228,7 @@ pub async fn start_training(
         .await;
 
     // SSE broadcast channel
-    let (sse_tx, _) =
-        broadcast::channel::<String>(256);
+    let (sse_tx, _) = broadcast::channel::<String>(256);
     state
         .training_senders
         .lock()
@@ -301,8 +236,7 @@ pub async fn start_training(
         .insert(run_id.clone(), sse_tx.clone());
 
     // Internal mpsc for training workflow
-    let (tx_train, rx_train) =
-        mpsc::channel::<TrainingTaskMessage>(64);
+    let (tx_train, rx_train) = mpsc::channel::<TrainingTaskMessage>(64);
 
     // Relay: mpsc → broadcast + Mongo
     let relay_sse_tx = sse_tx.clone();
@@ -338,15 +272,11 @@ pub async fn start_training(
     });
 
     // Stop flag
-    let stop_flag =
-        Arc::new(AtomicBool::new(false));
+    let stop_flag = Arc::new(AtomicBool::new(false));
     let stop_flag_c = stop_flag.clone();
 
-    let sim_model_id = match &controller
-        .training_method
-    {
-        TrainingMethod::PPO(p) =>
-            p.simulation_model.clone(),
+    let sim_model_id = match &controller.training_method {
+        TrainingMethod::PPO(p) => p.simulation_model.clone(),
     };
     let model_ref = crate::postgres_orm()
         .get_model_reference(&sim_model_id)
@@ -355,15 +285,12 @@ pub async fn start_training(
         .ok_or(Status::BadRequest)?;
     let model_path = model_ref.path.clone();
 
-    let (reward_lang, reward_code) =
-        match &controller.training_method {
-            TrainingMethod::PPO(p) => (
-                p.reward_function.language.clone(),
-                p.reward_function
-                    .reward_function_code
-                    .clone(),
-            ),
-        };
+    let (reward_lang, reward_code) = match &controller.training_method {
+        TrainingMethod::PPO(p) => (
+            p.reward_function.language.clone(),
+            p.reward_function.reward_function_code.clone(),
+        ),
+    };
     // Both local and remote run in the Python worker, so reward functions must
     // be Python and are validated as such; the spec is forwarded in the Start
     // message (training_graph) and executed inside the worker.
@@ -372,27 +299,22 @@ pub async fn start_training(
     }
     {
         let code = reward_code.clone();
-        rocket::tokio::task
-            ::spawn_blocking(move || {
-                crate::api::reward_validation
-                    ::validate_python_reward(&code)
-            })
-            .await
-            .map_err(|_| {
-                Status::InternalServerError
-            })?
-            .map_err(|e| {
-                println!(
-                    "Reward validation \
+        rocket::tokio::task::spawn_blocking(move || {
+            crate::api::reward_validation::validate_python_reward(&code)
+        })
+        .await
+        .map_err(|_| Status::InternalServerError)?
+        .map_err(|e| {
+            println!(
+                "Reward validation \
                      failed: {e}"
-                );
-                Status::UnprocessableEntity
-            })?;
+            );
+            Status::UnprocessableEntity
+        })?;
     }
 
     // Build ctrl/val JSON for checkpoint records (used by both local and remote).
-    let (ctrl_json, val_json) =
-        build_ctrl_val_json(&controller).await;
+    let (ctrl_json, val_json) = build_ctrl_val_json(&controller).await;
 
     if is_local {
         let tx_c = tx_train.clone();
@@ -418,27 +340,19 @@ pub async fn start_training(
             .insert(run_id.clone(), (h, stop_flag));
     } else {
         // Remote training
-        let remote_cfg =
-            match crate::build_remote_worker_config()
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    println!(
-                        "remote cfg failed: {:?}",
-                        e
-                    );
-                    return Err(
-                        Status::InternalServerError,
-                    );
-                }
-            };
+        let remote_cfg = match crate::build_remote_worker_config() {
+            Ok(c) => c,
+            Err(e) => {
+                println!("remote cfg failed: {:?}", e);
+                return Err(Status::InternalServerError);
+            }
+        };
         crate::ensure_remote_worker_shutdown_hook();
 
         let tx_c = tx_train.clone();
         let run_id_c = run_id.clone();
         let exp_id_c = experiment_id.clone();
-        let worker_slot =
-            crate::remote_worker_slot().clone();
+        let worker_slot = crate::remote_worker_slot().clone();
         let h = rocket::tokio::spawn(async move {
             spawn_remote_training_task(
                 run_id_c,
@@ -461,9 +375,7 @@ pub async fn start_training(
             .insert(run_id.clone(), (h, stop_flag));
     }
 
-    Ok(Json(TrainingStartedResponse {
-        id: run_id,
-    }))
+    Ok(Json(TrainingStartedResponse { id: run_id }))
 }
 
 #[route_doc(
@@ -483,14 +395,8 @@ pub async fn stop_training(
     experiment_id: String,
     run_id: String,
     state: &State<Arc<ApiState>>,
-) -> Result<Json<TrainingStoppedResponse>, Status>
-{
-    if let Some((h, flag)) = state
-        .training_stops
-        .lock()
-        .await
-        .remove(&run_id)
-    {
+) -> Result<Json<TrainingStoppedResponse>, Status> {
+    if let Some((h, flag)) = state.training_stops.lock().await.remove(&run_id) {
         flag.store(true, Ordering::Relaxed);
         h.abort();
     }
@@ -502,17 +408,12 @@ pub async fn stop_training(
             &TrainingRunStatus::StoppedByUser,
         )
         .await;
-    Ok(Json(TrainingStoppedResponse {
-        id: run_id,
-    }))
+    Ok(Json(TrainingStoppedResponse { id: run_id }))
 }
 
 #[route_doc(
     tag = "Training",
-    params(
-        experiment_id = "Experiment UUID",
-        run_id = "Run UUID",
-    ),
+    params(experiment_id = "Experiment UUID", run_id = "Run UUID",)
 )]
 #[get(
     "/training/experiments\
@@ -523,8 +424,7 @@ pub async fn training_updates(
     run_id: String,
     state: &State<Arc<ApiState>>,
     ws: ws::WebSocket,
-) -> ws::Channel<'static>
-{
+) -> ws::Channel<'static> {
     let rx = state
         .training_senders
         .lock()
@@ -532,47 +432,45 @@ pub async fn training_updates(
         .get(&run_id)
         .map(|tx| tx.subscribe());
 
-    ws.channel(move |mut stream| Box::pin(async move {
-        use rocket::futures::{SinkExt, StreamExt};
-        if let Some(mut rx) = rx {
-            loop {
-                rocket::tokio::select! {
-                    msg = rx.recv() => match msg {
-                        Ok(json) => {
-                            if stream.send(ws::Message::Text(json)).await.is_err() {
-                                break;
+    ws.channel(move |mut stream| {
+        Box::pin(async move {
+            use rocket::futures::{SinkExt, StreamExt};
+            if let Some(mut rx) = rx {
+                loop {
+                    rocket::tokio::select! {
+                        msg = rx.recv() => match msg {
+                            Ok(json) => {
+                                if stream.send(ws::Message::Text(json)).await.is_err() {
+                                    break;
+                                }
                             }
-                        }
-                        Err(broadcast::error::RecvError::Closed) => break,
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    },
-                    incoming = stream.next() => match incoming {
-                        None
-                        | Some(Ok(ws::Message::Close(_)))
-                        | Some(Err(_)) => break,
-                        Some(Ok(_)) => {}
-                    },
+                            Err(broadcast::error::RecvError::Closed) => break,
+                            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        },
+                        incoming = stream.next() => match incoming {
+                            None
+                            | Some(Ok(ws::Message::Close(_)))
+                            | Some(Err(_)) => break,
+                            Some(Ok(_)) => {}
+                        },
+                    }
                 }
             }
-        }
-        Ok(())
-    }))
+            Ok(())
+        })
+    })
 }
 
 // ── Remote training helpers ───────────────────
 
 async fn build_ctrl_val_json(
     controller: &TrainingJobController,
-) -> (Option<String>, Option<String>)
-{
-    let TrainingMethod::PPO(ref p) =
-        controller.training_method;
+) -> (Option<String>, Option<String>) {
+    let TrainingMethod::PPO(ref p) = controller.training_method;
 
     let ctrl = match &p.control_model {
         ControlModel::MLP(m) => match &m.model_type {
-            ModelType::Checkpoint(
-                CheckpointType::Checkpoint(id),
-            ) => crate::postgres_orm()
+            ModelType::Checkpoint(CheckpointType::Checkpoint(id)) => crate::postgres_orm()
                 .get_checkpoint_ref(id)
                 .await
                 .ok()
@@ -580,9 +478,7 @@ async fn build_ctrl_val_json(
                 .and_then(|r| {
                     r.control_model_params
                         .as_ref()
-                        .and_then(|m| {
-                            serde_json::to_string(m).ok()
-                        })
+                        .and_then(|m| serde_json::to_string(m).ok())
                 }),
             _ => serde_json::to_string(m).ok(),
         },
@@ -592,9 +488,7 @@ async fn build_ctrl_val_json(
     let val = {
         let ValueModel::MLP(ref m) = p.value_model;
         match &m.model_type {
-            ModelType::Checkpoint(
-                CheckpointType::Checkpoint(id),
-            ) => crate::postgres_orm()
+            ModelType::Checkpoint(CheckpointType::Checkpoint(id)) => crate::postgres_orm()
                 .get_checkpoint_ref(id)
                 .await
                 .ok()
@@ -602,9 +496,7 @@ async fn build_ctrl_val_json(
                 .and_then(|r| {
                     r.value_model_params
                         .as_ref()
-                        .and_then(|m| {
-                            serde_json::to_string(m).ok()
-                        })
+                        .and_then(|m| serde_json::to_string(m).ok())
                 }),
             _ => serde_json::to_string(m).ok(),
         }
@@ -615,14 +507,9 @@ async fn build_ctrl_val_json(
 
 /// Builds the checkpoint payloads to seed a training job from any pretrained
 /// control/value checkpoints referenced by the controller.
-async fn build_worker_checkpoints(
-    controller: &TrainingJobController,
-) -> Vec<Checkpoint> {
+async fn build_worker_checkpoints(controller: &TrainingJobController) -> Vec<Checkpoint> {
     use crate::commondef::training::{
-        CheckpointType as CT,
-        ControlModel as CM,
-        ModelType as MT,
-        TrainingMethod as TM,
+        CheckpointType as CT, ControlModel as CM, ModelType as MT, TrainingMethod as TM,
         ValueModel as VM,
     };
     use std::collections::HashMap;
@@ -740,10 +627,12 @@ fn make_training_on_update(
                 checkpoints: saved_refs,
             });
         }
-        let _ = tx.try_send(TrainingTaskMessage::TrainingUpdates(TrainingUpdatesMessage {
-            id: update.id.clone(),
-            updates: client_updates,
-        }));
+        let _ = tx.try_send(TrainingTaskMessage::TrainingUpdates(
+            TrainingUpdatesMessage {
+                id: update.id.clone(),
+                updates: client_updates,
+            },
+        ));
     }
 }
 
@@ -772,13 +661,8 @@ async fn spawn_local_training_task(
     };
 
     let worker_checkpoints = build_worker_checkpoints(&controller).await;
-    let on_update = make_training_on_update(
-        run_id.clone(),
-        exp_id,
-        tx.clone(),
-        ctrl_json,
-        val_json,
-    );
+    let on_update =
+        make_training_on_update(run_id.clone(), exp_id, tx.clone(), ctrl_json, val_json);
 
     let result = local
         .run_training_job(
@@ -805,9 +689,7 @@ async fn spawn_remote_training_task(
     exp_id: String,
     controller: TrainingJobController,
     model_path: String,
-    remote_cfg: crate::workflows
-        ::remote_worker_controller
-        ::RemoteWorkerControllerConfig,
+    remote_cfg: crate::workflows::remote_worker_controller::RemoteWorkerControllerConfig,
     worker_slot: crate::RemoteWorkerSlot,
     tx: mpsc::Sender<TrainingTaskMessage>,
     _stop_flag: Arc<AtomicBool>,
@@ -816,11 +698,10 @@ async fn spawn_remote_training_task(
 ) {
     let mut guard = worker_slot.lock().await;
     if guard.is_none() {
-        match crate::workflows
-            ::remote_worker_controller
-            ::RemoteWorkerController
-            ::initialize(remote_cfg)
-            .await
+        match crate::workflows::remote_worker_controller::RemoteWorkerController::initialize(
+            remote_cfg,
+        )
+        .await
         {
             Ok(w) => *guard = Some(w),
             Err(e) => {
@@ -837,13 +718,8 @@ async fn spawn_remote_training_task(
     let worker = guard.as_mut().expect("worker initialised");
 
     let worker_checkpoints = build_worker_checkpoints(&controller).await;
-    let on_update = make_training_on_update(
-        run_id.clone(),
-        exp_id,
-        tx.clone(),
-        ctrl_json,
-        val_json,
-    );
+    let on_update =
+        make_training_on_update(run_id.clone(), exp_id, tx.clone(), ctrl_json, val_json);
 
     let result = worker
         .run_training_job(
