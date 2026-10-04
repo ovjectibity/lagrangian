@@ -1,0 +1,8 @@
+[submodule "worker/third-party/robosuite"]
+	path = worker/third-party/robosuite
+	url = https://github.com/ovjectibity/robosuite-lagrangian.git
+	branch = master
+[submodule "worker/third-party/libero"]
+	path = worker/third-party/libero
+	url = https://github.com/ovjectibity/libero-lagrangian.git
+	branch = master

@@ -38,6 +38,8 @@ RUN apt-get update \
 
 WORKDIR /opt/lagrangian/worker
 
+COPY third-party/libero/ third-party/libero/
+COPY third-party/robosuite/ third-party/robosuite/
 COPY worker-py/pyproject.toml worker-py/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     CMAKE_POLICY_VERSION_MINIMUM=3.5 uv sync --locked --no-dev --no-install-project

@@ -12,6 +12,7 @@ dependencies = [
     "orbax-checkpoint",
     "protobuf",
     "pydantic",
+    "robosuite",
     "safetensors",
     "sentencepiece",
     "torch",
@@ -21,3 +22,7 @@ dependencies = [
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+libero = { path = "../third-party/libero" }
+robosuite = { path = "../third-party/robosuite" }
