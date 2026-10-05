@@ -7,6 +7,7 @@ AWS_ENV_FILE="${REPO_ROOT}/.envrc"
 
 CREATE_REPO=0
 PURGE_REPO_IMAGES=0
+BUILD_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --create-repo)
@@ -15,20 +16,52 @@ while [[ $# -gt 0 ]]; do
     --purge-repo-images)
       PURGE_REPO_IMAGES=1
       ;;
+    --build-only)
+      BUILD_ONLY=1
+      ;;
     *)
       echo "error: unknown argument '$1'" >&2
-      echo "usage: $0 [--create-repo] [--purge-repo-images]" >&2
+      echo "usage: $0 [--build-only] [--create-repo] [--purge-repo-images]" >&2
       exit 1
       ;;
   esac
   shift
 done
 
+if [[ "${BUILD_ONLY}" -eq 1 ]] && \
+  { [[ "${CREATE_REPO}" -eq 1 ]] || [[ "${PURGE_REPO_IMAGES}" -eq 1 ]]; }; then
+  echo "error: --build-only cannot be combined with ECR management flags." >&2
+  exit 1
+fi
+
 if [[ -f "${AWS_ENV_FILE}" ]]; then
   # shellcheck disable=SC1090
   set -a
   source "${AWS_ENV_FILE}"
   set +a
+fi
+
+LOCAL_IMAGE="${REMOTE_WORKER_LOCAL_IMAGE:-lagrangian/remote-worker:$(date +%Y%m%d%H%M%S)}"
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "error: docker not found in PATH." >&2
+  exit 1
+fi
+
+build_worker_image() {
+  echo "Building image from worker/Dockerfile as ${LOCAL_IMAGE} ..."
+  docker build \
+    --platform linux/amd64 \
+    --load \
+    -f "${REPO_ROOT}/worker/Dockerfile" \
+    "${REPO_ROOT}/worker" \
+    -t "${LOCAL_IMAGE}"
+}
+
+if [[ "${BUILD_ONLY}" -eq 1 ]]; then
+  build_worker_image
+  echo "Done: ${LOCAL_IMAGE}"
+  exit 0
 fi
 
 if [[ -z "${REMOTE_WORKER_IMAGE_URI:-}" ]]; then
@@ -40,8 +73,6 @@ IMAGE_URI="${REMOTE_WORKER_IMAGE_URI}"
 if [[ "${IMAGE_URI}" != *:* ]]; then
   IMAGE_URI="${IMAGE_URI}:latest"
 fi
-LOCAL_IMAGE="${REMOTE_WORKER_LOCAL_IMAGE:-lagrangian/remote-worker:$(date +%Y%m%d%H%M%S)}"
-
 ECR_REGISTRY="${IMAGE_URI%%/*}"
 REPO_AND_TAG="${IMAGE_URI#*/}"
 REPO_NAME="${REPO_AND_TAG%%:*}"
@@ -56,10 +87,6 @@ if [[ -z "${REGION}" || "${REGION}" == "${ECR_REGISTRY}" ]]; then
   exit 1
 fi
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "error: docker not found in PATH." >&2
-  exit 1
-fi
 if ! command -v aws >/dev/null 2>&1; then
   echo "error: aws CLI not found in PATH." >&2
   exit 1
@@ -141,13 +168,7 @@ if [[ "${PURGE_REPO_IMAGES}" -eq 1 ]]; then
   fi
 fi
 
-echo "Building image from worker/Dockerfile as ${LOCAL_IMAGE} ..."
-docker build \
-  --platform linux/amd64 \
-  --load \
-  -f "${REPO_ROOT}/worker/Dockerfile" \
-  "${REPO_ROOT}/worker" \
-  -t "${LOCAL_IMAGE}"
+build_worker_image
 
 echo "Logging into ECR registry: ${ECR_REGISTRY}"
 aws ecr get-login-password --region "${REGION}" \
