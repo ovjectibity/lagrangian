@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Syncs locally changed worker files (staged or unstaged) to a remote EC2 instance
-# and restarts the worker container. Useful for iterating without a full ECR push.
+# Syncs locally changed worker and vendored simulator files to a remote EC2
+# instance and restarts the worker container. Useful for iterating without a
+# full ECR push. Changes are lost when the container is recreated from its image.
 #
 # Usage: sync_worker_to_remote.sh <remote-ip>
 set -euo pipefail
@@ -36,50 +37,125 @@ if [[ -n "${KEY_FILE}" ]]; then
   SSH_ARGS+=(-i "${KEY_FILE}")
 fi
 
-# Collect changed files under worker/worker-py/ (staged, unstaged, and untracked)
-cd "${REPO_ROOT}"
-CHANGED_FILES=$(
+WORKER_ROOT="/opt/lagrangian/worker"
+THIRD_PARTY_ROOT="/opt/lagrangian/third-party"
+SITE_PACKAGES_ROOT="${WORKER_ROOT}/.venv/lib/python3.14/site-packages"
+NEEDS_UV_SYNC=0
+SYNCED_FILES=0
+
+changed_files() {
+  local repository="$1"
+
   {
-    git diff --name-only HEAD 2>/dev/null
-    git ls-files --others --exclude-standard 2>/dev/null
-  } | sort -u | grep '^worker/worker-py/' || true
-)
+    git -C "${repository}" diff --name-only HEAD
+    git -C "${repository}" ls-files --others --exclude-standard
+  } | sort -u
+}
 
-if [[ -z "${CHANGED_FILES}" ]]; then
-  echo "No changed files under worker/worker-py/. Nothing to sync."
-  exit 0
-fi
+copy_file() {
+  local local_path="$1"
+  local container_path="$2"
+  local remote_tmp
 
-echo "Files to sync to ${REMOTE_IP}:"
-echo "${CHANGED_FILES}" | sed 's/^/  /'
-echo ""
-
-# Local: worker/worker-py/<rel>  →  Container: /opt/lagrangian/worker/<rel>
-while IFS= read -r local_path <&3; do
-  rel="${local_path#worker/worker-py/}"
-  container_path="/opt/lagrangian/worker/${rel}"
-  container_dir="$(dirname "${container_path}")"
-  remote_tmp="/tmp/_worker_sync_$(echo "${rel}" | tr '/' '__')"
-
-  echo "  ${local_path} → container:${container_path}"
+  remote_tmp="/tmp/_worker_sync_$(echo "${container_path}" | tr '/' '__')"
 
   scp "${SSH_ARGS[@]}" \
-    "${REPO_ROOT}/${local_path}" \
+    "${local_path}" \
     "${SSH_USER}@${REMOTE_IP}:${remote_tmp}"
 
   ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
-    "sudo docker exec ${CONTAINER_NAME} mkdir -p ${container_dir} \
-     && sudo docker cp ${remote_tmp} ${CONTAINER_NAME}:${container_path} \
-     && rm -f ${remote_tmp}" </dev/null
-done 3<<< "${CHANGED_FILES}"
-# ^ Both changes matter: `ssh` inside the loop must not read stdin (</dev/null),
-# and the loop must read from fd 3 (not 0), so even a stdin-consuming command
-# that slips in later can't silently truncate the file list. Without these, ssh
-# eats the remaining lines of CHANGED_FILES via stdin, causing the loop to
-# process only the first file and exit early with no error.
+    "sudo docker cp ${remote_tmp} ${CONTAINER_NAME}:${container_path} && rm -f ${remote_tmp}" </dev/null
+}
+
+restart_and_wait() {
+  ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
+    "sudo docker restart ${CONTAINER_NAME} >/dev/null \
+     && for attempt in \$(seq 1 30); do \
+          if [ \"\$(sudo docker container inspect --format '{{.State.Running}}' ${CONTAINER_NAME})\" = true ]; then exit 0; fi; \
+          sleep 1; \
+        done; \
+        echo \"error: container '${CONTAINER_NAME}' did not stay running after the file sync.\" >&2; \
+        exit 1" </dev/null
+}
+
+sync_worker_file() {
+  local relative_path="$1"
+  local local_path="${REPO_ROOT}/worker/worker-py/${relative_path}"
+
+  if [[ ! -f "${local_path}" ]]; then
+    echo "  skipping deleted worker file: ${relative_path}"
+    return
+  fi
+
+  echo "  worker/worker-py/${relative_path}"
+  copy_file "${local_path}" "${WORKER_ROOT}/${relative_path}"
+  SYNCED_FILES=1
+
+  if [[ "${relative_path}" == "pyproject.toml" || "${relative_path}" == "uv.lock" ]]; then
+    NEEDS_UV_SYNC=1
+  fi
+}
+
+sync_third_party_file() {
+  local package_name="$1"
+  local relative_path="$2"
+  local local_path="${REPO_ROOT}/worker/third-party/${package_name}/${relative_path}"
+  local installed_path=""
+
+  if [[ ! -f "${local_path}" ]]; then
+    echo "  skipping deleted ${package_name} file: ${relative_path}"
+    return
+  fi
+
+  echo "  third-party/${package_name}/${relative_path}"
+  copy_file "${local_path}" "${THIRD_PARTY_ROOT}/${package_name}/${relative_path}"
+  SYNCED_FILES=1
+
+  case "${package_name}:${relative_path}" in
+    libero:libero/libero/*)
+      installed_path="${SITE_PACKAGES_ROOT}/libero/libero/${relative_path#libero/libero/}"
+      ;;
+    robosuite:robosuite/*)
+      installed_path="${SITE_PACKAGES_ROOT}/robosuite/${relative_path#robosuite/}"
+      ;;
+    libero:setup.py|libero:pyproject.toml|robosuite:setup.py|robosuite:pyproject.toml)
+      NEEDS_UV_SYNC=1
+      ;;
+  esac
+
+  if [[ -n "${installed_path}" ]]; then
+    copy_file "${local_path}" "${installed_path}"
+  fi
+}
+
+echo "Files to sync to ${REMOTE_IP}:"
+while IFS= read -r relative_path; do
+  [[ -n "${relative_path}" ]] && sync_worker_file "${relative_path}"
+done < <(changed_files "${REPO_ROOT}" | sed -n 's#^worker/worker-py/##p')
+
+while IFS= read -r relative_path; do
+  [[ -n "${relative_path}" ]] && sync_third_party_file "libero" "${relative_path}"
+done < <(changed_files "${REPO_ROOT}/worker/third-party/libero")
+
+while IFS= read -r relative_path; do
+  [[ -n "${relative_path}" ]] && sync_third_party_file "robosuite" "${relative_path}"
+done < <(changed_files "${REPO_ROOT}/worker/third-party/robosuite")
+
+if [[ "${SYNCED_FILES}" -eq 0 ]]; then
+  echo "No changed worker, LIBERO, or robosuite files to sync."
+  exit 0
+fi
+
+if [[ "${NEEDS_UV_SYNC}" -eq 1 ]]; then
+  echo "Restarting container ${CONTAINER_NAME} before dependency synchronization ..."
+  restart_and_wait
+  echo "Synchronizing changed package metadata and dependencies ..."
+  ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
+    "sudo docker exec ${CONTAINER_NAME} sh -lc 'cd ${WORKER_ROOT} && CMAKE_POLICY_VERSION_MINIMUM=3.5 uv sync --locked --no-dev --no-install-project'" </dev/null
+fi
 
 echo ""
 echo "Restarting container ${CONTAINER_NAME} ..."
-ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" "sudo docker restart ${CONTAINER_NAME}"
+restart_and_wait
 # ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" "sudo docker stop ${CONTAINER_NAME}" && "sudo docker rm ${CONTAINER_NAME}" && "sudo docker ${CONTAINER_NAME}"
 echo "Done."

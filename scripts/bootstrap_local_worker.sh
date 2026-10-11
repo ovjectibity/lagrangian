@@ -2,14 +2,18 @@
 set -euo pipefail
 
 USE_LATEST_LOCAL_IMAGE=0
+USE_GPU=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --use-latest-local-image)
       USE_LATEST_LOCAL_IMAGE=1
       ;;
+    --without-gpu)
+      USE_GPU=0
+      ;;
     *)
       echo "error: unknown argument '$1'" >&2
-      echo "usage: $0 [--use-latest-local-image]" >&2
+      echo "usage: $0 [--use-latest-local-image] [--without-gpu]" >&2
       exit 1
       ;;
   esac
@@ -84,8 +88,15 @@ CUDA_LAUNCH_BLOCKING=${CUDA_DEBUG_MODE}
 CUDA_DEBUG_MODE=${CUDA_DEBUG_MODE}
 ENV_EOF
 
+DOCKER_GPU_ARGS=()
+if [[ "${USE_GPU}" -eq 1 ]]; then
+  DOCKER_GPU_ARGS=(--gpus all)
+else
+  echo "Starting local worker without GPU access."
+fi
+
 docker run -d --restart unless-stopped \
-  --gpus all \
+  "${DOCKER_GPU_ARGS[@]}" \
   --cap-add=SYS_ADMIN \
   --name "${REMOTE_WORKER_CONTAINER_NAME}" \
   --env-file "${LOCAL_WORKER_WORKING_DIR}/lagrangian-worker.env" \

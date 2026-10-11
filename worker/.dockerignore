@@ -2,3 +2,4 @@ worker-py/.venv/
 worker-py/**/__pycache__/
 worker-py/**/*.py[cod]
 worker-py/.DS_Store
+**/.git

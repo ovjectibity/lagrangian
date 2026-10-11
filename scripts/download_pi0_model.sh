@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PI0_DIR="${PI0_CHECKPOINT_DIR:-/opt/lagrangian/pi0}"
+PI0_DOWNLOAD_VENV="${PI0_DOWNLOAD_VENV:-${TMPDIR:-/tmp}/lagrangian-pi0-download-venv}"
 HF_REPO="lerobot/pi0_libero_base"
 LEROBOT_FILES=(model.safetensors config.json policy_preprocessor.json policy_postprocessor.json)
 GATED_FILES=(tokenizer.model)  # from google/paligemma-3b-pt-224, requires HF_TOKEN
@@ -21,11 +22,18 @@ if [[ "${all_present}" -eq 1 ]]; then
   exit 0
 fi
 
-echo "Pi-0: installing huggingface_hub ..."
-python3 -m pip install -q huggingface_hub
+if [[ ! -x "${PI0_DOWNLOAD_VENV}/bin/python" ]]; then
+  echo "Pi-0: creating download virtual environment ..."
+  python3 -m venv "${PI0_DOWNLOAD_VENV}"
+fi
+
+PI0_DOWNLOAD_PYTHON="${PI0_DOWNLOAD_VENV}/bin/python"
+
+echo "Pi-0: installing huggingface_hub in the download virtual environment ..."
+"${PI0_DOWNLOAD_PYTHON}" -m pip install -q huggingface_hub
 
 echo "Pi-0: downloading ${HF_REPO} to ${PI0_DIR} ..."
-python3 -c "
+"${PI0_DOWNLOAD_PYTHON}" -c "
 from huggingface_hub import hf_hub_download
 for f in ['model.safetensors', 'config.json', 'policy_preprocessor.json', 'policy_postprocessor.json']:
     print(f'Downloading {f} ...')
@@ -38,7 +46,7 @@ if [[ -z "${HF_TOKEN:-}" ]]; then
   echo "error: HF_TOKEN is required to download the tokenizer from the gated paligemma repo." >&2
   exit 1
 fi
-python3 -c "
+"${PI0_DOWNLOAD_PYTHON}" -c "
 from huggingface_hub import hf_hub_download
 import os
 print('Downloading tokenizer.model ...')
