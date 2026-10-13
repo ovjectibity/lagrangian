@@ -162,30 +162,38 @@ class PPOTrainer:
         policy_store = self.model.get_policy_store()
         output_mode = self.model.get_control_policy_output_mode()
 
-        control_parts, data = simulator_class.get_model_state_pure(
+        control_parts = simulator_class.get_model_state_pure(
             control_input_spec,
             data,
             model,
-            render_ctx,
             contact_sensor_addresses,
             contact_body_pairs,
         )
-        value_parts, data = simulator_class.get_model_state_pure(
+        value_parts = simulator_class.get_model_state_pure(
             value_input_spec,
             data,
             model,
-            render_ctx,
             contact_sensor_addresses,
             contact_body_pairs,
         )
-        reward_parts_pre, data = simulator_class.get_model_state_pure(
+        reward_parts_pre = simulator_class.get_model_state_pure(
             reward_input_spec,
             data,
             model,
-            render_ctx,
             contact_sensor_addresses,
             contact_body_pairs,
         )
+        if model.ncam > 0 and any(
+            spec.all_cameras
+            for spec in (control_input_spec, value_input_spec, reward_input_spec)
+        ):
+            cameras, data = simulator_class.get_model_render(data, model, render_ctx)
+            if control_input_spec.all_cameras:
+                control_parts["cameras"] = cameras
+            if value_input_spec.all_cameras:
+                value_parts["cameras"] = cameras
+            if reward_input_spec.all_cameras:
+                reward_parts_pre["cameras"] = cameras
         rng_key, step_key = jax.random.split(rng_key)
         pol_output = policy_fn(policy_store, {**control_parts, "rng_key": step_key})
         sampled_action = pol_output["sampled_action"]
@@ -201,14 +209,16 @@ class PPOTrainer:
             output_mode,
         )
         data = simulator_class.forward_dyn_pure(data, model, controls)
-        reward_parts_post, data = simulator_class.get_model_state_pure(
+        reward_parts_post = simulator_class.get_model_state_pure(
             reward_input_spec,
             data,
             model,
-            render_ctx,
             contact_sensor_addresses,
             contact_body_pairs,
         )
+        if reward_input_spec.all_cameras and model.ncam > 0:
+            cameras, data = simulator_class.get_model_render(data, model, render_ctx)
+            reward_parts_post["cameras"] = cameras
         reward = float(self.model.get_reward(reward_parts_pre, reward_parts_post))
         return (
             data,
@@ -276,21 +286,22 @@ class PPOTrainer:
                 rewards[traj_index].append(reward)
 
         value_input_spec = self.model.get_value_input_spec()
-        render_ctx = simulator_state["render_ctx"]
         contact_sensor_addresses = simulator_state["contact_sensor_addresses"]
         contact_body_pairs = simulator_state["contact_body_pairs"]
         trajectories: list[Trajectory] = []
         for traj_index in range(num_trajs):
-            terminal_value_parts, data_states[traj_index] = (
-                simulator_class.get_model_state_pure(
-                    value_input_spec,
-                    data_states[traj_index],
-                    model,
-                    render_ctx,
-                    contact_sensor_addresses,
-                    contact_body_pairs,
-                )
+            terminal_value_parts = simulator_class.get_model_state_pure(
+                value_input_spec,
+                data_states[traj_index],
+                model,
+                contact_sensor_addresses,
+                contact_body_pairs,
             )
+            if value_input_spec.all_cameras and model.ncam > 0:
+                cameras, data_states[traj_index] = simulator_class.get_model_render(
+                    data_states[traj_index], model, simulator_state["render_ctx"]
+                )
+                terminal_value_parts["cameras"] = cameras
             value_wstates[traj_index].append(terminal_value_parts)
             v_terminal = float(self.model.get_value_output(terminal_value_parts))
             trajectories.append(
@@ -473,36 +484,41 @@ class PPOTrainer:
         mjx_model: Any,
         rng_key: Array,
         simulator_class: type[Simulator],
-        control_state_fn: Callable[
-            [Any, Any, Any], tuple[dict[str, Array], Any]
-        ],
-        value_state_fn: Callable[
-            [Any, Any, Any], tuple[dict[str, Array], Any]
-        ],
-        reward_state_fn: Callable[
-            [Any, Any, Any], tuple[dict[str, Array], Any]
-        ],
-        render_ctx: Any = None,
+        control_state_fn: Callable[[Any, Any], dict[str, Array]],
+        value_state_fn: Callable[[Any, Any], dict[str, Array]],
+        reward_state_fn: Callable[[Any, Any], dict[str, Array]],
+        control_has_cameras: bool,
+        value_has_cameras: bool,
+        reward_has_cameras: bool,
+        camera_frames: Array | None = None,
         policy_store: Params | None = None,
     ) -> tuple[
         tuple[Any, Array],
-        tuple[dict[str, Array], dict[str, Array], dict[str, Array], Array, Array],
+        tuple[
+            dict[str, Array],
+            dict[str, Array],
+            dict[str, Array],
+            Array,
+            dict[str, Array],
+        ],
     ]:
         """Generate one JAX-traceable GPU trajectory step."""
-        reward_fn = self.model.get_pure_reward_fn()
         policy_fn = self.model.get_policy_fn()
         if policy_store is None:
             policy_store = self.model.get_policy_store()
         output_mode = self.model.get_control_policy_output_mode()
 
         rng_key, step_key = jax.random.split(rng_key)
-        control_parts, mjx_data = control_state_fn(
-            mjx_data, mjx_model, render_ctx
-        )
-        value_parts, mjx_data = value_state_fn(mjx_data, mjx_model, render_ctx)
-        reward_parts_pre, mjx_data = reward_state_fn(
-            mjx_data, mjx_model, render_ctx
-        )
+        control_parts = control_state_fn(mjx_data, mjx_model)
+        value_parts = value_state_fn(mjx_data, mjx_model)
+        reward_parts_pre = reward_state_fn(mjx_data, mjx_model)
+        if camera_frames is not None:
+            if control_has_cameras:
+                control_parts["cameras"] = camera_frames
+            if value_has_cameras:
+                value_parts["cameras"] = camera_frames
+            if reward_has_cameras:
+                reward_parts_pre["cameras"] = camera_frames
 
         # Thread a fresh per-step key in via the dict; control_parts itself is
         # stored without it (log-prob recompute is deterministic).
@@ -526,19 +542,12 @@ class PPOTrainer:
             mjx_model,
             controls,
         )
-        reward_parts_post, mjx_data = reward_state_fn(
-            mjx_data,
-            mjx_model,
-            render_ctx,
-        )
-        reward = reward_fn(reward_parts_pre, reward_parts_post)
-
         return (mjx_data, rng_key), (
             control_parts,
             value_parts,
             policy_output,
             action,
-            reward,
+            reward_parts_pre,
         )
 
     def gen_trajectories_gpu(
@@ -592,17 +601,23 @@ class PPOTrainer:
         control_input_spec = self.model.get_control_input_spec()
         value_input_spec = self.model.get_value_input_spec()
         reward_input_spec = self.model.get_reward_input_spec()
+        reward_fn = self.model.get_pure_reward_fn()
+        has_cameras = int(mjx_model.ncam) > 0
+        control_has_cameras = has_cameras and control_input_spec.all_cameras
+        value_has_cameras = has_cameras and value_input_spec.all_cameras
+        reward_has_cameras = has_cameras and reward_input_spec.all_cameras
+        needs_step_render = (
+            control_has_cameras or value_has_cameras or reward_has_cameras
+        )
 
         def control_state_fn(
             data: Any,
             model: Any,
-            ctx: Any,
-        ) -> tuple[dict[str, Array], Any]:
+        ) -> dict[str, Array]:
             return simulator_class.get_model_state_pure(
                 control_input_spec,
                 data,
                 model,
-                ctx,
                 contact_sensor_addresses,
                 contact_body_pairs,
             )
@@ -610,13 +625,11 @@ class PPOTrainer:
         def value_state_fn(
             data: Any,
             model: Any,
-            ctx: Any,
-        ) -> tuple[dict[str, Array], Any]:
+        ) -> dict[str, Array]:
             return simulator_class.get_model_state_pure(
                 value_input_spec,
                 data,
                 model,
-                ctx,
                 contact_sensor_addresses,
                 contact_body_pairs,
             )
@@ -624,13 +637,11 @@ class PPOTrainer:
         def reward_state_fn(
             data: Any,
             model: Any,
-            ctx: Any,
-        ) -> tuple[dict[str, Array], Any]:
+        ) -> dict[str, Array]:
             return simulator_class.get_model_state_pure(
                 reward_input_spec,
                 data,
                 model,
-                ctx,
                 contact_sensor_addresses,
                 contact_body_pairs,
             )
@@ -645,6 +656,7 @@ class PPOTrainer:
             def trajectory_step(
                 step_data: Any,
                 step_key: Array,
+                camera_frames: Array | None,
             ) -> tuple[
                 tuple[Any, Array],
                 tuple[
@@ -652,7 +664,7 @@ class PPOTrainer:
                     dict[str, Array],
                     dict[str, Array],
                     Array,
-                    Array,
+                    dict[str, Array],
                 ],
             ]:
                 return self.gen_trajectory_step_gpu(
@@ -663,7 +675,10 @@ class PPOTrainer:
                     control_state_fn,
                     value_state_fn,
                     reward_state_fn,
-                    ctx,
+                    control_has_cameras,
+                    value_has_cameras,
+                    reward_has_cameras,
+                    camera_frames,
                     ps,
                 )
 
@@ -681,7 +696,37 @@ class PPOTrainer:
                 ],
             ]:
                 step_data, step_keys = carry
-                return jax.vmap(trajectory_step)(step_data, step_keys)
+                camera_frames = None
+                if needs_step_render:
+                    camera_frames, step_data = simulator_class.get_model_render(
+                        step_data, model, ctx
+                    )
+                (next_data, next_keys), (
+                    control_parts,
+                    value_parts,
+                    policy_output,
+                    action,
+                    reward_parts_pre,
+                ) = jax.vmap(
+                    trajectory_step,
+                    in_axes=(0, 0, 0 if needs_step_render else None),
+                )(step_data, step_keys, camera_frames)
+                reward_parts_post = jax.vmap(
+                    reward_state_fn, in_axes=(0, None)
+                )(next_data, model)
+                if reward_has_cameras:
+                    post_frames, next_data = simulator_class.get_model_render(
+                        next_data, model, ctx
+                    )
+                    reward_parts_post["cameras"] = post_frames
+                rewards = jax.vmap(reward_fn)(reward_parts_pre, reward_parts_post)
+                return (next_data, next_keys), (
+                    control_parts,
+                    value_parts,
+                    policy_output,
+                    action,
+                    rewards,
+                )
 
             (data_final, _), step_outputs = jax.lax.scan(
                 scan_body,
@@ -697,10 +742,15 @@ class PPOTrainer:
                 rewards_t,
             ) = step_outputs
 
-            terminal_value_parts, _ = jax.vmap(
+            terminal_value_parts = jax.vmap(
                 value_state_fn,
-                in_axes=(0, None, None),
-            )(data_final, model, ctx)
+                in_axes=(0, None),
+            )(data_final, model)
+            if value_has_cameras:
+                terminal_frames, data_final = simulator_class.get_model_render(
+                    data_final, model, ctx
+                )
+                terminal_value_parts["cameras"] = terminal_frames
             value_states_t = jax.tree_util.tree_map(
                 lambda seq, term: jnp.concatenate([seq, term[None]], axis=0),
                 value_states_t,

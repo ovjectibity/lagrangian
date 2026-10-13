@@ -68,6 +68,7 @@ function buildTestGraph() {
       },
       compute_instance: "AWSG4dn",
       acceleration_mode: "MLGPUSimulationGPU",
+      // acceleration_mode: "AllOnServer",
     },
   };
 }

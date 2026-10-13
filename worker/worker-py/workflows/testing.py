@@ -467,12 +467,11 @@ class TestingWorkflow:
             contact_body_pairs = simulator_state["contact_body_pairs"]
             has_cameras = control_spec.all_cameras and int(mjx_model.ncam) > 0
 
-            def state_fn(data: Any) -> tuple[dict[str, Array], Any]:
+            def state_fn(data: Any) -> dict[str, Array]:
                 return simulator_class.get_model_state_pure(
                     control_spec,
                     data,
                     mjx_model,
-                    render_ctx,
                     contact_sensor_addresses,
                     contact_body_pairs,
                 )
@@ -481,7 +480,16 @@ class TestingWorkflow:
                 bd, rng = carry
                 rng, step_key = jax.random.split(rng)
                 env_keys = jax.random.split(step_key, num_envs)
-                parts_batched, bd = jax.vmap(state_fn)(bd)
+                parts_batched = jax.vmap(state_fn)(bd)
+                if has_cameras:
+                    camera_frames, bd = simulator_class.get_model_render(
+                        bd, mjx_model, render_ctx
+                    )
+                    parts_batched["cameras"] = camera_frames
+                else:
+                    camera_frames = jnp.empty(
+                        (num_envs, 0, 0, 0, 3), dtype=jnp.float32
+                    )
                 actions = jax.vmap(
                     lambda p, k: test_policy_fn(params, {**p, "rng_key": k})
                 )(parts_batched, env_keys)
@@ -507,11 +515,6 @@ class TestingWorkflow:
                     )
 
                 bd_next = jax.vmap(step)(bd, actions)
-                camera_frames = (
-                    parts_batched["cameras"]
-                    if has_cameras
-                    else jnp.empty((num_envs, 0, 0, 0, 3), dtype=jnp.float32)
-                )
                 return (bd_next, rng), (
                     camera_frames,
                     bd_next.xpos[:, :nbody],
@@ -610,7 +613,7 @@ class TestingWorkflow:
 
                 # Every environment starts from the task's unmodified data
                 # template. The renderer is reused sequentially and update_scene
-                # replaces its previous scene on every state extraction.
+                # replaces its previous scene on every render.
                 data = copy.copy(initial_data)
                 for timestep in range(num_timesteps):
                     if should_stop is not None and should_stop():
@@ -630,14 +633,19 @@ class TestingWorkflow:
                         env_index,
                         timestep,
                     )
-                    parts, data = simulator_class.get_model_state_pure(
+                    parts = simulator_class.get_model_state_pure(
                         control_spec,
                         data,
                         model,
-                        render_ctx,
                         contact_sensor_addresses,
                         contact_body_pairs,
                     )
+                    cameras = None
+                    if control_spec.all_cameras and model.ncam > 0:
+                        cameras, data = simulator_class.get_model_render(
+                            data, model, render_ctx
+                        )
+                        parts["cameras"] = cameras
                     action = self.model.get_test_action(parts)
                     # Chunked policies such as Pi0 return
                     # [action_steps, action_dim]; this workload currently
@@ -653,7 +661,6 @@ class TestingWorkflow:
                     data = simulator_class.forward_dyn_pure(data, model, controls)
                     xpos = data.xpos[: model.nbody].reshape(-1).tolist()
                     xquat = data.xquat[: model.nbody].reshape(-1).tolist()
-                    cameras = parts.get("cameras")
                     frames_u8 = (
                         np.asarray((cameras * 255.0).round().astype(np.uint8))[
                             None, None

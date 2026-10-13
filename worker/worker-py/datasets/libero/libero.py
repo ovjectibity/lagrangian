@@ -9,26 +9,40 @@ def _configure_libero_paths() -> None:
         os.environ.setdefault("LIBERO_CONFIG_PATH", "/tmp/libero")
     )
     config_file = config_directory / "config.yaml"
-    if config_file.exists():
-        return
 
-    libero_spec = find_spec("libero.libero")
-    if libero_spec is None or libero_spec.origin is None:
-        raise ModuleNotFoundError("The LIBERO package is not installed")
-    benchmark_root = Path(libero_spec.origin).parent
+    vendored_benchmark_root = Path(
+        os.environ.get(
+            "LIBERO_BENCHMARK_ROOT",
+            "/opt/lagrangian/third-party/libero/libero/libero",
+        )
+    )
+    if vendored_benchmark_root.is_dir():
+        benchmark_root = vendored_benchmark_root
+    else:
+        libero_spec = find_spec("libero.libero")
+        if libero_spec is None or libero_spec.origin is None:
+            raise ModuleNotFoundError("The LIBERO package is not installed")
+        benchmark_root = Path(libero_spec.origin).parent
+
+    dataset_directory = config_directory / "datasets"
     default_paths = {
         "benchmark_root": benchmark_root,
         "bddl_files": benchmark_root / "bddl_files",
         "init_states": benchmark_root / "init_files",
-        "datasets": benchmark_root.parent / "datasets",
+        "datasets": dataset_directory,
         "assets": benchmark_root / "assets",
     }
 
     config_directory.mkdir(parents=True, exist_ok=True)
-    config_file.write_text(
-        "".join(f"{name}: {path}\n" for name, path in default_paths.items()),
-        encoding="utf-8",
+    dataset_directory.mkdir(exist_ok=True)
+    config_contents = "".join(
+        f"{name}: {path}\n" for name, path in default_paths.items()
     )
+    if (
+        not config_file.exists()
+        or config_file.read_text(encoding="utf-8") != config_contents
+    ):
+        config_file.write_text(config_contents, encoding="utf-8")
 
 
 _configure_libero_paths()

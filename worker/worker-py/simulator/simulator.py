@@ -145,21 +145,28 @@ class Simulator(ABC):
         input_spec: ModelInputSpec,
         data: Any,
         model: Any,
-        render_ctx: Any = None,
         contact_sensor_addresses: jnp.ndarray | np.ndarray | None = None,
         contact_body_pairs: jnp.ndarray | np.ndarray | None = None,
-    ) -> tuple[dict[str, jnp.ndarray | np.ndarray], Any]:
-        """render_ctx: caller-managed camera render handle, required only when
-        input_spec.all_cameras is set. See Simulator.get_render_context for
-        how to build one.
+    ) -> dict[str, jnp.ndarray | np.ndarray]:
+        """Extract non-rendered model inputs.
 
         Contact pairs are returned only when ``input_spec.contact_pairs`` and
         both contact metadata arrays are supplied. The arrays are generated
         once by ``_get_contact_pair_sensor_metadata`` for the incoming model.
+        """
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def get_model_render(
+        data: Any,
+        model: Any,
+        render_ctx: Any,
+    ) -> tuple[jnp.ndarray | np.ndarray, Any]:
+        """Render all model cameras and return RGB frames and updated data.
 
         MJX rendering updates an internal execution token in ``data``. Callers
-        that render inside a loop must carry the returned data into the next
-        iteration so rendering operations remain correctly ordered.
+        rendering inside a loop must carry the returned data forward.
         """
         pass
 
@@ -276,39 +283,40 @@ class MjxSimulator(Simulator):
         logger.info("MjxSimulator: calling mjx.make_data")
         mjx_data = mjx.make_data(cpu_model, impl="warp")
         mjx_data = mjx.forward(mjx_model, mjx_data)
-        logger.info("MjxSimulator: init complete")
+        _ = mjx.step(mjx_model,mjx_data)
+        # logger.info("MjxSimulator: init complete")
 
-        logger.info("MjxSimulator: tracing and benchmarking mjx.step")
-        bench_step = jax.jit(lambda data: mjx.step(mjx_model, data))
-        start = time.perf_counter()
-        bench_lowered = bench_step.lower(mjx_data)
-        lowered_at = time.perf_counter()
-        logger.info(
-            "MjxSimulator: benchmark — lowering took %.2fs",
-            lowered_at - start,
-        )
-        bench_compiled = bench_lowered.compile()
-        compiled_at = time.perf_counter()
-        logger.info(
-            "MjxSimulator: benchmark — XLA compilation took %.2fs",
-            compiled_at - lowered_at,
-        )
-        bench_result = bench_compiled(mjx_data)
-        jax.block_until_ready(bench_result)
-        first_execution_at = time.perf_counter()
-        logger.info(
-            "MjxSimulator: benchmark — first execution took %.2fs",
-            first_execution_at - compiled_at,
-        )
-        for _ in range(10):
-            bench_result = bench_compiled(bench_result)
-        jax.block_until_ready(bench_result)
-        finished_at = time.perf_counter()
-        logger.info(
-            "MjxSimulator: benchmark — 10 steps took %.2fs (%.4fs/step)",
-            finished_at - first_execution_at,
-            (finished_at - first_execution_at) / 10,
-        )
+        # logger.info("MjxSimulator: tracing and benchmarking mjx.step")
+        # bench_step = jax.jit(lambda data: mjx.step(mjx_model, data))
+        # start = time.perf_counter()
+        # bench_lowered = bench_step.lower(mjx_data)
+        # lowered_at = time.perf_counter()
+        # logger.info(
+        #     "MjxSimulator: benchmark — lowering took %.2fs",
+        #     lowered_at - start,
+        # )
+        # bench_compiled = bench_lowered.compile()
+        # compiled_at = time.perf_counter()
+        # logger.info(
+        #     "MjxSimulator: benchmark — XLA compilation took %.2fs",
+        #     compiled_at - lowered_at,
+        # )
+        # bench_result = bench_compiled(mjx_data)
+        # jax.block_until_ready(bench_result)
+        # first_execution_at = time.perf_counter()
+        # logger.info(
+        #     "MjxSimulator: benchmark — first execution took %.2fs",
+        #     first_execution_at - compiled_at,
+        # )
+        # for _ in range(10):
+        #     bench_result = bench_compiled(bench_result)
+        # jax.block_until_ready(bench_result)
+        # finished_at = time.perf_counter()
+        # logger.info(
+        #     "MjxSimulator: benchmark — 10 steps took %.2fs (%.4fs/step)",
+        #     finished_at - first_execution_at,
+        #     (finished_at - first_execution_at) / 10,
+        # )
 
         return mjx_data, mjx_model, cpu_data, cpu_model
 
@@ -590,13 +598,11 @@ class MjxSimulator(Simulator):
         input_spec: ModelInputSpec,
         data: Any,
         model: Any,
-        render_ctx: Any = None,
         contact_sensor_addresses: jnp.ndarray | None = None,
         contact_body_pairs: jnp.ndarray | None = None,
-    ) -> tuple[dict[str, jnp.ndarray], Any]:
-        """Extract model inputs and return the possibly updated MJX data."""
+    ) -> dict[str, jnp.ndarray]:
+        """Extract non-rendered model inputs from MJX data."""
         result: dict[str, jnp.ndarray] = {}
-        updated_data = data
 
         if input_spec.qpos_state:
             result["qpos"] = data.qpos[: model.nq]
@@ -606,19 +612,6 @@ class MjxSimulator(Simulator):
             result["xpos"] = data.xpos[: model.nbody].reshape(-1)
         if input_spec.xquat_state:
             result["xquat"] = data.xquat[: model.nbody].reshape(-1)
-        if input_spec.all_cameras and model.ncam > 0:
-            if render_ctx is None:
-                raise ValueError(
-                    "all_cameras requested but no MJX render context was provided"
-                )
-            rgb_packed, updated_data = mjx.render(model, data, render_ctx)
-            result["cameras"] = jnp.stack(
-                [
-                    mjx.get_rgb(render_ctx, cam_id, rgb_packed)
-                    for cam_id in range(int(model.ncam))
-                ],
-                axis=0,
-            ).reshape(int(model.ncam), _CAM_HEIGHT, _CAM_WIDTH, 3)
         if (
             input_spec.contact_pairs
             and contact_sensor_addresses is not None
@@ -630,11 +623,30 @@ class MjxSimulator(Simulator):
                 contact_body_pairs,
                 jnp,
             )
-        if not result:
+        if not result and not (input_spec.all_cameras and model.ncam > 0):
             result["qpos"] = data.qpos[: model.nq]
             result["qvel"] = data.qvel[: model.nv]
 
-        return result, updated_data
+        return result
+
+    @staticmethod
+    def get_model_render(
+        data: Any,
+        model: Any,
+        render_ctx: Any,
+    ) -> tuple[jnp.ndarray, Any]:
+        """Return RGB frames [world, camera, H, W, 3] and updated MJX data."""
+        if model.ncam == 0:
+            raise ValueError("Cannot render a model with no cameras")
+        rgb_packed, updated_data = mjx.render(model, data, render_ctx)
+        frames = jnp.stack(
+            [
+                mjx.get_rgb(render_ctx, cam_id, rgb_packed)
+                for cam_id in range(int(model.ncam))
+            ],
+            axis=1,
+        )
+        return frames, updated_data
 
 class MujocoSimulator(Simulator):
     @staticmethod
@@ -711,11 +723,10 @@ class MujocoSimulator(Simulator):
         input_spec: ModelInputSpec,
         data: Any,
         model: Any,
-        render_ctx: mujoco.Renderer | None = None,
         contact_sensor_addresses: np.ndarray | None = None,
         contact_body_pairs: np.ndarray | None = None,
-    ) -> tuple[dict[str, np.ndarray], Any]:
-        """Extract model inputs and return the unchanged MuJoCo data."""
+    ) -> dict[str, np.ndarray]:
+        """Extract non-rendered model inputs from MuJoCo data."""
         result: dict[str, np.ndarray] = {}
 
         if input_spec.qpos_state:
@@ -726,16 +737,6 @@ class MujocoSimulator(Simulator):
             result["xpos"] = data.xpos[: model.nbody].reshape(-1).copy()
         if input_spec.xquat_state:
             result["xquat"] = data.xquat[: model.nbody].reshape(-1).copy()
-        if input_spec.all_cameras and model.ncam > 0:
-            if render_ctx is None:
-                raise ValueError(
-                    "all_cameras requested but no MuJoCo renderer was provided"
-                )
-            frames: list[np.ndarray] = []
-            for cam_id in range(int(model.ncam)):
-                render_ctx.update_scene(data, camera=cam_id)
-                frames.append(render_ctx.render().astype(np.float32) / 255.0)
-            result["cameras"] = np.stack(frames, axis=0)
         if (
             input_spec.contact_pairs
             and contact_sensor_addresses is not None
@@ -747,11 +748,26 @@ class MujocoSimulator(Simulator):
                 contact_body_pairs,
                 np,
             )
-        if not result:
+        if not result and not (input_spec.all_cameras and model.ncam > 0):
             result["qpos"] = data.qpos[: model.nq].copy()
             result["qvel"] = data.qvel[: model.nv].copy()
 
-        return result, data
+        return result
+
+    @staticmethod
+    def get_model_render(
+        data: Any,
+        model: Any,
+        render_ctx: mujoco.Renderer,
+    ) -> tuple[np.ndarray, Any]:
+        """Render all cameras and return RGB frames and unchanged MuJoCo data."""
+        if model.ncam == 0:
+            raise ValueError("Cannot render a model with no cameras")
+        frames: list[np.ndarray] = []
+        for cam_id in range(int(model.ncam)):
+            render_ctx.update_scene(data, camera=cam_id)
+            frames.append(render_ctx.render().astype(np.float32) / 255.0)
+        return np.stack(frames, axis=0), data
 
     @staticmethod
     def get_render_context(
