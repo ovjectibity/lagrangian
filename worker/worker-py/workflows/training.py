@@ -152,7 +152,10 @@ class TrainingWorkflow:
                     mjx_model,
                     mujoco_data,
                     mujoco_model,
-                ) = MjxSimulator.init(model_path=model_path)
+                ) = MjxSimulator.init(
+                    model_path=model_path,
+                    nworld=self.params.num_trajs,
+                )
                 contact_sensor_addresses, contact_body_pairs = (
                     MjxSimulator._get_contact_pair_sensor_metadata(mujoco_model)
                 )

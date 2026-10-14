@@ -20,7 +20,7 @@ if os.getenv("CUDA_DEBUG_MODE") == "1":
     warp.config.print_launches = True
 
     # # # Warp compiler, codegen, module-loading, and cache diagnostics.
-    warp.config.log_level = warp.LOG_DEBUG
+    # warp.config.log_level = warp.LOG_DEBUG
 
 # warp.config.cache_kernels = False
 

@@ -590,10 +590,7 @@ class PPOTrainer:
         mjx_model = simulator_state["mjx_model"]
         if mjx_data is None or mjx_model is None:
             raise ValueError("MJX data and model are required for GPU trajectories")
-        batched_data = jax.tree_util.tree_map(
-            lambda x: jnp.stack([x] * num_trajs),
-            mjx_data,
-        )
+        batched_data = mjx_data
 
         render_ctx = simulator_state["render_ctx_pytree"]
         contact_sensor_addresses = simulator_state["contact_sensor_addresses"]

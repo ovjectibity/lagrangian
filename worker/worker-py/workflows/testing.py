@@ -195,6 +195,7 @@ class TestingWorkflow:
                     ) = MjxSimulator.init(
                         model_path=source_model_path,
                         mjcf=mjcf,
+                        nworld=self.num_envs_per_task,
                     )
                     contact_sensor_addresses, contact_body_pairs = (
                         MjxSimulator._get_contact_pair_sensor_metadata(mujoco_model)
@@ -458,10 +459,7 @@ class TestingWorkflow:
                 task_index,
             )
             nbody = int(mjx_model.nbody)
-            batched_data = jax.tree_util.tree_map(
-                lambda x: jnp.stack([x] * num_envs),
-                mjx_data,
-            )
+            batched_data = mjx_data
             render_ctx = simulator_state["render_ctx_pytree"]
             contact_sensor_addresses = simulator_state["contact_sensor_addresses"]
             contact_body_pairs = simulator_state["contact_body_pairs"]

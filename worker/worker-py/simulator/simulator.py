@@ -163,10 +163,10 @@ class Simulator(ABC):
         model: Any,
         render_ctx: Any,
     ) -> tuple[jnp.ndarray | np.ndarray, Any]:
-        """Render all model cameras and return RGB frames and updated data.
+        """Render all model cameras and return RGB frames and data.
 
-        MJX rendering updates an internal execution token in ``data``. Callers
-        rendering inside a loop must carry the returned data forward.
+        Carry the returned data forward: MJX versions that return a post-render
+        execution token include it in that data object.
         """
         pass
 
@@ -228,10 +228,12 @@ class MjxSimulator(Simulator):
     def init(
         model_path: str | None = None,
         mjcf: str | None = None,
+        nworld: int | None = None,
     ) -> tuple[Any, Any, Any, Any]:
         """Build MJX and C MuJoCo state from an MJCF source.
 
-        Returns ``(mjx_data, mjx_model, mj_data, mj_model)``.
+        Returns ``(mjx_data, mjx_model, mj_data, mj_model)``. When ``nworld``
+        is supplied, the MJX data is batched over that many worlds.
         """
         if mujoco is None or mjx is None:
             raise ModuleNotFoundError(
@@ -239,6 +241,8 @@ class MjxSimulator(Simulator):
             )
         if (model_path is None) == (mjcf is None):
             raise ValueError("Provide exactly one of model_path or mjcf")
+        if nworld is not None and nworld < 1:
+            raise ValueError("nworld must be at least 1")
 
         if mjcf is not None:
             logger.info("MjxSimulator: loading model from XML string")
@@ -281,9 +285,18 @@ class MjxSimulator(Simulator):
         logger.info("MjxSimulator: calling mjx.put_model")
         mjx_model = mjx.put_model(cpu_model, impl="warp")
         logger.info("MjxSimulator: calling mjx.make_data")
-        mjx_data = mjx.make_data(cpu_model, impl="warp")
-        mjx_data = mjx.forward(mjx_model, mjx_data)
-        _ = mjx.step(mjx_model,mjx_data)
+        if nworld is None:
+            mjx_data = mjx.make_data(cpu_model, impl="warp")
+            mjx_data = mjx.forward(mjx_model, mjx_data)
+            _ = mjx.step(mjx_model, mjx_data)
+        else:
+            mjx_data = jax.vmap(
+                lambda _: mjx.make_data(cpu_model, impl="warp")
+            )(jnp.arange(nworld))
+            mjx_data = jax.vmap(mjx.forward, in_axes=(None, 0))(
+                mjx_model, mjx_data
+            )
+            _ = jax.vmap(mjx.step, in_axes=(None, 0))(mjx_model, mjx_data)
         # logger.info("MjxSimulator: init complete")
 
         # logger.info("MjxSimulator: tracing and benchmarking mjx.step")
@@ -635,10 +648,17 @@ class MjxSimulator(Simulator):
         model: Any,
         render_ctx: Any,
     ) -> tuple[jnp.ndarray, Any]:
-        """Return RGB frames [world, camera, H, W, 3] and updated MJX data."""
+        """Return RGB frames [world, camera, H, W, 3] and MJX data."""
         if model.ncam == 0:
             raise ValueError("Cannot render a model with no cameras")
-        rgb_packed, updated_data = mjx.render(model, data, render_ctx)
+        render_output = mjx.render(model, data, render_ctx)
+        if len(render_output) == 3:
+            rgb_packed, _, updated_data = render_output
+        else:
+            # MJX 3.11.0 returns only (rgb, depth); newer versions also
+            # return Data carrying the post-render execution token.
+            rgb_packed, _ = render_output
+            updated_data = data
         frames = jnp.stack(
             [
                 mjx.get_rgb(render_ctx, cam_id, rgb_packed)
