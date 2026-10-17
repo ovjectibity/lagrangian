@@ -229,11 +229,14 @@ class MjxSimulator(Simulator):
         model_path: str | None = None,
         mjcf: str | None = None,
         nworld: int | None = None,
+        naconmax: int | None = None,
+        naccdmax: int | None = None,
     ) -> tuple[Any, Any, Any, Any]:
         """Build MJX and C MuJoCo state from an MJCF source.
 
         Returns ``(mjx_data, mjx_model, mj_data, mj_model)``. When ``nworld``
-        is supplied, the MJX data is batched over that many worlds.
+        is supplied, the MJX data is batched over that many worlds. Contact
+        capacities default to ``ngeom ** 2`` when omitted.
         """
         if mujoco is None or mjx is None:
             raise ModuleNotFoundError(
@@ -271,6 +274,12 @@ class MjxSimulator(Simulator):
             cpu_model.mesh_facetexcoord,
         )
 
+        default_contact_capacity = cpu_model.ngeom ** 2
+        if naconmax is None:
+            naconmax = default_contact_capacity
+        if naccdmax is None:
+            naccdmax = default_contact_capacity
+
         logger.info("MjxSimulator: creating MjData")
         cpu_data = mujoco.MjData(cpu_model)
         logger.info("MjxSimulator: running mj_forward")
@@ -284,14 +293,29 @@ class MjxSimulator(Simulator):
 
         logger.info("MjxSimulator: calling mjx.put_model")
         mjx_model = mjx.put_model(cpu_model, impl="warp")
-        logger.info("MjxSimulator: calling mjx.make_data")
+        logger.info(
+            "MjxSimulator: calling mjx.make_data "
+            "(naconmax=%s naccdmax=%s)",
+            naconmax,
+            naccdmax,
+        )
         if nworld is None:
-            mjx_data = mjx.make_data(cpu_model, impl="warp")
+            mjx_data = mjx.make_data(
+                cpu_model,
+                impl="warp",
+                naconmax=naconmax,
+                naccdmax=naccdmax,
+            )
             mjx_data = mjx.forward(mjx_model, mjx_data)
             _ = mjx.step(mjx_model, mjx_data)
         else:
             mjx_data = jax.vmap(
-                lambda _: mjx.make_data(cpu_model, impl="warp")
+                lambda _: mjx.make_data(
+                    cpu_model,
+                    impl="warp",
+                    naconmax=naconmax,
+                    naccdmax=naccdmax,
+                )
             )(jnp.arange(nworld))
             mjx_data = jax.vmap(mjx.forward, in_axes=(None, 0))(
                 mjx_model, mjx_data
@@ -361,6 +385,7 @@ class MjxSimulator(Simulator):
         return mjx.create_render_context(
             model,
             nworld=nworld,
+            cam_res=(_CAM_WIDTH, _CAM_HEIGHT),
             use_textures=use_textures,
         )
 

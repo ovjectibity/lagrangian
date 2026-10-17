@@ -71,7 +71,7 @@ if [[ -f "${REQUIREMENTS_FILE}" ]]; then
 
   echo "Installing requirements inside container ${CONTAINER_NAME} ..."
   ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
-    "sudo docker exec ${CONTAINER_NAME} python3 -m pip install -r ${CONTAINER_REQUIREMENTS_PATH}"
+    "sudo docker exec ${CONTAINER_NAME} uv pip install --python /opt/lagrangian/worker/.venv/bin/python -r ${CONTAINER_REQUIREMENTS_PATH}"
 fi
 
 echo "Preparing artifact directory inside container ${CONTAINER_NAME} ..."
