@@ -236,7 +236,7 @@ class MjxSimulator(Simulator):
 
         Returns ``(mjx_data, mjx_model, mj_data, mj_model)``. When ``nworld``
         is supplied, the MJX data is batched over that many worlds. Contact
-        capacities default to ``ngeom ** 2`` when omitted.
+        capacities default to ``ngeom * (ngeom - 1) // 2`` when omitted.
         """
         if mujoco is None or mjx is None:
             raise ModuleNotFoundError(
@@ -274,7 +274,7 @@ class MjxSimulator(Simulator):
             cpu_model.mesh_facetexcoord,
         )
 
-        default_contact_capacity = cpu_model.ngeom ** 2
+        default_contact_capacity = cpu_model.ngeom * (cpu_model.ngeom - 1) // 2
         if naconmax is None:
             naconmax = default_contact_capacity
         if naccdmax is None:
