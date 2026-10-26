@@ -11,7 +11,9 @@ use uuid::Uuid;
 use crate::api::{route_doc, ApiState};
 use crate::commondef::record::{TestGraphRecord, TestRunStatus};
 use crate::commondef::testing::{StopTestMessage, TestGraph, TestMethod};
-use crate::commondef::training::TrainingAccelerationMode;
+use crate::commondef::training::{
+    ControlPolicyInputSpec, TrainingAccelerationMode,
+};
 use crate::workflows::local_worker_controller::LocalWorkerController;
 
 /// Internal task→relay message for the testing mpsc (API-local). Test updates
@@ -64,7 +66,12 @@ pub async fn start_test(
         crate::commondef::training::ControlModel::MLP(m) => &m.input_spec,
         crate::commondef::training::ControlModel::VLA(m) => &m.input_spec,
     };
-    if control_spec.contact_pairs {
+    if matches!(
+        control_spec,
+        ControlPolicyInputSpec::OrdinaryConfiguration(
+            spec
+        ) if spec.contact_pairs
+    ) {
         return Err(Status::BadRequest);
     }
 

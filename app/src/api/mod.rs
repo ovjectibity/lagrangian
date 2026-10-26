@@ -73,12 +73,19 @@ use utoipa::OpenApi;
         crate::commondef::training::VLAModel,
         crate::commondef::training::ControlModel,
         crate::commondef::training::ValueModel,
-        crate::commondef::training::ModelInputSpec,
+        crate::commondef::training
+            ::ControlPolicyInputSpec,
+        crate::commondef::training
+            ::ControlPolicyOutputSpec,
+        crate::commondef::training
+            ::OrdinaryIOStateConfiguration,
+        crate::commondef::training
+            ::EEFOnlyIOStateConfiguration,
+        crate::commondef::training
+            ::IOStateOrientationType,
         crate::commondef::training::ModelType,
         crate::commondef::training::CheckpointType,
         crate::commondef::training::Pretrained,
-        crate::commondef::training
-            ::ControlPolicyOutputMode,
         crate::commondef::training::RewardSystem,
         crate::commondef::training::RewardLanguage,
         crate::commondef::training::TrainingGraph,
@@ -108,6 +115,7 @@ use utoipa::OpenApi;
         crate::commondef::testing::LiberoDatasetType,
         crate::commondef::testing::StopTestMessage,
         crate::commondef::testing::TestUpdateMessage,
+        crate::commondef::testing::CameraFrames,
         crate::commondef::testing::ModelForward,
         crate::commondef::clientmessages::ClientMessage,
         crate::commondef::training::StopTrainingMessage,

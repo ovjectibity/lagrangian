@@ -8,24 +8,60 @@ use utoipa::ToSchema;
 use crate::commondef::record::CheckpointReference;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[serde(tag = "type", content = "content")]
 #[typeshare]
-pub enum ControlPolicyOutputMode {
-    TargetPositions,
-    TargetPositionsDiff,
-    TargetVelocities,
-    TargetTorques,
+pub enum ControlPolicyOutputSpec {
+    OrdinaryConfiguration(OrdinaryIOStateConfiguration),
+    EEFOnlyConfiguration(EEFOnlyIOStateConfiguration),
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
-pub struct ModelInputSpec {
+pub struct OrdinaryIOStateConfiguration {
     pub all_cameras: bool,
     pub qpos_state: bool,
     pub qvel_state: bool,
+    pub genforces_state: bool,
     pub xpos_state: bool,
     pub xquat_state: bool,
     /// Only valid in reward_function.input_spec; forbidden in control/value model specs.
     pub contact_pairs: bool,
+    pub is_diff: bool,
+    //When null the entire model's state is returned otherwise only the 
+    // state of the bodies encapsulated by the robot body base
+    pub robot_base_body_name: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub enum IOStateOrientationType {
+    Quaternion, 
+    AxisAngle,
+    //Same as Yaw-Pitch-Roll:
+    TaitBryan,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct EEFOnlyIOStateConfiguration {
+    //When set this results in only the end effector state being returned.
+    //The eef body should be marked with a clear label.
+    pub robot_base_body_name: String,
+    pub gripper_body_name: String,
+    pub end_effector_body_name: String,
+    pub xpos_state: bool, 
+    pub xquat_state: bool,
+    pub eef_state_orientation_type: IOStateOrientationType, 
+    pub qpos_gripper: bool,
+    pub is_diff: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum ControlPolicyInputSpec {
+    OrdinaryConfiguration(OrdinaryIOStateConfiguration),
+    EEFOnlyConfiguration(EEFOnlyIOStateConfiguration),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
@@ -54,8 +90,8 @@ pub enum ModelType {
 #[typeshare]
 pub struct VLAModel {
     pub model_type: ModelType,
-    pub input_spec: ModelInputSpec,
-    pub output: ControlPolicyOutputMode,
+    pub input_spec: ControlPolicyInputSpec,
+    pub output: ControlPolicyOutputSpec,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
@@ -64,7 +100,7 @@ pub struct MLPModel {
     pub model_type: ModelType,
     pub num_hidden_layers: i32,
     pub hidden_layer_dim: i32,
-    pub input_spec: ModelInputSpec,
+    pub input_spec: ControlPolicyInputSpec,
     pub output_dim: i32,
     pub input_dim: i32,
 }
@@ -141,7 +177,7 @@ pub enum RewardLanguage {
 pub struct RewardSystem {
     pub language: RewardLanguage,
     pub reward_function_code: String,
-    pub input_spec: ModelInputSpec
+    pub input_spec: ControlPolicyInputSpec
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]

@@ -18,9 +18,11 @@ use crate::commondef::record::TrainingRunStatus;
 
 use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
 use crate::commondef::training::{
-    Checkpoint, CheckpointType, ControlModel, ModelType, RewardLanguage, StopTrainingMessage,
-    TrainingGraph, TrainingJobController, TrainingMethod, TrainingUpdate, TrainingUpdatesMessage,
-    ValueModel,
+    Checkpoint, CheckpointType, ControlModel,
+    ControlPolicyInputSpec, ModelType, RewardLanguage,
+    StopTrainingMessage, TrainingGraph,
+    TrainingJobController, TrainingMethod, TrainingUpdate,
+    TrainingUpdatesMessage, ValueModel,
 };
 use crate::workflows::local_worker_controller::LocalWorkerController;
 
@@ -137,11 +139,21 @@ fn validate_model_types(controller: &TrainingJobController) -> Result<(), &'stat
         ControlModel::MLP(m) => &m.input_spec,
         ControlModel::VLA(m) => &m.input_spec,
     };
-    if control_spec.contact_pairs {
+    if matches!(
+        control_spec,
+        ControlPolicyInputSpec::OrdinaryConfiguration(
+            spec
+        ) if spec.contact_pairs
+    ) {
         return Err("contact_pairs is not allowed in control model input_spec");
     }
     let ValueModel::MLP(ref vm) = p.value_model;
-    if vm.input_spec.contact_pairs {
+    if matches!(
+        &vm.input_spec,
+        ControlPolicyInputSpec::OrdinaryConfiguration(
+            spec
+        ) if spec.contact_pairs
+    ) {
         return Err("contact_pairs is not allowed in value model input_spec");
     }
 
