@@ -15,7 +15,7 @@ pub enum ControlPolicyOutputSpec {
     EEFOnlyConfiguration(EEFOnlyIOStateConfiguration),
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct OrdinaryIOStateConfiguration {
     pub all_cameras: bool,
@@ -24,6 +24,7 @@ pub struct OrdinaryIOStateConfiguration {
     pub genforces_state: bool,
     pub xpos_state: bool,
     pub xquat_state: bool,
+    pub xquat_state_orientation_type: IOStateOrientationType, 
     /// Only valid in reward_function.input_spec; forbidden in control/value model specs.
     pub contact_pairs: bool,
     pub is_diff: bool,
@@ -36,9 +37,7 @@ pub struct OrdinaryIOStateConfiguration {
 #[typeshare]
 pub enum IOStateOrientationType {
     Quaternion, 
-    AxisAngle,
-    //Same as Yaw-Pitch-Roll:
-    TaitBryan,
+    AxisAngle
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]

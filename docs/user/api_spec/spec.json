@@ -586,6 +586,43 @@
           }
         }
       },
+      "CameraFrames": {
+        "type": "object",
+        "required": [
+          "frames",
+          "nenv",
+          "ncam",
+          "t",
+          "h",
+          "w"
+        ],
+        "properties": {
+          "frames": {
+            "type": "string",
+            "format": "binary"
+          },
+          "h": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ncam": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "nenv": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "t": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "w": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "CheckpointFrequency": {
         "oneOf": [
           {
@@ -927,14 +964,91 @@
           "propertyName": "type"
         }
       },
-      "ControlPolicyOutputMode": {
-        "type": "string",
-        "enum": [
-          "TargetPositions",
-          "TargetPositionsDiff",
-          "TargetVelocities",
-          "TargetTorques"
-        ]
+      "ControlPolicyInputSpec": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/OrdinaryIOStateConfiguration"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "OrdinaryConfiguration"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/EEFOnlyIOStateConfiguration"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "EEFOnlyConfiguration"
+                ]
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        }
+      },
+      "ControlPolicyOutputSpec": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/OrdinaryIOStateConfiguration"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "OrdinaryConfiguration"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/EEFOnlyIOStateConfiguration"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "EEFOnlyConfiguration"
+                ]
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        }
       },
       "CreateExperimentBody": {
         "type": "object",
@@ -1034,6 +1148,45 @@
           },
           "model": {
             "$ref": "#/components/schemas/WorldBody"
+          }
+        }
+      },
+      "EEFOnlyIOStateConfiguration": {
+        "type": "object",
+        "required": [
+          "robot_base_body_name",
+          "gripper_body_name",
+          "end_effector_body_name",
+          "xpos_state",
+          "xquat_state",
+          "eef_state_orientation_type",
+          "qpos_gripper",
+          "is_diff"
+        ],
+        "properties": {
+          "eef_state_orientation_type": {
+            "$ref": "#/components/schemas/IOStateOrientationType"
+          },
+          "end_effector_body_name": {
+            "type": "string"
+          },
+          "gripper_body_name": {
+            "type": "string"
+          },
+          "is_diff": {
+            "type": "boolean"
+          },
+          "qpos_gripper": {
+            "type": "boolean"
+          },
+          "robot_base_body_name": {
+            "type": "string"
+          },
+          "xpos_state": {
+            "type": "boolean"
+          },
+          "xquat_state": {
+            "type": "boolean"
           }
         }
       },
@@ -1169,6 +1322,14 @@
           "Mesh"
         ]
       },
+      "IOStateOrientationType": {
+        "type": "string",
+        "enum": [
+          "Quaternion",
+          "AxisAngle",
+          "TaitBryan"
+        ]
+      },
       "LiberoDatasetParams": {
         "type": "object",
         "required": [
@@ -1228,7 +1389,7 @@
             "format": "int32"
           },
           "input_spec": {
-            "$ref": "#/components/schemas/ModelInputSpec"
+            "$ref": "#/components/schemas/ControlPolicyInputSpec"
           },
           "model_type": {
             "$ref": "#/components/schemas/ModelType"
@@ -1286,38 +1447,6 @@
               "type": "number",
               "format": "double"
             }
-          }
-        }
-      },
-      "ModelInputSpec": {
-        "type": "object",
-        "required": [
-          "all_cameras",
-          "qpos_state",
-          "qvel_state",
-          "xpos_state",
-          "xquat_state",
-          "contact_pairs"
-        ],
-        "properties": {
-          "all_cameras": {
-            "type": "boolean"
-          },
-          "contact_pairs": {
-            "type": "boolean",
-            "description": "Only valid in reward_function.input_spec; forbidden in control/value model specs."
-          },
-          "qpos_state": {
-            "type": "boolean"
-          },
-          "qvel_state": {
-            "type": "boolean"
-          },
-          "xpos_state": {
-            "type": "boolean"
-          },
-          "xquat_state": {
-            "type": "boolean"
           }
         }
       },
@@ -1398,6 +1527,50 @@
             "items": {
               "$ref": "#/components/schemas/ModelReference"
             }
+          }
+        }
+      },
+      "OrdinaryIOStateConfiguration": {
+        "type": "object",
+        "required": [
+          "all_cameras",
+          "qpos_state",
+          "qvel_state",
+          "genforces_state",
+          "xpos_state",
+          "xquat_state",
+          "contact_pairs",
+          "is_diff"
+        ],
+        "properties": {
+          "all_cameras": {
+            "type": "boolean"
+          },
+          "contact_pairs": {
+            "type": "boolean",
+            "description": "Only valid in reward_function.input_spec; forbidden in control/value model specs."
+          },
+          "genforces_state": {
+            "type": "boolean"
+          },
+          "is_diff": {
+            "type": "boolean"
+          },
+          "qpos_state": {
+            "type": "boolean"
+          },
+          "qvel_state": {
+            "type": "boolean"
+          },
+          "robot_base_body_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "xpos_state": {
+            "type": "boolean"
+          },
+          "xquat_state": {
+            "type": "boolean"
           }
         }
       },
@@ -1502,7 +1675,7 @@
         ],
         "properties": {
           "input_spec": {
-            "$ref": "#/components/schemas/ModelInputSpec"
+            "$ref": "#/components/schemas/ControlPolicyInputSpec"
           },
           "language": {
             "$ref": "#/components/schemas/RewardLanguage"
@@ -2115,13 +2288,13 @@
         ],
         "properties": {
           "input_spec": {
-            "$ref": "#/components/schemas/ModelInputSpec"
+            "$ref": "#/components/schemas/ControlPolicyInputSpec"
           },
           "model_type": {
             "$ref": "#/components/schemas/ModelType"
           },
           "output": {
-            "$ref": "#/components/schemas/ControlPolicyOutputMode"
+            "$ref": "#/components/schemas/ControlPolicyOutputSpec"
           }
         }
       },

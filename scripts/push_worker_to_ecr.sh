@@ -41,7 +41,21 @@ if [[ -f "${AWS_ENV_FILE}" ]]; then
   set +a
 fi
 
-LOCAL_IMAGE="${REMOTE_WORKER_LOCAL_IMAGE:-lagrangian/remote-worker:$(date +%Y%m%d%H%M%S)}"
+if [[ -z "${REMOTE_WORKER_IMAGE_URI:-}" ]]; then
+  echo "error: REMOTE_WORKER_IMAGE_URI is required (set in .envrc or env)." >&2
+  exit 1
+fi
+
+IMAGE_URI="${REMOTE_WORKER_IMAGE_URI}"
+if [[ "${IMAGE_URI}" != *:* ]]; then
+  IMAGE_URI="${IMAGE_URI}:latest"
+fi
+
+if [[ "${BUILD_ONLY}" -eq 1 ]]; then
+  LOCAL_IMAGE="${IMAGE_URI}"
+else
+  LOCAL_IMAGE="${REMOTE_WORKER_LOCAL_IMAGE:-lagrangian/remote-worker:$(date +%Y%m%d%H%M%S)}"
+fi
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "error: docker not found in PATH." >&2
@@ -64,15 +78,6 @@ if [[ "${BUILD_ONLY}" -eq 1 ]]; then
   exit 0
 fi
 
-if [[ -z "${REMOTE_WORKER_IMAGE_URI:-}" ]]; then
-  echo "error: REMOTE_WORKER_IMAGE_URI is required (set in .aws-env or env)." >&2
-  exit 1
-fi
-
-IMAGE_URI="${REMOTE_WORKER_IMAGE_URI}"
-if [[ "${IMAGE_URI}" != *:* ]]; then
-  IMAGE_URI="${IMAGE_URI}:latest"
-fi
 ECR_REGISTRY="${IMAGE_URI%%/*}"
 REPO_AND_TAG="${IMAGE_URI#*/}"
 REPO_NAME="${REPO_AND_TAG%%:*}"

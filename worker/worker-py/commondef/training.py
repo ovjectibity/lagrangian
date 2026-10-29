@@ -22,22 +22,24 @@ class ModelTypeNew(BaseModel):
     type: Literal[ModelTypeTypes.NEW] = ModelTypeTypes.NEW
 
 ModelType = Union[ModelTypeCheckpoint, ModelTypeNew]
-class ModelInputSpec(BaseModel):
-    all_cameras: bool
-    qpos_state: bool
-    qvel_state: bool
-    xpos_state: bool
-    xquat_state: bool
-    contact_pairs: bool
-    """
-    Only valid in reward_function.input_spec; forbidden in control/value model specs.
-    """
+class ControlPolicyInputSpecTypes(str, Enum):
+    ORDINARY_CONFIGURATION = "OrdinaryConfiguration"
+    EEF_ONLY_CONFIGURATION = "EEFOnlyConfiguration"
 
+class ControlPolicyInputSpecOrdinaryConfiguration(BaseModel):
+    type: Literal[ControlPolicyInputSpecTypes.ORDINARY_CONFIGURATION] = ControlPolicyInputSpecTypes.ORDINARY_CONFIGURATION
+    content: OrdinaryIOStateConfiguration
+
+class ControlPolicyInputSpecEEFOnlyConfiguration(BaseModel):
+    type: Literal[ControlPolicyInputSpecTypes.EEF_ONLY_CONFIGURATION] = ControlPolicyInputSpecTypes.EEF_ONLY_CONFIGURATION
+    content: EEFOnlyIOStateConfiguration
+
+ControlPolicyInputSpec = Union[ControlPolicyInputSpecOrdinaryConfiguration, ControlPolicyInputSpecEEFOnlyConfiguration]
 class MLPModel(BaseModel):
     model_type: ModelType
     num_hidden_layers: int
     hidden_layer_dim: int
-    input_spec: ModelInputSpec
+    input_spec: ControlPolicyInputSpec
     output_dim: int
     input_dim: int
 
@@ -50,6 +52,20 @@ class Checkpoint(BaseModel):
     control_model_mlp: Optional[MLPModel] = Field(default=None)
     value_model_mlp: Optional[MLPModel] = Field(default=None)
 
+class IOStateOrientationType(str, Enum):
+    QUATERNION = "Quaternion"
+    AXISANGLE = "AxisAngle"
+    TAITBRYAN = "TaitBryan"
+class EEFOnlyIOStateConfiguration(BaseModel):
+    robot_base_body_name: str
+    gripper_body_name: str
+    end_effector_body_name: str
+    xpos_state: bool
+    xquat_state: bool
+    eef_state_orientation_type: IOStateOrientationType
+    qpos_gripper: bool
+    is_diff: bool
+
 class FlowNoiseConfig(BaseModel):
     noise_model: MLPModel
 
@@ -57,13 +73,27 @@ class MetricsData(BaseModel):
     x_axis: List[float]
     y_axis: List[float]
 
+class OrdinaryIOStateConfiguration(BaseModel):
+    all_cameras: bool
+    qpos_state: bool
+    qvel_state: bool
+    genforces_state: bool
+    xpos_state: bool
+    xquat_state: bool
+    contact_pairs: bool
+    """
+    Only valid in reward_function.input_spec; forbidden in control/value model specs.
+    """
+    is_diff: bool
+    robot_base_body_name: Optional[str] = Field(default=None)
+
 class RewardLanguage(str, Enum):
     RUST = "Rust"
     PYTHON = "Python"
 class RewardSystem(BaseModel):
     language: RewardLanguage
     reward_function_code: str
-    input_spec: ModelInputSpec
+    input_spec: ControlPolicyInputSpec
 
 class ControlModelTypes(str, Enum):
     MLP = "MLP"
@@ -219,15 +249,23 @@ class TrainingUpdatesMessage(BaseModel):
     id: str
     updates: List[TrainingUpdate]
 
-class ControlPolicyOutputMode(str, Enum):
-    TARGETPOSITIONS = "TargetPositions"
-    TARGETPOSITIONSDIFF = "TargetPositionsDiff"
-    TARGETVELOCITIES = "TargetVelocities"
-    TARGETTORQUES = "TargetTorques"
+class ControlPolicyOutputSpecTypes(str, Enum):
+    ORDINARY_CONFIGURATION = "OrdinaryConfiguration"
+    EEF_ONLY_CONFIGURATION = "EEFOnlyConfiguration"
+
+class ControlPolicyOutputSpecOrdinaryConfiguration(BaseModel):
+    type: Literal[ControlPolicyOutputSpecTypes.ORDINARY_CONFIGURATION] = ControlPolicyOutputSpecTypes.ORDINARY_CONFIGURATION
+    content: OrdinaryIOStateConfiguration
+
+class ControlPolicyOutputSpecEEFOnlyConfiguration(BaseModel):
+    type: Literal[ControlPolicyOutputSpecTypes.EEF_ONLY_CONFIGURATION] = ControlPolicyOutputSpecTypes.EEF_ONLY_CONFIGURATION
+    content: EEFOnlyIOStateConfiguration
+
+ControlPolicyOutputSpec = Union[ControlPolicyOutputSpecOrdinaryConfiguration, ControlPolicyOutputSpecEEFOnlyConfiguration]
 class VLAModel(BaseModel):
     model_type: ModelType
-    input_spec: ModelInputSpec
-    output: ControlPolicyOutputMode
+    input_spec: ControlPolicyInputSpec
+    output: ControlPolicyOutputSpec
 
 class CheckpointTypeTypes(str, Enum):
     PRETRAINED = "Pretrained"

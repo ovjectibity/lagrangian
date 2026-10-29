@@ -35,18 +35,21 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CUDA_DEBUG_MODE="${ENABLE_WORKER_CUDA_DEBUG_MODE:-0}"
 
 if [[ "${USE_LATEST_LOCAL_IMAGE}" -eq 1 ]]; then
-  LOCAL_IMAGE_REPOSITORY="${LOCAL_WORKER_IMAGE_REPOSITORY:-lagrangian/remote-worker}"
-  IMAGE_URI="$(
-    docker image ls --filter "reference=${LOCAL_IMAGE_REPOSITORY}:*" --format '{{.ID}}' \
-      | while IFS= read -r image_id; do
-          docker image inspect --format '{{.Created}} {{index .RepoTags 0}}' "${image_id}"
-        done \
-      | sort -r \
-      | head -n 1 \
-      | cut -d ' ' -f 2-
-  )"
+  LOCAL_IMAGE_REPOSITORY="${LOCAL_WORKER_IMAGE_REPOSITORY:-lagrangian/remoteworkers}"
+  LOCAL_IMAGES="$(docker image ls --format '{{.Repository}}:{{.Tag}}')"
+  IMAGE_URI=""
+  while IFS= read -r image_uri; do
+    repository="${image_uri%:*}"
+    tag="${image_uri##*:}"
+    if [[ "${tag}" != "<none>" ]] && \
+      { [[ "${repository}" == "${LOCAL_IMAGE_REPOSITORY}" ]] || \
+        [[ "${repository}" == */"${LOCAL_IMAGE_REPOSITORY}" ]]; }; then
+      IMAGE_URI="${image_uri}"
+      break
+    fi
+  done <<< "${LOCAL_IMAGES}"
   if [[ -z "${IMAGE_URI}" ]]; then
-    echo "error: no local image found for ${LOCAL_IMAGE_REPOSITORY}:*" >&2
+    echo "error: no local image found for ${LOCAL_IMAGE_REPOSITORY}" >&2
     exit 1
   fi
   echo "Using latest local worker image: ${IMAGE_URI}"

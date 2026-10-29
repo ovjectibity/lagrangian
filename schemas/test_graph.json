@@ -178,7 +178,7 @@
           "format": "int32"
         },
         "input_spec": {
-          "$ref": "#/definitions/ModelInputSpec"
+          "$ref": "#/definitions/ControlPolicyInputSpec"
         },
         "output_dim": {
           "type": "integer",
@@ -272,7 +272,43 @@
         "Pi0"
       ]
     },
-    "ModelInputSpec": {
+    "ControlPolicyInputSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "OrdinaryConfiguration"
+            },
+            "content": {
+              "$ref": "#/definitions/OrdinaryIOStateConfiguration"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "EEFOnlyConfiguration"
+            },
+            "content": {
+              "$ref": "#/definitions/EEFOnlyIOStateConfiguration"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
+      ]
+    },
+    "OrdinaryIOStateConfiguration": {
       "type": "object",
       "properties": {
         "all_cameras": {
@@ -284,6 +320,9 @@
         "qvel_state": {
           "type": "boolean"
         },
+        "genforces_state": {
+          "type": "boolean"
+        },
         "xpos_state": {
           "type": "boolean"
         },
@@ -293,15 +332,73 @@
         "contact_pairs": {
           "description": "Only valid in reward_function.input_spec; forbidden in control/value model specs.",
           "type": "boolean"
+        },
+        "is_diff": {
+          "type": "boolean"
+        },
+        "robot_base_body_name": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "all_cameras",
         "qpos_state",
         "qvel_state",
+        "genforces_state",
         "xpos_state",
         "xquat_state",
-        "contact_pairs"
+        "contact_pairs",
+        "is_diff"
+      ]
+    },
+    "EEFOnlyIOStateConfiguration": {
+      "type": "object",
+      "properties": {
+        "robot_base_body_name": {
+          "type": "string"
+        },
+        "gripper_body_name": {
+          "type": "string"
+        },
+        "end_effector_body_name": {
+          "type": "string"
+        },
+        "xpos_state": {
+          "type": "boolean"
+        },
+        "xquat_state": {
+          "type": "boolean"
+        },
+        "eef_state_orientation_type": {
+          "$ref": "#/definitions/IOStateOrientationType"
+        },
+        "qpos_gripper": {
+          "type": "boolean"
+        },
+        "is_diff": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "robot_base_body_name",
+        "gripper_body_name",
+        "end_effector_body_name",
+        "xpos_state",
+        "xquat_state",
+        "eef_state_orientation_type",
+        "qpos_gripper",
+        "is_diff"
+      ]
+    },
+    "IOStateOrientationType": {
+      "type": "string",
+      "enum": [
+        "Quaternion",
+        "AxisAngle",
+        "TaitBryan"
       ]
     },
     "VLAModel": {
@@ -311,10 +408,10 @@
           "$ref": "#/definitions/ModelType"
         },
         "input_spec": {
-          "$ref": "#/definitions/ModelInputSpec"
+          "$ref": "#/definitions/ControlPolicyInputSpec"
         },
         "output": {
-          "$ref": "#/definitions/ControlPolicyOutputMode"
+          "$ref": "#/definitions/ControlPolicyOutputSpec"
         }
       },
       "required": [
@@ -323,13 +420,40 @@
         "output"
       ]
     },
-    "ControlPolicyOutputMode": {
-      "type": "string",
-      "enum": [
-        "TargetPositions",
-        "TargetPositionsDiff",
-        "TargetVelocities",
-        "TargetTorques"
+    "ControlPolicyOutputSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "OrdinaryConfiguration"
+            },
+            "content": {
+              "$ref": "#/definitions/OrdinaryIOStateConfiguration"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "EEFOnlyConfiguration"
+            },
+            "content": {
+              "$ref": "#/definitions/EEFOnlyIOStateConfiguration"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
       ]
     },
     "DatasetMethod": {

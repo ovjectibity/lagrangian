@@ -47,21 +47,15 @@ export type ModelType =
 	| { type: "Checkpoint", content: CheckpointType }
 	| { type: "New", content?: undefined };
 
-export interface ModelInputSpec {
-	all_cameras: boolean;
-	qpos_state: boolean;
-	qvel_state: boolean;
-	xpos_state: boolean;
-	xquat_state: boolean;
-	/** Only valid in reward_function.input_spec; forbidden in control/value model specs. */
-	contact_pairs: boolean;
-}
+export type ControlPolicyInputSpec = 
+	| { type: "OrdinaryConfiguration", content: OrdinaryIOStateConfiguration }
+	| { type: "EEFOnlyConfiguration", content: EEFOnlyIOStateConfiguration };
 
 export interface MLPModel {
 	model_type: ModelType;
 	num_hidden_layers: number;
 	hidden_layer_dim: number;
-	input_spec: ModelInputSpec;
+	input_spec: ControlPolicyInputSpec;
 	output_dim: number;
 	input_dim: number;
 }
@@ -106,6 +100,23 @@ export type Dataset =
 export interface DatasetMethod {
 	dataset: Dataset;
 	control_model: ControlModel;
+}
+
+export enum IOStateOrientationType {
+	Quaternion = "Quaternion",
+	AxisAngle = "AxisAngle",
+	TaitBryan = "TaitBryan",
+}
+
+export interface EEFOnlyIOStateConfiguration {
+	robot_base_body_name: string;
+	gripper_body_name: string;
+	end_effector_body_name: string;
+	xpos_state: boolean;
+	xquat_state: boolean;
+	eef_state_orientation_type: IOStateOrientationType;
+	qpos_gripper: boolean;
+	is_diff: boolean;
 }
 
 export interface FlowNoiseConfig {
@@ -169,6 +180,19 @@ export interface ModelReference {
 	model_type: string;
 }
 
+export interface OrdinaryIOStateConfiguration {
+	all_cameras: boolean;
+	qpos_state: boolean;
+	qvel_state: boolean;
+	genforces_state: boolean;
+	xpos_state: boolean;
+	xquat_state: boolean;
+	/** Only valid in reward_function.input_spec; forbidden in control/value model specs. */
+	contact_pairs: boolean;
+	is_diff: boolean;
+	robot_base_body_name?: string;
+}
+
 export enum RewardLanguage {
 	Rust = "Rust",
 	Python = "Python",
@@ -177,7 +201,7 @@ export enum RewardLanguage {
 export interface RewardSystem {
 	language: RewardLanguage;
 	reward_function_code: string;
-	input_spec: ModelInputSpec;
+	input_spec: ControlPolicyInputSpec;
 }
 
 export type ValueModel = 
@@ -363,17 +387,14 @@ export interface TrainingUpdatesMessage {
 	updates: TrainingUpdate[];
 }
 
-export enum ControlPolicyOutputMode {
-	TargetPositions = "TargetPositions",
-	TargetPositionsDiff = "TargetPositionsDiff",
-	TargetVelocities = "TargetVelocities",
-	TargetTorques = "TargetTorques",
-}
+export type ControlPolicyOutputSpec = 
+	| { type: "OrdinaryConfiguration", content: OrdinaryIOStateConfiguration }
+	| { type: "EEFOnlyConfiguration", content: EEFOnlyIOStateConfiguration };
 
 export interface VLAModel {
 	model_type: ModelType;
-	input_spec: ModelInputSpec;
-	output: ControlPolicyOutputMode;
+	input_spec: ControlPolicyInputSpec;
+	output: ControlPolicyOutputSpec;
 }
 
 export interface WorldBody {

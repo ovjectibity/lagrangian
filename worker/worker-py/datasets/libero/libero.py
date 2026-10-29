@@ -60,7 +60,12 @@ SUPPORTED_DATASETS = {
 }
 
 
-def get_task_mjcfs(task_indices: list[int], dataset: str) -> list[str]:
+def get_task_mjcfs(
+    task_indices: list[int],
+    dataset: str,
+    robot: str = None,
+    robot_controller_config: dict = None,
+) -> list[str]:
     """Return the complete MJCF model for each requested LIBERO task."""
     if dataset not in SUPPORTED_DATASETS:
         supported = ", ".join(sorted(SUPPORTED_DATASETS))
@@ -71,6 +76,10 @@ def get_task_mjcfs(task_indices: list[int], dataset: str) -> list[str]:
     task_suite = benchmark.get_benchmark_dict()[dataset]()
     task_count = task_suite.get_num_tasks()
     mjcfs = []
+    robots = [robot]
+
+    if robot is None:
+        robots = ["Panda"]
 
     for task_index in task_indices:
         if isinstance(task_index, bool) or not isinstance(task_index, int):
@@ -83,10 +92,11 @@ def get_task_mjcfs(task_indices: list[int], dataset: str) -> list[str]:
 
         environment = ControlEnv(
             bddl_file_name=task_suite.get_task_bddl_file_path(task_index),
-            robots=["Panda"],
+            robots=robots,
             use_camera_obs=False,
             has_renderer=False,
             has_offscreen_renderer=False,
+            controller_config=robot_controller_config,
         )
         try:
             mjcfs.append(environment.env.model.get_xml())

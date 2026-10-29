@@ -3,7 +3,7 @@
   "info": {
     "title": "Lagrangian Realtime Updates",
     "version": "0.1.0",
-    "description": "WebSocket update streams for testing and training jobs. Testing frames are binary protobuf (`lagrangian.testing.TestingStreamMessage`, see testing_updates.proto); training frames are JSON `ClientMessage`. OpenAPI cannot represent these WS streams, so they are documented here. The authoritative JSON shapes are the typeshare-generated types in sdk/src/types.ts."
+    "description": "WebSocket update streams for testing and training jobs. Testing frames are binary protobuf (`lagrangian.testing.TestingStreamMessage`, see testing_updates.proto); their logical update shape corresponds to `TestUpdateMessage` in app/src/commondef/testing.rs. Training frames are JSON `ClientMessage` as defined in app/src/commondef/clientmessages.rs."
   },
   "servers": {
     "appServer": {
@@ -17,7 +17,7 @@
     "testingUpdates": {
       "address": "/testing/{testId}/updates",
       "title": "Testing updates",
-      "description": "Per-test-run stream of simulation update frames (binary protobuf).",
+      "description": "Per-test-run stream of task-indexed simulation state and camera frames (binary protobuf).",
       "parameters": {
         "testId": {
           "description": "Test run UUID returned by POST /testing/start."
@@ -71,7 +71,7 @@
       "TestingStreamMessage": {
         "name": "TestingStreamMessage",
         "title": "Testing stream message",
-        "summary": "One testing update: the [env][t] matrix of body-pose forwards plus optional camera frames.",
+        "summary": "One testing update: simulation state keyed by task index, with [env][t] body-pose forwards per task, plus camera frames keyed by task index. This matches the logical TestUpdateMessage fields.",
         "contentType": "application/vnd.google.protobuf",
         "payload": {
           "schemaFormat": "application/vnd.google.protobuf;version=3",

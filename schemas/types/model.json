@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org",
+  "$id": "https://example.com",
+  "title": "Lagrangian Workload Graphs",
+  "type": "object",
+  "properties": {
+    "model_input_spec": {
+        "type": "object",
+        "properties": {
+            "robot_proprioception_only": {
+                "type": "bool"
+            },
+            "xquat": {
+                "type": "integer"
+            },
+            "xpos": {
+                "type": "string"
+            },
+            "isPremium": {
+                "type": "boolean"
+            }
+        }
+    }  
+  }
+}
