@@ -112,7 +112,7 @@ export type IOStateItem =
 	| { type: "ContactPairs", content?: undefined };
 
 export interface IOState {
-	is_diff: boolean;
+	is_delta: boolean;
 	included_body_names: string[];
 	excluded_body_names: string[];
 	state_item: IOStateItem;

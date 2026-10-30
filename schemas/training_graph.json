@@ -230,7 +230,7 @@
     "IOState": {
       "type": "object",
       "properties": {
-        "is_diff": {
+        "is_delta": {
           "type": "boolean"
         },
         "included_body_names": {
@@ -250,7 +250,7 @@
         }
       },
       "required": [
-        "is_diff",
+        "is_delta",
         "included_body_names",
         "excluded_body_names",
         "state_item"

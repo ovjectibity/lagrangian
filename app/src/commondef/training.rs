@@ -36,18 +36,10 @@ pub enum IOStateItem {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct IOState {
-    pub is_diff: bool, 
+    pub is_delta: bool, 
     pub included_body_names: Vec<String>,
     pub excluded_body_names: Vec<String>,
     pub state_item: IOStateItem
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
-#[serde(tag = "type", content = "content")]
-#[typeshare]
-pub enum ControlPolicyOutputSpec {
-    OrdinaryConfiguration(OrdinaryIOStateConfiguration),
-    EEFOnlyConfiguration(EEFOnlyIOStateConfiguration),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
@@ -70,6 +62,14 @@ pub struct EEFOnlyIOStateConfiguration {
     pub end_effector_body_name: String,
     pub eef_state: IOState,
     pub qpos_gripper_state: IOState
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum ControlPolicyOutputSpec {
+    OrdinaryConfiguration(OrdinaryIOStateConfiguration),
+    EEFOnlyConfiguration(EEFOnlyIOStateConfiguration),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]

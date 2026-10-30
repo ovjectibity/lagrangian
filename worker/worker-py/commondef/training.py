@@ -85,7 +85,7 @@ class IOStateItemContactPairs(BaseModel):
 
 IOStateItem = Union[IOStateItemCameras, IOStateItemQPos, IOStateItemQVel, IOStateItemGeneralisedForces, IOStateItemXPos, IOStateItemXQuat, IOStateItemContactPairs]
 class IOState(BaseModel):
-    is_diff: bool
+    is_delta: bool
     included_body_names: List[str]
     excluded_body_names: List[str]
     state_item: IOStateItem
