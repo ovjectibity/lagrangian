@@ -1,6 +1,7 @@
 import os
 from importlib.util import find_spec
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 
 def _configure_libero_paths() -> None:
@@ -58,6 +59,69 @@ SUPPORTED_DATASETS = {
     "libero_object",
     "libero_spatial",
 }
+
+
+def couple_panda_gripper_jaws(mjcf: str) -> str:
+    """Couple Panda's opposing finger joints with one gripper actuator."""
+    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+    root = ET.fromstring(mjcf, parser=parser)
+    joint_names = {
+        joint.get("name") for joint in root.findall("./worldbody//joint")
+    }
+    finger_pairs = [
+        (name, f"{name[:-1]}2")
+        for name in joint_names
+        if name is not None
+        and name.endswith("finger_joint1")
+        and f"{name[:-1]}2" in joint_names
+    ]
+    if len(finger_pairs) != 1:
+        raise ValueError("Expected exactly one Panda gripper finger joint pair")
+    first_joint, second_joint = finger_pairs[0]
+
+    actuator_section = root.find("actuator")
+    if actuator_section is None:
+        raise ValueError("Panda gripper actuators are missing")
+    gripper_actuators = [
+        actuator
+        for actuator in actuator_section
+        if actuator.get("joint") in (first_joint, second_joint)
+    ]
+    target_joints = [actuator.get("joint") for actuator in gripper_actuators]
+    if not 1 <= len(gripper_actuators) <= 2 or len(set(target_joints)) != len(
+        target_joints
+    ):
+        raise ValueError("Expected one or two Panda gripper actuators on distinct joints")
+    if len(gripper_actuators) == 2:
+        # Keep the actuator on finger_joint1, whose target range is positive.
+        actuator_section.remove(
+            next(a for a in gripper_actuators if a.get("joint") == second_joint)
+        )
+
+    equality_section = root.find("equality")
+    if equality_section is None:
+        equality_section = ET.SubElement(root, "equality")
+    existing = [
+        constraint
+        for constraint in equality_section.findall("joint")
+        if {constraint.get("joint1"), constraint.get("joint2")}
+        == {first_joint, second_joint}
+    ]
+    if existing:
+        if len(existing) != 1 or list(
+            map(float, existing[0].get("polycoef", "0 1 0 0 0").split())
+        ) != [0, -1, 0, 0, 0]:
+            raise ValueError("Panda gripper joints already have a conflicting equality")
+    else:
+        # The finger joint ranges have opposite signs, so q2 = -q1.
+        ET.SubElement(
+            equality_section,
+            "joint",
+            joint1=second_joint,
+            joint2=first_joint,
+            polycoef="0 -1 0 0 0",
+        )
+    return ET.tostring(root, encoding="unicode")
 
 
 def get_task_mjcfs(
