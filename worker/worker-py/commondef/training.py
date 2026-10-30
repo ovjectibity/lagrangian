@@ -52,19 +52,50 @@ class Checkpoint(BaseModel):
     control_model_mlp: Optional[MLPModel] = Field(default=None)
     value_model_mlp: Optional[MLPModel] = Field(default=None)
 
-class IOStateOrientationType(str, Enum):
-    QUATERNION = "Quaternion"
-    AXISANGLE = "AxisAngle"
-    TAITBRYAN = "TaitBryan"
+class IOStateItemTypes(str, Enum):
+    CAMERAS = "Cameras"
+    Q_POS = "QPos"
+    Q_VEL = "QVel"
+    GENERALISED_FORCES = "GeneralisedForces"
+    X_POS = "XPos"
+    X_QUAT = "XQuat"
+    CONTACT_PAIRS = "ContactPairs"
+
+class IOStateItemCameras(BaseModel):
+    type: Literal[IOStateItemTypes.CAMERAS] = IOStateItemTypes.CAMERAS
+
+class IOStateItemQPos(BaseModel):
+    type: Literal[IOStateItemTypes.Q_POS] = IOStateItemTypes.Q_POS
+
+class IOStateItemQVel(BaseModel):
+    type: Literal[IOStateItemTypes.Q_VEL] = IOStateItemTypes.Q_VEL
+
+class IOStateItemGeneralisedForces(BaseModel):
+    type: Literal[IOStateItemTypes.GENERALISED_FORCES] = IOStateItemTypes.GENERALISED_FORCES
+
+class IOStateItemXPos(BaseModel):
+    type: Literal[IOStateItemTypes.X_POS] = IOStateItemTypes.X_POS
+
+class IOStateItemXQuat(BaseModel):
+    type: Literal[IOStateItemTypes.X_QUAT] = IOStateItemTypes.X_QUAT
+    content: XQuatSpec
+
+class IOStateItemContactPairs(BaseModel):
+    type: Literal[IOStateItemTypes.CONTACT_PAIRS] = IOStateItemTypes.CONTACT_PAIRS
+
+IOStateItem = Union[IOStateItemCameras, IOStateItemQPos, IOStateItemQVel, IOStateItemGeneralisedForces, IOStateItemXPos, IOStateItemXQuat, IOStateItemContactPairs]
+class IOState(BaseModel):
+    is_diff: bool
+    included_body_names: List[str]
+    excluded_body_names: List[str]
+    state_item: IOStateItem
+
 class EEFOnlyIOStateConfiguration(BaseModel):
     robot_base_body_name: str
     gripper_body_name: str
     end_effector_body_name: str
-    xpos_state: bool
-    xquat_state: bool
-    eef_state_orientation_type: IOStateOrientationType
-    qpos_gripper: bool
-    is_diff: bool
+    eef_state: IOState
+    qpos_gripper_state: IOState
 
 class FlowNoiseConfig(BaseModel):
     noise_model: MLPModel
@@ -74,18 +105,11 @@ class MetricsData(BaseModel):
     y_axis: List[float]
 
 class OrdinaryIOStateConfiguration(BaseModel):
-    all_cameras: bool
-    qpos_state: bool
-    qvel_state: bool
-    genforces_state: bool
-    xpos_state: bool
-    xquat_state: bool
-    contact_pairs: bool
+    robot_base_body_name: Optional[str] = Field(default=None)
+    states: List[IOState]
     """
     Only valid in reward_function.input_spec; forbidden in control/value model specs.
     """
-    is_diff: bool
-    robot_base_body_name: Optional[str] = Field(default=None)
 
 class RewardLanguage(str, Enum):
     RUST = "Rust"
@@ -266,6 +290,12 @@ class VLAModel(BaseModel):
     model_type: ModelType
     input_spec: ControlPolicyInputSpec
     output: ControlPolicyOutputSpec
+
+class IOStateOrientationType(str, Enum):
+    QUATERNION = "Quaternion"
+    AXISANGLE = "AxisAngle"
+class XQuatSpec(BaseModel):
+    xquat_state_orientation_type: IOStateOrientationType
 
 class CheckpointTypeTypes(str, Enum):
     PRETRAINED = "Pretrained"

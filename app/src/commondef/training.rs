@@ -8,29 +8,9 @@ use utoipa::ToSchema;
 use crate::commondef::record::CheckpointReference;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
-#[serde(tag = "type", content = "content")]
 #[typeshare]
-pub enum ControlPolicyOutputSpec {
-    OrdinaryConfiguration(OrdinaryIOStateConfiguration),
-    EEFOnlyConfiguration(EEFOnlyIOStateConfiguration),
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
-#[typeshare]
-pub struct OrdinaryIOStateConfiguration {
-    pub all_cameras: bool,
-    pub qpos_state: bool,
-    pub qvel_state: bool,
-    pub genforces_state: bool,
-    pub xpos_state: bool,
-    pub xquat_state: bool,
+pub struct XQuatSpec {
     pub xquat_state_orientation_type: IOStateOrientationType, 
-    /// Only valid in reward_function.input_spec; forbidden in control/value model specs.
-    pub contact_pairs: bool,
-    pub is_diff: bool,
-    //When null the entire model's state is returned otherwise only the 
-    // state of the bodies encapsulated by the robot body base
-    pub robot_base_body_name: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
@@ -41,6 +21,46 @@ pub enum IOStateOrientationType {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum IOStateItem {
+    Cameras,
+    QPos,
+    QVel,
+    GeneralisedForces,
+    XPos,
+    XQuat(XQuatSpec), 
+    ContactPairs
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct IOState {
+    pub is_diff: bool, 
+    pub included_body_names: Vec<String>,
+    pub excluded_body_names: Vec<String>,
+    pub state_item: IOStateItem
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum ControlPolicyOutputSpec {
+    OrdinaryConfiguration(OrdinaryIOStateConfiguration),
+    EEFOnlyConfiguration(EEFOnlyIOStateConfiguration),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct OrdinaryIOStateConfiguration {
+    //When null the entire model's state is returned otherwise only the 
+    // state of the bodies encapsulated by the robot body base
+    pub robot_base_body_name: Option<String>,
+    /// Only valid in reward_function.input_spec; forbidden in control/value model specs.
+    pub states: Vec<IOState>
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct EEFOnlyIOStateConfiguration {
     //When set this results in only the end effector state being returned.
@@ -48,11 +68,8 @@ pub struct EEFOnlyIOStateConfiguration {
     pub robot_base_body_name: String,
     pub gripper_body_name: String,
     pub end_effector_body_name: String,
-    pub xpos_state: bool, 
-    pub xquat_state: bool,
-    pub eef_state_orientation_type: IOStateOrientationType, 
-    pub qpos_gripper: bool,
-    pub is_diff: bool,
+    pub eef_state: IOState,
+    pub qpos_gripper_state: IOState
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]

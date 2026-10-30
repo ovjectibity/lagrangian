@@ -102,21 +102,28 @@ export interface DatasetMethod {
 	control_model: ControlModel;
 }
 
-export enum IOStateOrientationType {
-	Quaternion = "Quaternion",
-	AxisAngle = "AxisAngle",
-	TaitBryan = "TaitBryan",
+export type IOStateItem = 
+	| { type: "Cameras", content?: undefined }
+	| { type: "QPos", content?: undefined }
+	| { type: "QVel", content?: undefined }
+	| { type: "GeneralisedForces", content?: undefined }
+	| { type: "XPos", content?: undefined }
+	| { type: "XQuat", content: XQuatSpec }
+	| { type: "ContactPairs", content?: undefined };
+
+export interface IOState {
+	is_diff: boolean;
+	included_body_names: string[];
+	excluded_body_names: string[];
+	state_item: IOStateItem;
 }
 
 export interface EEFOnlyIOStateConfiguration {
 	robot_base_body_name: string;
 	gripper_body_name: string;
 	end_effector_body_name: string;
-	xpos_state: boolean;
-	xquat_state: boolean;
-	eef_state_orientation_type: IOStateOrientationType;
-	qpos_gripper: boolean;
-	is_diff: boolean;
+	eef_state: IOState;
+	qpos_gripper_state: IOState;
 }
 
 export interface FlowNoiseConfig {
@@ -181,16 +188,9 @@ export interface ModelReference {
 }
 
 export interface OrdinaryIOStateConfiguration {
-	all_cameras: boolean;
-	qpos_state: boolean;
-	qvel_state: boolean;
-	genforces_state: boolean;
-	xpos_state: boolean;
-	xquat_state: boolean;
-	/** Only valid in reward_function.input_spec; forbidden in control/value model specs. */
-	contact_pairs: boolean;
-	is_diff: boolean;
 	robot_base_body_name?: string;
+	/** Only valid in reward_function.input_spec; forbidden in control/value model specs. */
+	states: IOState[];
 }
 
 export enum RewardLanguage {
@@ -399,6 +399,15 @@ export interface VLAModel {
 
 export interface WorldBody {
 	bodies: Body[];
+}
+
+export enum IOStateOrientationType {
+	Quaternion = "Quaternion",
+	AxisAngle = "AxisAngle",
+}
+
+export interface XQuatSpec {
+	xquat_state_orientation_type: IOStateOrientationType;
 }
 
 export type CheckpointType = 

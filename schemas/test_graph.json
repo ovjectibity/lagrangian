@@ -311,47 +311,161 @@
     "OrdinaryIOStateConfiguration": {
       "type": "object",
       "properties": {
-        "all_cameras": {
-          "type": "boolean"
-        },
-        "qpos_state": {
-          "type": "boolean"
-        },
-        "qvel_state": {
-          "type": "boolean"
-        },
-        "genforces_state": {
-          "type": "boolean"
-        },
-        "xpos_state": {
-          "type": "boolean"
-        },
-        "xquat_state": {
-          "type": "boolean"
-        },
-        "contact_pairs": {
-          "description": "Only valid in reward_function.input_spec; forbidden in control/value model specs.",
-          "type": "boolean"
-        },
-        "is_diff": {
-          "type": "boolean"
-        },
         "robot_base_body_name": {
           "type": [
             "string",
             "null"
           ]
+        },
+        "states": {
+          "description": "Only valid in reward_function.input_spec; forbidden in control/value model specs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IOState"
+          }
         }
       },
       "required": [
-        "all_cameras",
-        "qpos_state",
-        "qvel_state",
-        "genforces_state",
-        "xpos_state",
-        "xquat_state",
-        "contact_pairs",
-        "is_diff"
+        "states"
+      ]
+    },
+    "IOState": {
+      "type": "object",
+      "properties": {
+        "is_diff": {
+          "type": "boolean"
+        },
+        "included_body_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "excluded_body_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state_item": {
+          "$ref": "#/definitions/IOStateItem"
+        }
+      },
+      "required": [
+        "is_diff",
+        "included_body_names",
+        "excluded_body_names",
+        "state_item"
+      ]
+    },
+    "IOStateItem": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Cameras"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "QPos"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "QVel"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "GeneralisedForces"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "XPos"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "XQuat"
+            },
+            "content": {
+              "$ref": "#/definitions/XQuatSpec"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ContactPairs"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "XQuatSpec": {
+      "type": "object",
+      "properties": {
+        "xquat_state_orientation_type": {
+          "$ref": "#/definitions/IOStateOrientationType"
+        }
+      },
+      "required": [
+        "xquat_state_orientation_type"
+      ]
+    },
+    "IOStateOrientationType": {
+      "type": "string",
+      "enum": [
+        "Quaternion",
+        "AxisAngle"
       ]
     },
     "EEFOnlyIOStateConfiguration": {
@@ -366,39 +480,19 @@
         "end_effector_body_name": {
           "type": "string"
         },
-        "xpos_state": {
-          "type": "boolean"
+        "eef_state": {
+          "$ref": "#/definitions/IOState"
         },
-        "xquat_state": {
-          "type": "boolean"
-        },
-        "eef_state_orientation_type": {
-          "$ref": "#/definitions/IOStateOrientationType"
-        },
-        "qpos_gripper": {
-          "type": "boolean"
-        },
-        "is_diff": {
-          "type": "boolean"
+        "qpos_gripper_state": {
+          "$ref": "#/definitions/IOState"
         }
       },
       "required": [
         "robot_base_body_name",
         "gripper_body_name",
         "end_effector_body_name",
-        "xpos_state",
-        "xquat_state",
-        "eef_state_orientation_type",
-        "qpos_gripper",
-        "is_diff"
-      ]
-    },
-    "IOStateOrientationType": {
-      "type": "string",
-      "enum": [
-        "Quaternion",
-        "AxisAngle",
-        "TaitBryan"
+        "eef_state",
+        "qpos_gripper_state"
       ]
     },
     "VLAModel": {
