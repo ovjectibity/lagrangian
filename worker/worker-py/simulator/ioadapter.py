@@ -463,3 +463,29 @@ def get_actuator_control_input_from_generalised_forces(
     )
     valid = force_valid & gain_valid & controls_valid & limits_valid & finite
     return controls, valid
+
+
+def get_actuator_control_input_from_eef_deltas(
+    model: mjx.Model,
+    data: mjx.Data,
+    xpos_delta: jnp.ndarray,
+    xquat_delta: jnp.ndarray,
+    kd: jnp.ndarray | float,
+    ke: jnp.ndarray | float,
+    eef_name: str,
+    robot_base_name: str,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Return robot actuator controls and their validity for EEF pose deltas."""
+    tau = get_generalised_forces_from_eef_deltas(
+        model,
+        data,
+        xpos_delta,
+        xquat_delta,
+        kd,
+        ke,
+        eef_name,
+        robot_base_name,
+    )
+    return get_actuator_control_input_from_generalised_forces(
+        model, data, tau, robot_base_name
+    )
