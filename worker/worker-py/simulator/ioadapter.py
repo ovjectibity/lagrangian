@@ -488,3 +488,129 @@ def get_actuator_control_input_from_eef_deltas(
     return get_actuator_control_input_from_generalised_forces(
         model, data, tau, robot_base_name
     )
+
+
+def get_actuator_control_input_from_qpos(
+    model: mjx.Model,
+    data: mjx.Data,
+    qpos: jnp.ndarray,
+    is_delta: bool,
+    kd: jnp.ndarray | float,
+    kp: jnp.ndarray | float,
+    robot_base_name: str,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Map a robot position target or tangent-space delta to controls.
+
+    Absolute targets have one entry per robot qpos coordinate and contain
+    unit quaternions. Deltas have one entry per robot DOF, so ball/free-joint
+    rotations use three tangent coordinates rather than four quaternion
+    components. The current robot velocity is the zero-velocity target for
+    PD control. ``is_delta`` is static at JAX trace time because the input
+    lengths can differ when quaternion joints are present.
+    """
+    robot_dofs = _robot_dof_indices(model, robot_base_name)
+    robot_nv = robot_dofs.shape[0]
+    kd = jnp.asarray(kd)
+    kp = jnp.asarray(kp)
+    if kd.shape not in ((), (robot_nv,)) or kp.shape not in ((), (robot_nv,)):
+        raise ValueError("kp and kd must be scalars or have one value per robot DOF")
+
+    if is_delta:
+        if qpos.shape != (robot_nv,):
+            raise ValueError(
+                f"qpos delta must have shape {(robot_nv,)}, got {qpos.shape}"
+            )
+        position_error = qpos
+    else:
+        in_robot = _robot_body_mask(model, robot_base_name)
+        joint_ids = np.flatnonzero(in_robot[np.asarray(model.jnt_bodyid)])
+        joint_types = np.asarray(model.jnt_type)
+        qpos_addresses = np.asarray(model.jnt_qposadr)
+        joint_widths = [
+            7 if joint_types[joint_id] == int(mujoco.mjtJoint.mjJNT_FREE)
+            else 4 if joint_types[joint_id] == int(mujoco.mjtJoint.mjJNT_BALL)
+            else 1
+            for joint_id in joint_ids
+        ]
+        robot_nq = sum(joint_widths)
+        if qpos.shape != (robot_nq,):
+            raise ValueError(
+                f"absolute qpos must have shape {(robot_nq,)}, got {qpos.shape}"
+            )
+
+        errors = []
+        target_address = 0
+        for joint_id, width in zip(joint_ids, joint_widths):
+            current_address = int(qpos_addresses[joint_id])
+            target = qpos[target_address : target_address + width]
+            current = data.qpos[current_address : current_address + width]
+            if width == 7:
+                error = jnp.concatenate(
+                    (
+                        target[:3] - current[:3],
+                        mjx_math.quat_sub(target[3:], current[3:]),
+                    )
+                )
+            elif width == 4:
+                error = mjx_math.quat_sub(target, current)
+            else:
+                error = target - current
+            errors.append(error)
+            target_address += width
+        position_error = jnp.concatenate(errors)
+
+    desired_acceleration = kp * position_error - kd * data.qvel[robot_dofs]
+    # Match the EEF helper's reduced robot dynamics: hold environment DOF
+    # accelerations fixed and omit current constraint forces.
+    tau = (
+        get_generalised_inertia(model, data, robot_base_name)
+        @ desired_acceleration
+        + get_generalised_bias_forces(model, data, robot_base_name)
+        - data.qfrc_passive[robot_dofs]
+    )
+    return get_actuator_control_input_from_tau(
+        model, data, tau, robot_base_name
+    )
+
+
+def get_actuator_control_input_from_qvel(
+    model: mjx.Model,
+    data: mjx.Data,
+    qvel: jnp.ndarray,
+    is_delta: bool,
+    kd: jnp.ndarray | float,
+    robot_base_name: str,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Map an absolute robot velocity target or velocity delta to controls."""
+    robot_dofs = _robot_dof_indices(model, robot_base_name)
+    robot_nv = robot_dofs.shape[0]
+    if qvel.shape != (robot_nv,):
+        raise ValueError(f"qvel must have shape {(robot_nv,)}, got {qvel.shape}")
+    kd = jnp.asarray(kd)
+    if kd.shape not in ((), (robot_nv,)):
+        raise ValueError("kd must be a scalar or have one value per robot DOF")
+
+    velocity_error = qvel if is_delta else qvel - data.qvel[robot_dofs]
+    desired_acceleration = kd * velocity_error
+    # Match the EEF helper's reduced robot dynamics and passive-force term.
+    tau = (
+        get_generalised_inertia(model, data, robot_base_name)
+        @ desired_acceleration
+        + get_generalised_bias_forces(model, data, robot_base_name)
+        - data.qfrc_passive[robot_dofs]
+    )
+    return get_actuator_control_input_from_tau(
+        model, data, tau, robot_base_name
+    )
+
+
+def get_actuator_control_input_from_tau(
+    model: mjx.Model,
+    data: mjx.Data,
+    tau: jnp.ndarray,
+    robot_base_name: str,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Map robot DOF forces to robot actuator controls and a validity flag."""
+    return get_actuator_control_input_from_generalised_forces(
+        model, data, tau, robot_base_name
+    )
