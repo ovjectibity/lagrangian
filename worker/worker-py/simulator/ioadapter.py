@@ -9,89 +9,12 @@ Jacobian columns are retained. The end-effector helper returns robot DOF
 forces; the actuator helper maps those forces to robot-only controls.
 """
 
-from dataclasses import dataclass
-from functools import partial
-from typing import Literal
-
-import jax
 import jax.numpy as jnp
 import mujoco
 from mujoco import mjx
 from mujoco.mjx._src import math as mjx_math
 from mujoco.mjx._src import support as mjx_support
 import numpy as np
-
-from commondef.training import ControlPolicyInputSpecTypes
-
-
-# These runtime states mirror the validated input spec. Only state_item is
-# dynamic; names, flags, and variant tags are static JAX PyTree metadata.
-# Body-name lists become tuples so the metadata is immutable and hashable.
-@partial(
-    jax.tree_util.register_dataclass,
-    data_fields=("state_item",),
-    meta_fields=("is_delta", "included_body_names", "excluded_body_names"),
-)
-@dataclass(frozen=True)
-class IOStateData:
-    is_delta: bool
-    included_body_names: tuple[str, ...]
-    excluded_body_names: tuple[str, ...]
-    state_item: jnp.ndarray | np.ndarray
-
-
-@partial(
-    jax.tree_util.register_dataclass,
-    data_fields=("states",),
-    meta_fields=("robot_base_body_name",),
-)
-@dataclass(frozen=True)
-class OrdinaryIOStateDataConfiguration:
-    robot_base_body_name: str | None
-    states: list[IOStateData]
-
-
-@partial(
-    jax.tree_util.register_dataclass,
-    data_fields=("eef_state", "qpos_gripper_state"),
-    meta_fields=("robot_base_body_name", "gripper_body_name", "end_effector_body_name"),
-)
-@dataclass(frozen=True)
-class EEFOnlyIOStateDataConfiguration:
-    robot_base_body_name: str
-    gripper_body_name: str
-    end_effector_body_name: str
-    eef_state: IOStateData
-    qpos_gripper_state: IOStateData
-
-
-@partial(
-    jax.tree_util.register_dataclass,
-    data_fields=("content",),
-    meta_fields=("type",),
-)
-@dataclass(frozen=True)
-class ControlPolicyInputStateOrdinaryConfiguration:
-    type: Literal[ControlPolicyInputSpecTypes.ORDINARY_CONFIGURATION]
-    content: OrdinaryIOStateDataConfiguration
-
-
-@partial(
-    jax.tree_util.register_dataclass,
-    data_fields=("content",),
-    meta_fields=("type",),
-)
-@dataclass(frozen=True)
-class ControlPolicyInputStateEEFOnlyConfiguration:
-    type: Literal[ControlPolicyInputSpecTypes.EEF_ONLY_CONFIGURATION]
-    content: EEFOnlyIOStateDataConfiguration
-
-
-ControlPolicyInputState = (
-    ControlPolicyInputStateOrdinaryConfiguration
-    | ControlPolicyInputStateEEFOnlyConfiguration
-)
-
 
 def _body_id(model: mjx.Model, name: str) -> int:
     body_id = mjx.name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
