@@ -279,26 +279,10 @@
           "properties": {
             "type": {
               "type": "string",
-              "const": "OrdinaryConfiguration"
+              "const": "StandardInputSpec"
             },
             "content": {
-              "$ref": "#/definitions/OrdinaryIOStateConfiguration"
-            }
-          },
-          "required": [
-            "type",
-            "content"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "EEFOnlyConfiguration"
-            },
-            "content": {
-              "$ref": "#/definitions/EEFOnlyIOStateConfiguration"
+              "$ref": "#/definitions/StandardInputSpec"
             }
           },
           "required": [
@@ -308,20 +292,19 @@
         }
       ]
     },
-    "OrdinaryIOStateConfiguration": {
+    "StandardInputSpec": {
       "type": "object",
       "properties": {
-        "robot_base_body_name": {
+        "base_body_name": {
           "type": [
             "string",
             "null"
           ]
         },
         "states": {
-          "description": "Only valid in reward_function.input_spec; forbidden in control/value model specs.",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/IOState"
+            "$ref": "#/definitions/InputState"
           }
         }
       },
@@ -329,49 +312,68 @@
         "states"
       ]
     },
-    "IOState": {
-      "type": "object",
-      "properties": {
-        "is_delta": {
-          "type": "boolean"
-        },
-        "included_body_names": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "excluded_body_names": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "state_item": {
-          "$ref": "#/definitions/IOStateItem"
-        }
-      },
-      "required": [
-        "is_delta",
-        "included_body_names",
-        "excluded_body_names",
-        "state_item"
-      ]
-    },
-    "IOStateItem": {
+    "InputState": {
       "oneOf": [
         {
           "type": "object",
           "properties": {
             "type": {
               "type": "string",
-              "const": "Cameras"
+              "const": "InputStateControllable"
+            },
+            "content": {
+              "$ref": "#/definitions/InputStateControllable"
             }
           },
           "required": [
-            "type"
+            "type",
+            "content"
           ]
         },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "InputStateSensors"
+            },
+            "content": {
+              "$ref": "#/definitions/InputStateItemSensors"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
+      ]
+    },
+    "InputStateControllable": {
+      "type": "object",
+      "properties": {
+        "rebase_body_tree": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "excluded_body_trees": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state_item": {
+          "$ref": "#/definitions/InputStateItemControllable"
+        }
+      },
+      "required": [
+        "excluded_body_trees",
+        "state_item"
+      ]
+    },
+    "InputStateItemControllable": {
+      "oneOf": [
         {
           "type": "object",
           "properties": {
@@ -413,86 +415,52 @@
           "properties": {
             "type": {
               "type": "string",
-              "const": "XPos"
-            }
-          },
-          "required": [
-            "type"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "XQuat"
+              "const": "XPose"
             },
             "content": {
-              "$ref": "#/definitions/XQuatSpec"
+              "$ref": "#/definitions/XPoseSpec"
             }
           },
           "required": [
             "type",
             "content"
           ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "ContactPairs"
-            }
-          },
-          "required": [
-            "type"
-          ]
         }
       ]
     },
-    "XQuatSpec": {
+    "XPoseSpec": {
       "type": "object",
       "properties": {
-        "xquat_state_orientation_type": {
-          "$ref": "#/definitions/IOStateOrientationType"
+        "frame_spec": {
+          "$ref": "#/definitions/IOStateXFrame"
+        },
+        "orientation_spec": {
+          "$ref": "#/definitions/IOStateXOrientationType"
         }
       },
       "required": [
-        "xquat_state_orientation_type"
+        "frame_spec",
+        "orientation_spec"
       ]
     },
-    "IOStateOrientationType": {
+    "IOStateXFrame": {
+      "type": "string",
+      "enum": [
+        "WorldFrame"
+      ]
+    },
+    "IOStateXOrientationType": {
       "type": "string",
       "enum": [
         "Quaternion",
         "AxisAngle"
       ]
     },
-    "EEFOnlyIOStateConfiguration": {
-      "type": "object",
-      "properties": {
-        "robot_base_body_name": {
-          "type": "string"
-        },
-        "gripper_body_name": {
-          "type": "string"
-        },
-        "end_effector_body_name": {
-          "type": "string"
-        },
-        "eef_state": {
-          "$ref": "#/definitions/IOState"
-        },
-        "qpos_gripper_state": {
-          "$ref": "#/definitions/IOState"
-        }
-      },
-      "required": [
-        "robot_base_body_name",
-        "gripper_body_name",
-        "end_effector_body_name",
-        "eef_state",
-        "qpos_gripper_state"
+    "InputStateItemSensors": {
+      "type": "string",
+      "enum": [
+        "Cameras",
+        "ContactPairs"
       ]
     },
     "VLAModel": {
@@ -521,10 +489,10 @@
           "properties": {
             "type": {
               "type": "string",
-              "const": "OrdinaryConfiguration"
+              "const": "ProprioceptiveOutputSpec"
             },
             "content": {
-              "$ref": "#/definitions/OrdinaryIOStateConfiguration"
+              "$ref": "#/definitions/ProprioceptiveOutputSpec"
             }
           },
           "required": [
@@ -537,10 +505,10 @@
           "properties": {
             "type": {
               "type": "string",
-              "const": "EEFOnlyConfiguration"
+              "const": "EEFOutputSpec"
             },
             "content": {
-              "$ref": "#/definitions/EEFOnlyIOStateConfiguration"
+              "$ref": "#/definitions/EEFOutputSpec"
             }
           },
           "required": [
@@ -548,6 +516,147 @@
             "content"
           ]
         }
+      ]
+    },
+    "ProprioceptiveOutputSpec": {
+      "type": "object",
+      "properties": {
+        "base_body_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/definitions/OutputStateTree"
+        }
+      },
+      "required": [
+        "state"
+      ]
+    },
+    "OutputStateTree": {
+      "type": "object",
+      "properties": {
+        "is_delta": {
+          "type": "boolean"
+        },
+        "rebase_body_tree": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "excluded_body_trees": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state_item": {
+          "$ref": "#/definitions/OutputStateItem"
+        }
+      },
+      "required": [
+        "is_delta",
+        "excluded_body_trees",
+        "state_item"
+      ]
+    },
+    "OutputStateItem": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "QPos"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "QVel"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "GeneralisedForces"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "XPose"
+            },
+            "content": {
+              "$ref": "#/definitions/XPoseSpec"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        }
+      ]
+    },
+    "EEFOutputSpec": {
+      "type": "object",
+      "properties": {
+        "base_body_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "eef_state": {
+          "$ref": "#/definitions/OutputStateSingular"
+        },
+        "gripper": {
+          "$ref": "#/definitions/OutputStateTree"
+        }
+      },
+      "required": [
+        "eef_state",
+        "gripper"
+      ]
+    },
+    "OutputStateSingular": {
+      "type": "object",
+      "properties": {
+        "is_delta": {
+          "type": "boolean"
+        },
+        "body_name": {
+          "type": "string"
+        },
+        "state_item": {
+          "$ref": "#/definitions/OutputStateItem"
+        }
+      },
+      "required": [
+        "is_delta",
+        "body_name",
+        "state_item"
       ]
     },
     "DatasetMethod": {

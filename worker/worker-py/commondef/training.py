@@ -23,18 +23,13 @@ class ModelTypeNew(BaseModel):
 
 ModelType = Union[ModelTypeCheckpoint, ModelTypeNew]
 class ControlPolicyInputSpecTypes(str, Enum):
-    ORDINARY_CONFIGURATION = "OrdinaryConfiguration"
-    EEF_ONLY_CONFIGURATION = "EEFOnlyConfiguration"
+    STANDARD_INPUT_SPEC = "StandardInputSpec"
 
-class ControlPolicyInputSpecOrdinaryConfiguration(BaseModel):
-    type: Literal[ControlPolicyInputSpecTypes.ORDINARY_CONFIGURATION] = ControlPolicyInputSpecTypes.ORDINARY_CONFIGURATION
-    content: OrdinaryIOStateConfiguration
+class ControlPolicyInputSpecStandardInputSpec(BaseModel):
+    type: Literal[ControlPolicyInputSpecTypes.STANDARD_INPUT_SPEC] = ControlPolicyInputSpecTypes.STANDARD_INPUT_SPEC
+    content: StandardInputSpec
 
-class ControlPolicyInputSpecEEFOnlyConfiguration(BaseModel):
-    type: Literal[ControlPolicyInputSpecTypes.EEF_ONLY_CONFIGURATION] = ControlPolicyInputSpecTypes.EEF_ONLY_CONFIGURATION
-    content: EEFOnlyIOStateConfiguration
-
-ControlPolicyInputSpec = Union[ControlPolicyInputSpecOrdinaryConfiguration, ControlPolicyInputSpecEEFOnlyConfiguration]
+ControlPolicyInputSpec = ControlPolicyInputSpecStandardInputSpec
 class MLPModel(BaseModel):
     model_type: ModelType
     num_hidden_layers: int
@@ -52,64 +47,73 @@ class Checkpoint(BaseModel):
     control_model_mlp: Optional[MLPModel] = Field(default=None)
     value_model_mlp: Optional[MLPModel] = Field(default=None)
 
-class IOStateItemTypes(str, Enum):
-    CAMERAS = "Cameras"
+class OutputStateItemTypes(str, Enum):
     Q_POS = "QPos"
     Q_VEL = "QVel"
     GENERALISED_FORCES = "GeneralisedForces"
-    X_POS = "XPos"
-    X_QUAT = "XQuat"
-    CONTACT_PAIRS = "ContactPairs"
+    X_POSE = "XPose"
 
-class IOStateItemCameras(BaseModel):
-    type: Literal[IOStateItemTypes.CAMERAS] = IOStateItemTypes.CAMERAS
+class OutputStateItemQPos(BaseModel):
+    type: Literal[OutputStateItemTypes.Q_POS] = OutputStateItemTypes.Q_POS
 
-class IOStateItemQPos(BaseModel):
-    type: Literal[IOStateItemTypes.Q_POS] = IOStateItemTypes.Q_POS
+class OutputStateItemQVel(BaseModel):
+    type: Literal[OutputStateItemTypes.Q_VEL] = OutputStateItemTypes.Q_VEL
 
-class IOStateItemQVel(BaseModel):
-    type: Literal[IOStateItemTypes.Q_VEL] = IOStateItemTypes.Q_VEL
+class OutputStateItemGeneralisedForces(BaseModel):
+    type: Literal[OutputStateItemTypes.GENERALISED_FORCES] = OutputStateItemTypes.GENERALISED_FORCES
 
-class IOStateItemGeneralisedForces(BaseModel):
-    type: Literal[IOStateItemTypes.GENERALISED_FORCES] = IOStateItemTypes.GENERALISED_FORCES
+class OutputStateItemXPose(BaseModel):
+    type: Literal[OutputStateItemTypes.X_POSE] = OutputStateItemTypes.X_POSE
+    content: XPoseSpec
 
-class IOStateItemXPos(BaseModel):
-    type: Literal[IOStateItemTypes.X_POS] = IOStateItemTypes.X_POS
-
-class IOStateItemXQuat(BaseModel):
-    type: Literal[IOStateItemTypes.X_QUAT] = IOStateItemTypes.X_QUAT
-    content: XQuatSpec
-
-class IOStateItemContactPairs(BaseModel):
-    type: Literal[IOStateItemTypes.CONTACT_PAIRS] = IOStateItemTypes.CONTACT_PAIRS
-
-IOStateItem = Union[IOStateItemCameras, IOStateItemQPos, IOStateItemQVel, IOStateItemGeneralisedForces, IOStateItemXPos, IOStateItemXQuat, IOStateItemContactPairs]
-class IOState(BaseModel):
+OutputStateItem = Union[OutputStateItemQPos, OutputStateItemQVel, OutputStateItemGeneralisedForces, OutputStateItemXPose]
+class OutputStateSingular(BaseModel):
     is_delta: bool
-    included_body_names: List[str]
-    excluded_body_names: List[str]
-    state_item: IOStateItem
+    body_name: str
+    state_item: OutputStateItem
 
-class EEFOnlyIOStateConfiguration(BaseModel):
-    robot_base_body_name: str
-    gripper_body_name: str
-    end_effector_body_name: str
-    eef_state: IOState
-    qpos_gripper_state: IOState
+class OutputStateTree(BaseModel):
+    is_delta: bool
+    rebase_body_tree: Optional[str] = Field(default=None)
+    excluded_body_trees: List[str]
+    state_item: OutputStateItem
+
+class EEFOutputSpec(BaseModel):
+    base_body_name: Optional[str] = Field(default=None)
+    eef_state: OutputStateSingular
+    gripper: OutputStateTree
 
 class FlowNoiseConfig(BaseModel):
     noise_model: MLPModel
 
+class InputStateItemControllableTypes(str, Enum):
+    Q_POS = "QPos"
+    Q_VEL = "QVel"
+    GENERALISED_FORCES = "GeneralisedForces"
+    X_POSE = "XPose"
+
+class InputStateItemControllableQPos(BaseModel):
+    type: Literal[InputStateItemControllableTypes.Q_POS] = InputStateItemControllableTypes.Q_POS
+
+class InputStateItemControllableQVel(BaseModel):
+    type: Literal[InputStateItemControllableTypes.Q_VEL] = InputStateItemControllableTypes.Q_VEL
+
+class InputStateItemControllableGeneralisedForces(BaseModel):
+    type: Literal[InputStateItemControllableTypes.GENERALISED_FORCES] = InputStateItemControllableTypes.GENERALISED_FORCES
+
+class InputStateItemControllableXPose(BaseModel):
+    type: Literal[InputStateItemControllableTypes.X_POSE] = InputStateItemControllableTypes.X_POSE
+    content: XPoseSpec
+
+InputStateItemControllable = Union[InputStateItemControllableQPos, InputStateItemControllableQVel, InputStateItemControllableGeneralisedForces, InputStateItemControllableXPose]
+class InputStateControllable(BaseModel):
+    rebase_body_tree: Optional[str] = Field(default=None)
+    excluded_body_trees: List[str]
+    state_item: InputStateItemControllable
+
 class MetricsData(BaseModel):
     x_axis: List[float]
     y_axis: List[float]
-
-class OrdinaryIOStateConfiguration(BaseModel):
-    robot_base_body_name: Optional[str] = Field(default=None)
-    states: List[IOState]
-    """
-    Only valid in reward_function.input_spec; forbidden in control/value model specs.
-    """
 
 class RewardLanguage(str, Enum):
     RUST = "Rust"
@@ -171,6 +175,27 @@ class PPOTrainingMethod(BaseModel):
 class PPOTrainingRunState(BaseModel):
     epoch_index: int
     update_index: int
+
+class ProprioceptiveOutputSpec(BaseModel):
+    base_body_name: Optional[str] = Field(default=None)
+    state: OutputStateTree
+
+class InputStateTypes(str, Enum):
+    INPUT_STATE_CONTROLLABLE = "InputStateControllable"
+    INPUT_STATE_SENSORS = "InputStateSensors"
+
+class InputStateInputStateControllable(BaseModel):
+    type: Literal[InputStateTypes.INPUT_STATE_CONTROLLABLE] = InputStateTypes.INPUT_STATE_CONTROLLABLE
+    content: InputStateControllable
+
+class InputStateInputStateSensors(BaseModel):
+    type: Literal[InputStateTypes.INPUT_STATE_SENSORS] = InputStateTypes.INPUT_STATE_SENSORS
+    content: InputStateItemSensors
+
+InputState = Union[InputStateInputStateControllable, InputStateInputStateSensors]
+class StandardInputSpec(BaseModel):
+    base_body_name: Optional[str] = Field(default=None)
+    states: List[InputState]
 
 class TrainingMethodTypes(str, Enum):
     PPO = "PPO"
@@ -274,28 +299,31 @@ class TrainingUpdatesMessage(BaseModel):
     updates: List[TrainingUpdate]
 
 class ControlPolicyOutputSpecTypes(str, Enum):
-    ORDINARY_CONFIGURATION = "OrdinaryConfiguration"
-    EEF_ONLY_CONFIGURATION = "EEFOnlyConfiguration"
+    PROPRIOCEPTIVE_OUTPUT_SPEC = "ProprioceptiveOutputSpec"
+    EEF_OUTPUT_SPEC = "EEFOutputSpec"
 
-class ControlPolicyOutputSpecOrdinaryConfiguration(BaseModel):
-    type: Literal[ControlPolicyOutputSpecTypes.ORDINARY_CONFIGURATION] = ControlPolicyOutputSpecTypes.ORDINARY_CONFIGURATION
-    content: OrdinaryIOStateConfiguration
+class ControlPolicyOutputSpecProprioceptiveOutputSpec(BaseModel):
+    type: Literal[ControlPolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC] = ControlPolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC
+    content: ProprioceptiveOutputSpec
 
-class ControlPolicyOutputSpecEEFOnlyConfiguration(BaseModel):
-    type: Literal[ControlPolicyOutputSpecTypes.EEF_ONLY_CONFIGURATION] = ControlPolicyOutputSpecTypes.EEF_ONLY_CONFIGURATION
-    content: EEFOnlyIOStateConfiguration
+class ControlPolicyOutputSpecEEFOutputSpec(BaseModel):
+    type: Literal[ControlPolicyOutputSpecTypes.EEF_OUTPUT_SPEC] = ControlPolicyOutputSpecTypes.EEF_OUTPUT_SPEC
+    content: EEFOutputSpec
 
-ControlPolicyOutputSpec = Union[ControlPolicyOutputSpecOrdinaryConfiguration, ControlPolicyOutputSpecEEFOnlyConfiguration]
+ControlPolicyOutputSpec = Union[ControlPolicyOutputSpecProprioceptiveOutputSpec, ControlPolicyOutputSpecEEFOutputSpec]
 class VLAModel(BaseModel):
     model_type: ModelType
     input_spec: ControlPolicyInputSpec
     output: ControlPolicyOutputSpec
 
-class IOStateOrientationType(str, Enum):
+class IOStateXFrame(str, Enum):
+    WORLDFRAME = "WorldFrame"
+class IOStateXOrientationType(str, Enum):
     QUATERNION = "Quaternion"
     AXISANGLE = "AxisAngle"
-class XQuatSpec(BaseModel):
-    xquat_state_orientation_type: IOStateOrientationType
+class XPoseSpec(BaseModel):
+    frame_spec: IOStateXFrame
+    orientation_spec: IOStateXOrientationType
 
 class CheckpointTypeTypes(str, Enum):
     PRETRAINED = "Pretrained"
@@ -318,5 +346,8 @@ class FlowMatchingActionFlowNoise(BaseModel):
     content: FlowNoiseConfig
 
 FlowMatchingAction = FlowMatchingActionFlowNoise
+class InputStateItemSensors(str, Enum):
+    CAMERAS = "Cameras"
+    CONTACTPAIRS = "ContactPairs"
 class Pretrained(str, Enum):
     PI0 = "Pi0"

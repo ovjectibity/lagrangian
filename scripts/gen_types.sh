@@ -142,3 +142,4 @@ $GEN_SCHEMA test_graph > "$REPO_ROOT/schemas/test_graph.json"
 echo "Generated: schemas/test_graph.json"
 
 echo "Done."
+echo "Reminder: worker/worker-py/commondef/ioadapter.py is a hand-maintained JAX PyTree mirror of ControlPolicyInputSpec. After changing those shared types, use an AI coding tool to review and update its runtime classes."

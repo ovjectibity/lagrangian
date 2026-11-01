@@ -48,8 +48,7 @@ export type ModelType =
 	| { type: "New", content?: undefined };
 
 export type ControlPolicyInputSpec = 
-	| { type: "OrdinaryConfiguration", content: OrdinaryIOStateConfiguration }
-	| { type: "EEFOnlyConfiguration", content: EEFOnlyIOStateConfiguration };
+	| { type: "StandardInputSpec", content: StandardInputSpec };
 
 export interface MLPModel {
 	model_type: ModelType;
@@ -102,32 +101,45 @@ export interface DatasetMethod {
 	control_model: ControlModel;
 }
 
-export type IOStateItem = 
-	| { type: "Cameras", content?: undefined }
+export type OutputStateItem = 
 	| { type: "QPos", content?: undefined }
 	| { type: "QVel", content?: undefined }
 	| { type: "GeneralisedForces", content?: undefined }
-	| { type: "XPos", content?: undefined }
-	| { type: "XQuat", content: XQuatSpec }
-	| { type: "ContactPairs", content?: undefined };
+	| { type: "XPose", content: XPoseSpec };
 
-export interface IOState {
+export interface OutputStateSingular {
 	is_delta: boolean;
-	included_body_names: string[];
-	excluded_body_names: string[];
-	state_item: IOStateItem;
+	body_name: string;
+	state_item: OutputStateItem;
 }
 
-export interface EEFOnlyIOStateConfiguration {
-	robot_base_body_name: string;
-	gripper_body_name: string;
-	end_effector_body_name: string;
-	eef_state: IOState;
-	qpos_gripper_state: IOState;
+export interface OutputStateTree {
+	is_delta: boolean;
+	rebase_body_tree?: string;
+	excluded_body_trees: string[];
+	state_item: OutputStateItem;
+}
+
+export interface EEFOutputSpec {
+	base_body_name?: string;
+	eef_state: OutputStateSingular;
+	gripper: OutputStateTree;
 }
 
 export interface FlowNoiseConfig {
 	noise_model: MLPModel;
+}
+
+export type InputStateItemControllable = 
+	| { type: "QPos", content?: undefined }
+	| { type: "QVel", content?: undefined }
+	| { type: "GeneralisedForces", content?: undefined }
+	| { type: "XPose", content: XPoseSpec };
+
+export interface InputStateControllable {
+	rebase_body_tree?: string;
+	excluded_body_trees: string[];
+	state_item: InputStateItemControllable;
 }
 
 export enum LiberoDatasetType {
@@ -187,12 +199,6 @@ export interface ModelReference {
 	model_type: string;
 }
 
-export interface OrdinaryIOStateConfiguration {
-	robot_base_body_name?: string;
-	/** Only valid in reward_function.input_spec; forbidden in control/value model specs. */
-	states: IOState[];
-}
-
 export enum RewardLanguage {
 	Rust = "Rust",
 	Python = "Python",
@@ -235,6 +241,20 @@ export interface Project {
 	project_id: string;
 	user_id: number;
 	created_at: Timestamp;
+}
+
+export interface ProprioceptiveOutputSpec {
+	base_body_name?: string;
+	state: OutputStateTree;
+}
+
+export type InputState = 
+	| { type: "InputStateControllable", content: InputStateControllable }
+	| { type: "InputStateSensors", content: InputStateItemSensors };
+
+export interface StandardInputSpec {
+	base_body_name?: string;
+	states: InputState[];
 }
 
 export type TestMethod = 
@@ -388,8 +408,8 @@ export interface TrainingUpdatesMessage {
 }
 
 export type ControlPolicyOutputSpec = 
-	| { type: "OrdinaryConfiguration", content: OrdinaryIOStateConfiguration }
-	| { type: "EEFOnlyConfiguration", content: EEFOnlyIOStateConfiguration };
+	| { type: "ProprioceptiveOutputSpec", content: ProprioceptiveOutputSpec }
+	| { type: "EEFOutputSpec", content: EEFOutputSpec };
 
 export interface VLAModel {
 	model_type: ModelType;
@@ -401,13 +421,18 @@ export interface WorldBody {
 	bodies: Body[];
 }
 
-export enum IOStateOrientationType {
+export enum IOStateXFrame {
+	WorldFrame = "WorldFrame",
+}
+
+export enum IOStateXOrientationType {
 	Quaternion = "Quaternion",
 	AxisAngle = "AxisAngle",
 }
 
-export interface XQuatSpec {
-	xquat_state_orientation_type: IOStateOrientationType;
+export interface XPoseSpec {
+	frame_spec: IOStateXFrame;
+	orientation_spec: IOStateXOrientationType;
 }
 
 export type CheckpointType = 
@@ -422,6 +447,11 @@ export type ClientMessage =
 
 export type FlowMatchingAction = 
 	| { type: "FlowNoise", content: FlowNoiseConfig };
+
+export enum InputStateItemSensors {
+	Cameras = "Cameras",
+	ContactPairs = "ContactPairs",
+}
 
 export enum Pretrained {
 	Pi0 = "Pi0",

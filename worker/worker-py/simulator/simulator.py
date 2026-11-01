@@ -16,17 +16,19 @@ import numpy as np
 from commondef.training import (
     ControlPolicyInputSpec,
     ControlPolicyInputSpecTypes,
-    ControlPolicyOutputMode,
-    IOStateItemTypes,
-    IOStateOrientationType,
+    InputStateItemControllableTypes,
+    InputStateItemSensors,
+    InputStateTypes,
+    IOStateXFrame,
+    IOStateXOrientationType,
 )
 from commondef.ioadapter import (
     ControlPolicyInputState,
-    ControlPolicyInputStateEEFOnlyConfiguration,
-    ControlPolicyInputStateOrdinaryConfiguration,
-    EEFOnlyIOStateDataConfiguration,
-    IOStateData,
-    OrdinaryIOStateDataConfiguration,
+    ControlPolicyInputStateStandardInputSpec,
+    InputStateControllableData,
+    InputStateDataInputStateControllable,
+    InputStateDataInputStateSensors,
+    StandardInputData,
 )
 
 try:
@@ -136,12 +138,12 @@ class Simulator(ABC):
     @staticmethod
     def _selected_body_indices(
         model: Any,
-        root_name: str | None,
-        included_names: tuple[str, ...],
+        base_name: str | None,
+        rebase_name: str | None,
         excluded_names: tuple[str, ...],
         name_to_id: Any,
     ) -> np.ndarray:
-        """Select named body subtrees using static model topology."""
+        """Select one rebased body subtree, then remove excluded subtrees."""
         parents = np.asarray(model.body_parentid)
 
         def subtree(name: str) -> np.ndarray:
@@ -154,16 +156,21 @@ class Simulator(ABC):
                 mask[body_id] = mask[int(parents[body_id])]
             return mask
 
-        selected = (
-            subtree(root_name)
-            if root_name is not None
+        base = (
+            subtree(base_name)
+            if base_name is not None
             else np.ones(int(model.nbody), dtype=bool)
         )
-        if included_names:
-            included = np.zeros_like(selected)
-            for name in included_names:
-                included |= subtree(name)
-            selected &= included
+        selected = base
+        if rebase_name is not None:
+            rebase_id = int(name_to_id(model, rebase_name))
+            if rebase_id < 0:
+                raise ValueError(f"Unknown MuJoCo body: {rebase_name}")
+            if not base[rebase_id]:
+                raise ValueError(
+                    f"Rebase body {rebase_name} is outside base body tree"
+                )
+            selected = base & subtree(rebase_name)
         for name in excluded_names:
             selected &= ~subtree(name)
         return np.flatnonzero(selected)
@@ -180,153 +187,156 @@ class Simulator(ABC):
     ) -> ControlPolicyInputState:
         """Extract spec-ordered state arrays without rendering or changing Data."""
 
-        def extract(io_state: Any, root_name: str | None) -> IOStateData:
-            if io_state.is_delta:
-                raise ValueError("Delta IOState requests are invalid for model state")
+        if input_spec.type != ControlPolicyInputSpecTypes.STANDARD_INPUT_SPEC:
+            raise ValueError(f"Unsupported ControlPolicyInputSpec: {input_spec.type}")
 
-            included = tuple(io_state.included_body_names)
-            excluded = tuple(io_state.excluded_body_names)
-            item = io_state.state_item
+        content = input_spec.content
 
-            if item.type == IOStateItemTypes.CAMERAS:
-                # Rendering is performed by the caller. Preserve the slot in
-                # the ordered state tree for the caller to populate.
-                value = array_module.empty(
-                    (0,), dtype=data.qpos.dtype
+        def extract_controllable(state: Any) -> InputStateControllableData:
+            rebase = state.rebase_body_tree
+            excluded = tuple(state.excluded_body_trees)
+            item = state.state_item
+            bodies = Simulator._selected_body_indices(
+                model,
+                content.base_body_name,
+                rebase,
+                excluded,
+                name_to_id,
+            )
+
+            if item.type == InputStateItemControllableTypes.Q_POS:
+                joint_ids = np.flatnonzero(
+                    np.isin(np.asarray(model.jnt_bodyid), bodies)
                 )
-            elif item.type == IOStateItemTypes.CONTACT_PAIRS:
-                if contact_sensor_addresses is None or contact_body_pairs is None:
+                addresses = np.asarray(model.jnt_qposadr)
+                qpos_ids = (
+                    np.concatenate(
+                        [
+                            np.arange(
+                                addresses[joint_id],
+                                addresses[joint_id + 1]
+                                if joint_id + 1 < int(model.njnt)
+                                else int(model.nq),
+                            )
+                            for joint_id in joint_ids
+                        ]
+                    )
+                    if joint_ids.size
+                    else np.empty(0, dtype=np.int32)
+                )
+                value = data.qpos[..., qpos_ids]
+            elif item.type in (
+                InputStateItemControllableTypes.Q_VEL,
+                InputStateItemControllableTypes.GENERALISED_FORCES,
+            ):
+                dof_ids = np.flatnonzero(
+                    np.isin(np.asarray(model.dof_bodyid), bodies)
+                )
+                source = (
+                    data.qvel
+                    if item.type == InputStateItemControllableTypes.Q_VEL
+                    else data.qfrc_applied
+                )
+                value = source[..., dof_ids]
+            elif item.type == InputStateItemControllableTypes.X_POSE:
+                pose_spec = item.content
+                if pose_spec.frame_spec != IOStateXFrame.WORLDFRAME:
                     raise ValueError(
-                        "ContactPairs requires contact_sensor_addresses and "
-                        "contact_body_pairs"
+                        f"Unsupported XPose frame: {pose_spec.frame_spec}"
                     )
-                # Contact pairs are intentionally not filtered by body names.
-                value = Simulator._get_contact_pair_sensor_state(
-                    data,
-                    contact_sensor_addresses,
-                    contact_body_pairs,
-                    array_module,
-                )
+                positions = data.xpos[..., bodies, :]
+                orientations = data.xquat[..., bodies, :]
+                if pose_spec.orientation_spec == IOStateXOrientationType.AXISANGLE:
+                    # q and -q represent the same orientation; make the
+                    # returned angle no greater than pi before conversion.
+                    orientations = array_module.where(
+                        orientations[..., :1] < 0,
+                        -orientations,
+                        orientations,
+                    )
+                    vector = orientations[..., 1:]
+                    magnitude = array_module.linalg.norm(vector, axis=-1)
+                    epsilon = array_module.finfo(orientations.dtype).eps
+                    axis = vector / array_module.maximum(
+                        magnitude[..., None], epsilon
+                    )
+                    axis = array_module.where(
+                        magnitude[..., None] > epsilon,
+                        axis,
+                        array_module.asarray(
+                            [1.0, 0.0, 0.0], dtype=orientations.dtype
+                        ),
+                    )
+                    angle = 2 * array_module.arctan2(
+                        magnitude, orientations[..., 0]
+                    )
+                    orientations = array_module.concatenate(
+                        (axis, angle[..., None]), axis=-1
+                    )
+                elif pose_spec.orientation_spec != IOStateXOrientationType.QUATERNION:
+                    raise ValueError(
+                        "Unsupported XPose orientation: "
+                        f"{pose_spec.orientation_spec}"
+                    )
+                pose = array_module.concatenate((positions, orientations), axis=-1)
+                value = pose.reshape(pose.shape[:-2] + (-1,))
             else:
-                bodies = Simulator._selected_body_indices(
-                    model, root_name, included, excluded, name_to_id
-                )
-                if item.type == IOStateItemTypes.Q_POS:
-                    joint_ids = np.flatnonzero(
-                        np.isin(np.asarray(model.jnt_bodyid), bodies)
-                    )
-                    addresses = np.asarray(model.jnt_qposadr)
-                    qpos_ids = (
-                        np.concatenate(
-                            [
-                                np.arange(
-                                    addresses[joint_id],
-                                    addresses[joint_id + 1]
-                                    if joint_id + 1 < int(model.njnt)
-                                    else int(model.nq),
-                                )
-                                for joint_id in joint_ids
-                            ]
-                        )
-                        if joint_ids.size
-                        else np.empty(0, dtype=np.int32)
-                    )
-                    value = data.qpos[..., qpos_ids]
-                elif item.type in (
-                    IOStateItemTypes.Q_VEL,
-                    IOStateItemTypes.GENERALISED_FORCES,
-                ):
-                    dof_ids = np.flatnonzero(
-                        np.isin(np.asarray(model.dof_bodyid), bodies)
-                    )
-                    source = (
-                        data.qvel
-                        if item.type == IOStateItemTypes.Q_VEL
-                        else data.qfrc_applied
-                    )
-                    value = source[..., dof_ids]
-                elif item.type == IOStateItemTypes.X_POS:
-                    positions = data.xpos[..., bodies, :]
-                    value = positions.reshape(positions.shape[:-2] + (-1,))
-                elif item.type == IOStateItemTypes.X_QUAT:
-                    quaternions = data.xquat[..., bodies, :]
-                    orientation = item.content.xquat_state_orientation_type
-                    if orientation == IOStateOrientationType.AXISANGLE:
-                        # q and -q are the same rotation; choose angle <= pi.
-                        quaternions = array_module.where(
-                            quaternions[..., :1] < 0,
-                            -quaternions,
-                            quaternions,
-                        )
-                        vector = quaternions[..., 1:]
-                        magnitude = array_module.linalg.norm(vector, axis=-1)
-                        epsilon = array_module.finfo(quaternions.dtype).eps
-                        axis = vector / array_module.maximum(
-                            magnitude[..., None], epsilon
-                        )
-                        axis = array_module.where(
-                            magnitude[..., None] > epsilon,
-                            axis,
-                            array_module.asarray(
-                                [1.0, 0.0, 0.0], dtype=quaternions.dtype
-                            ),
-                        )
-                        angle = 2 * array_module.arctan2(
-                            magnitude, quaternions[..., 0]
-                        )
-                        quaternions = array_module.concatenate(
-                            (axis, angle[..., None]), axis=-1
-                        )
-                    elif orientation != IOStateOrientationType.QUATERNION:
-                        raise ValueError(f"Unsupported XQuat orientation: {orientation}")
-                    value = quaternions.reshape(quaternions.shape[:-2] + (-1,))
-                else:
-                    raise ValueError(f"Unsupported IOStateItem: {item.type}")
+                raise ValueError(f"Unsupported input state item: {item.type}")
 
             if array_module is np:
                 value = value.copy()
-            return IOStateData(
-                is_delta=io_state.is_delta,
-                included_body_names=included,
-                excluded_body_names=excluded,
+            return InputStateControllableData(
+                rebase_body_tree=rebase,
+                excluded_body_trees=excluded,
                 state_item=value,
             )
 
-        content = input_spec.content
-        if input_spec.type == ControlPolicyInputSpecTypes.ORDINARY_CONFIGURATION:
-            return ControlPolicyInputStateOrdinaryConfiguration(
-                type=input_spec.type,
-                content=OrdinaryIOStateDataConfiguration(
-                    robot_base_body_name=content.robot_base_body_name,
-                    states=[
-                        extract(state, content.robot_base_body_name)
-                        for state in content.states
-                    ],
-                ),
-            )
-        if input_spec.type == ControlPolicyInputSpecTypes.EEF_ONLY_CONFIGURATION:
-            robot_bodies = Simulator._selected_body_indices(
-                model, content.robot_base_body_name, (), (), name_to_id
-            )
-            for name in (content.end_effector_body_name, content.gripper_body_name):
-                body_id = int(name_to_id(model, name))
-                if body_id < 0 or body_id not in robot_bodies:
-                    raise ValueError(f"Body {name} is not in the robot subtree")
-            return ControlPolicyInputStateEEFOnlyConfiguration(
-                type=input_spec.type,
-                content=EEFOnlyIOStateDataConfiguration(
-                    robot_base_body_name=content.robot_base_body_name,
-                    gripper_body_name=content.gripper_body_name,
-                    end_effector_body_name=content.end_effector_body_name,
-                    eef_state=extract(
-                        content.eef_state, content.end_effector_body_name
-                    ),
-                    qpos_gripper_state=extract(
-                        content.qpos_gripper_state, content.gripper_body_name
-                    ),
-                ),
-            )
-        raise ValueError(f"Unsupported ControlPolicyInputSpec: {input_spec.type}")
+        states = []
+        for state in content.states:
+            if state.type == InputStateTypes.INPUT_STATE_CONTROLLABLE:
+                states.append(
+                    InputStateDataInputStateControllable(
+                        type=state.type,
+                        content=extract_controllable(state.content),
+                    )
+                )
+            elif state.type == InputStateTypes.INPUT_STATE_SENSORS:
+                if state.content == InputStateItemSensors.CAMERAS:
+                    # Rendering remains separate because a vmapped renderer
+                    # requires a correspondingly batched MJX data object.
+                    value = array_module.empty((0,), dtype=data.qpos.dtype)
+                elif state.content == InputStateItemSensors.CONTACTPAIRS:
+                    if contact_sensor_addresses is None or contact_body_pairs is None:
+                        raise ValueError(
+                            "ContactPairs requires contact_sensor_addresses and "
+                            "contact_body_pairs"
+                        )
+                    value = Simulator._get_contact_pair_sensor_state(
+                        data,
+                        contact_sensor_addresses,
+                        contact_body_pairs,
+                        array_module,
+                    )
+                else:
+                    raise ValueError(f"Unsupported sensor state item: {state.content}")
+                if array_module is np:
+                    value = value.copy()
+                states.append(
+                    InputStateDataInputStateSensors(
+                        type=state.type,
+                        content=value,
+                    )
+                )
+            else:
+                raise ValueError(f"Unsupported input state: {state.type}")
+
+        return ControlPolicyInputStateStandardInputSpec(
+            type=input_spec.type,
+            content=StandardInputData(
+                base_body_name=content.base_body_name,
+                states=states,
+            ),
+        )
 
     @staticmethod
     @abstractmethod
