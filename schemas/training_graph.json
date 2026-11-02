@@ -565,36 +565,25 @@
       "type": "object",
       "properties": {
         "base_body_name": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         },
         "state": {
-          "$ref": "#/definitions/OutputStateTree"
+          "$ref": "#/definitions/OutputState"
         }
       },
       "required": [
+        "base_body_name",
         "state"
       ]
     },
-    "OutputStateTree": {
+    "OutputState": {
       "type": "object",
       "properties": {
         "is_delta": {
           "type": "boolean"
         },
-        "rebase_body_tree": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "excluded_body_trees": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+        "rebase_body": {
+          "type": "string"
         },
         "state_item": {
           "$ref": "#/definitions/OutputStateItem"
@@ -602,7 +591,7 @@
       },
       "required": [
         "is_delta",
-        "excluded_body_trees",
+        "rebase_body",
         "state_item"
       ]
     },
@@ -672,34 +661,15 @@
           ]
         },
         "eef_state": {
-          "$ref": "#/definitions/OutputStateSingular"
+          "$ref": "#/definitions/OutputState"
         },
         "gripper": {
-          "$ref": "#/definitions/OutputStateTree"
+          "$ref": "#/definitions/OutputState"
         }
       },
       "required": [
         "eef_state",
         "gripper"
-      ]
-    },
-    "OutputStateSingular": {
-      "type": "object",
-      "properties": {
-        "is_delta": {
-          "type": "boolean"
-        },
-        "body_name": {
-          "type": "string"
-        },
-        "state_item": {
-          "$ref": "#/definitions/OutputStateItem"
-        }
-      },
-      "required": [
-        "is_delta",
-        "body_name",
-        "state_item"
       ]
     },
     "ValueModel": {

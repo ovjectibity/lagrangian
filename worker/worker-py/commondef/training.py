@@ -67,21 +67,15 @@ class OutputStateItemXPose(BaseModel):
     content: XPoseSpec
 
 OutputStateItem = Union[OutputStateItemQPos, OutputStateItemQVel, OutputStateItemGeneralisedForces, OutputStateItemXPose]
-class OutputStateSingular(BaseModel):
+class OutputState(BaseModel):
     is_delta: bool
-    body_name: str
-    state_item: OutputStateItem
-
-class OutputStateTree(BaseModel):
-    is_delta: bool
-    rebase_body_tree: Optional[str] = Field(default=None)
-    excluded_body_trees: List[str]
+    rebase_body: str
     state_item: OutputStateItem
 
 class EEFOutputSpec(BaseModel):
     base_body_name: Optional[str] = Field(default=None)
-    eef_state: OutputStateSingular
-    gripper: OutputStateTree
+    eef_state: OutputState
+    gripper: OutputState
 
 class FlowNoiseConfig(BaseModel):
     noise_model: MLPModel
@@ -177,8 +171,8 @@ class PPOTrainingRunState(BaseModel):
     update_index: int
 
 class ProprioceptiveOutputSpec(BaseModel):
-    base_body_name: Optional[str] = Field(default=None)
-    state: OutputStateTree
+    base_body_name: str
+    state: OutputState
 
 class InputStateTypes(str, Enum):
     INPUT_STATE_CONTROLLABLE = "InputStateControllable"

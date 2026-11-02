@@ -88,25 +88,12 @@ ControlPolicyInputState = ControlPolicyInputStateStandardInputSpec
 @partial(
     jax.tree_util.register_dataclass,
     data_fields=("state_item",),
-    meta_fields=("is_delta", "rebase_body_tree", "excluded_body_trees"),
+    meta_fields=("is_delta", "rebase_body"),
 )
 @dataclass(frozen=True)
-class OutputStateTreeData:
+class OutputStateData:
     is_delta: bool
-    rebase_body_tree: str | None
-    excluded_body_trees: tuple[str, ...]
-    state_item: jnp.ndarray | np.ndarray
-
-
-@partial(
-    jax.tree_util.register_dataclass,
-    data_fields=("state_item",),
-    meta_fields=("is_delta", "body_name"),
-)
-@dataclass(frozen=True)
-class OutputStateSingularData:
-    is_delta: bool
-    body_name: str
+    rebase_body: str | None
     state_item: jnp.ndarray | np.ndarray
 
 
@@ -118,7 +105,7 @@ class OutputStateSingularData:
 @dataclass(frozen=True)
 class ProprioceptiveOutputData:
     base_body_name: str | None
-    state: OutputStateTreeData
+    state: OutputStateData
 
 
 @partial(
@@ -129,8 +116,8 @@ class ProprioceptiveOutputData:
 @dataclass(frozen=True)
 class EEFOutputData:
     base_body_name: str | None
-    eef_state: OutputStateSingularData
-    gripper: OutputStateTreeData
+    eef_state: OutputStateData
+    gripper: OutputStateData
 
 
 @partial(

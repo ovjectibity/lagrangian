@@ -50,6 +50,57 @@ def _robot_dof_indices(model: mjx.Model, robot_base_name: str) -> jnp.ndarray:
     return jnp.asarray(indices, dtype=jnp.int32)
 
 
+def _partial_dof_indices(
+    model: mjx.Model,
+    robot_base_name: str,
+    rebase_body_name: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return robot-local and model-global DOF IDs below ``rebase_body_name``.
+
+    Both body names are resolved from model topology, hence the selected
+    coordinate count and ordering are static for a given compiled model.  The
+    rebased body must be within the robot base subtree; its descendant joints
+    (rather than only joints attached directly to that body) define the
+    partial coordinate task.
+    """
+    in_robot = _robot_body_mask(model, robot_base_name)
+    in_rebase = _robot_body_mask(model, rebase_body_name)
+    rebase_id = _body_id(model, rebase_body_name)
+    if not in_robot[rebase_id]:
+        raise ValueError(
+            f"Rebase body {rebase_body_name} is outside robot base {robot_base_name}"
+        )
+
+    dof_bodies = np.asarray(model.dof_bodyid)
+    robot_dofs = np.flatnonzero(in_robot[dof_bodies])
+    partial_dofs = np.flatnonzero(in_rebase[dof_bodies] & in_robot[dof_bodies])
+    if partial_dofs.size == 0:
+        raise ValueError(
+            f"Rebase body {rebase_body_name} has no descendant joint DOFs"
+        )
+
+    # ``robot_dofs`` is sorted in global DOF order, so searchsorted yields
+    # stable robot-local coordinates for every selected descendant DOF.
+    return np.searchsorted(robot_dofs, partial_dofs), partial_dofs
+
+
+def _partial_joint_ids(
+    model: mjx.Model,
+    robot_base_name: str,
+    rebase_body_name: str,
+) -> np.ndarray:
+    """Return joint IDs attached to the rebased body subtree in model order."""
+    in_robot = _robot_body_mask(model, robot_base_name)
+    in_rebase = _robot_body_mask(model, rebase_body_name)
+    rebase_id = _body_id(model, rebase_body_name)
+    if not in_robot[rebase_id]:
+        raise ValueError(
+            f"Rebase body {rebase_body_name} is outside robot base {robot_base_name}"
+        )
+    joint_bodies = np.asarray(model.jnt_bodyid)
+    return np.flatnonzero(in_rebase[joint_bodies] & in_robot[joint_bodies])
+
+
 def _robot_actuator_indices(model: mjx.Model, robot_base_name: str) -> np.ndarray:
     """Select robot actuators and reject unsupported transmissions."""
     in_robot = _robot_body_mask(model, robot_base_name)
@@ -119,14 +170,14 @@ def _robot_actuator_indices(model: mjx.Model, robot_base_name: str) -> np.ndarra
     return np.asarray(selected, dtype=np.int32)
 
 
-def get_jacobian(
+def get_cartesian_body_jacobian(
     model: mjx.Model,
     data: mjx.Data,
-    eef_name: str,
+    target_body: str,
     robot_base_name: str,
 ) -> jnp.ndarray:
-    """Return the world-frame body-origin Jacobian, shape (6, robot_nv)."""
-    body_id = _body_id(model, eef_name)
+    """Return a body's world-frame origin Jacobian, shape ``(6, robot_nv)``."""
+    body_id = _body_id(model, target_body)
     robot_dofs = _robot_dof_indices(model, robot_base_name)
     # MJX returns (nv, 3) linear and angular blocks. Keep linear rows first
     # throughout the task-space helpers; retain the actual gripper columns.
@@ -134,23 +185,14 @@ def get_jacobian(
     return jnp.concatenate((jacp[robot_dofs].T, jacr[robot_dofs].T), axis=0)
 
 
-def get_jacobian_transpose(
+def get_cartesian_body_jacobian_derivative(
     model: mjx.Model,
     data: mjx.Data,
-    eef_name: str,
-    robot_base_name: str,
-) -> jnp.ndarray:
-    return get_jacobian(model, data, eef_name, robot_base_name).T
-
-
-def get_jacobian_derivative(
-    model: mjx.Model,
-    data: mjx.Data,
-    eef_name: str,
+    target_body: str,
     robot_base_name: str,
 ) -> jnp.ndarray:
     """Return the world-frame time derivative of the body Jacobian."""
-    body_id = _body_id(model, eef_name)
+    body_id = _body_id(model, target_body)
     robot_dofs = _robot_dof_indices(model, robot_base_name)
     # MJX 3.11 exposes jac_dot in its support module, but not its public API.
     # It uses the forwarded cdof_dot/cvel fields; no CPU MuJoCo call is made.
@@ -190,176 +232,106 @@ def get_generalised_bias_forces(
     return data.qfrc_bias[_robot_dof_indices(model, robot_base_name)]
 
 
-def get_generalised_constraint_forces(
-    model: mjx.Model,
-    data: mjx.Data,
-    robot_base_name: str,
-) -> jnp.ndarray:
-    """Read robot constraint forces; the OSC force law does not compensate them."""
-    return data.qfrc_constraint[_robot_dof_indices(model, robot_base_name)]
-
-
 def get_task_space_inverse_inertia(
     model: mjx.Model,
     data: mjx.Data,
-    eef_name: str,
     robot_base_name: str,
+    task_space_jacobian: jnp.ndarray,
 ) -> jnp.ndarray:
-    jacobian = get_jacobian(model, data, eef_name, robot_base_name)
+    """Return ``J H⁻¹ Jᵀ`` for the supplied robot-base task Jacobian."""
+    robot_nv = _robot_dof_indices(model, robot_base_name).shape[0]
+    if task_space_jacobian.ndim != 2 or task_space_jacobian.shape[1] != robot_nv:
+        raise ValueError(
+            "task_space_jacobian must have shape (task_nv, robot_nv): "
+            f"got {task_space_jacobian.shape}, robot_nv={robot_nv}"
+        )
     inverse_inertia = get_inverse_generalised_inertia(model, data, robot_base_name)
-    return jacobian @ inverse_inertia @ jacobian.T
+    return task_space_jacobian @ inverse_inertia @ task_space_jacobian.T
 
 
 def get_task_space_inertia(
     model: mjx.Model,
     data: mjx.Data,
-    eef_name: str,
     robot_base_name: str,
+    task_space_jacobian: jnp.ndarray,
 ) -> jnp.ndarray:
     # The pseudoinverse also gives a finite result at singular task poses;
     # exact acceleration tracking requires a full-rank task Jacobian.
     return jnp.linalg.pinv(
-        get_task_space_inverse_inertia(model, data, eef_name, robot_base_name)
-    )
-
-
-def compute_task_space_force(
-    model: mjx.Model,
-    data: mjx.Data,
-    desired_acceleration: jnp.ndarray,
-    eef_name: str,
-    robot_base_name: str,
-) -> jnp.ndarray:
-    """Compute equation (24)'s nominal world-frame task-space wrench."""
-    if desired_acceleration.shape != (6,):
-        raise ValueError("desired_acceleration must have shape (6,)")
-
-    robot_dofs = _robot_dof_indices(model, robot_base_name)
-    jacobian = get_jacobian(model, data, eef_name, robot_base_name)
-    jacobian_dot = get_jacobian_derivative(model, data, eef_name, robot_base_name)
-    inverse_inertia = get_inverse_generalised_inertia(model, data, robot_base_name)
-    # This is the same calculation as get_task_space_inertia, using the J and
-    # H inverse already needed below rather than computing them a second time.
-    task_inertia = jnp.linalg.pinv(jacobian @ inverse_inertia @ jacobian.T)
-    bias = get_generalised_bias_forces(model, data, robot_base_name)
-    passive = data.qfrc_passive[robot_dofs]
-
-    # Desired feed-forward acceleration is supplied by the caller. This law
-    # compensates current-state passive forces, which MuJoCo stores separately
-    # from bias forces. Constraint forces are omitted; null-space force is zero.
-    # H*qacc + C = J.T*F + P, hence the compensation term uses C - P.
-    return task_inertia @ (
-        desired_acceleration
-        - jacobian_dot @ data.qvel[robot_dofs]
-        + jacobian @ inverse_inertia @ (bias - passive)
-    )
-
-
-def get_generalised_forces_from_task_space_force(
-    model: mjx.Model,
-    data: mjx.Data,
-    task_space_force: jnp.ndarray,
-    eef_name: str,
-    robot_base_name: str,
-) -> jnp.ndarray:
-    if task_space_force.shape != (6,):
-        raise ValueError("task_space_force must have shape (6,)")
-    return get_jacobian_transpose(
-        model, data, eef_name, robot_base_name
-    ) @ task_space_force
-
-
-def get_generalised_forces_from_eef_deltas(
-    model: mjx.Model,
-    data: mjx.Data,
-    xpos_delta: jnp.ndarray,
-    xquat_delta: jnp.ndarray,
-    kd: jnp.ndarray | float,
-    ke: jnp.ndarray | float,
-    eef_name: str,
-    robot_base_name: str,
-) -> jnp.ndarray:
-    """Map scaled world-frame pose deltas to robot generalized forces."""
-    if xpos_delta.shape != (3,) or xquat_delta.shape != (4,):
-        raise ValueError("xpos_delta and xquat_delta must have shapes (3,) and (4,)")
-    ke = jnp.asarray(ke)
-    kd = jnp.asarray(kd)
-    if ke.shape not in ((), (6,)) or kd.shape not in ((), (6,)):
-        raise ValueError("ke and kd must be scalars or have shape (6,)")
-
-    body_id = _body_id(model, eef_name)
-    robot_dofs = _robot_dof_indices(model, robot_base_name)
-    base_id = _body_id(model, robot_base_name)
-    ancestor = body_id
-    while ancestor != base_id and ancestor != 0:
-        ancestor = int(model.body_parentid[ancestor])
-    if ancestor != base_id:
-        raise ValueError("End-effector body is not part of the robot")
-
-    current_pos = data.xpos[body_id]
-    current_quat = data.xquat[body_id]
-    # Deltas have already been unnormalized/scaled. The quaternion is a unit
-    # relative rotation in world coordinates, so target = delta * current.
-    target_pos = current_pos + xpos_delta
-    target_quat = mjx_math.quat_mul(xquat_delta, current_quat)
-    rotation_error = mjx_math.quat_mul(target_quat, mjx_math.quat_inv(current_quat))
-    axis, angle = mjx_math.quat_to_axis_angle(rotation_error)
-    pose_error = jnp.concatenate((target_pos - current_pos, axis * angle))
-
-    # Desired velocity and acceleration are both zero. ke is Kp, kd is Kd;
-    # each gain is a scalar or a six-element vector [linear, angular].
-    jacobian = get_jacobian(model, data, eef_name, robot_base_name)
-    current_velocity = jacobian @ data.qvel[robot_dofs]
-    desired_acceleration = ke * pose_error - kd * current_velocity
-
-    task_space_force = compute_task_space_force(
-        model, data, desired_acceleration, eef_name, robot_base_name
-    )
-    # This returns generalized forces for the robot DOFs, including gripper
-    # joints; mapping to actuator control inputs is intentionally deferred.
-    return get_generalised_forces_from_task_space_force(
-        model, data, task_space_force, eef_name, robot_base_name
-    )
-
-
-def get_robot_actuator_moment_arms(
-    model: mjx.Model,
-    data: mjx.Data,
-    robot_base_name: str,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Return robot actuator moments and actuator IDs in model order.
-
-    Rows correspond to the returned actuator IDs; columns correspond to the
-    robot DOFs returned by ``_robot_dof_indices``. The state must already have
-    passed through MJX forward dynamics so its transmission data is current.
-    """
-    actuator_ids = _robot_actuator_indices(model, robot_base_name)
-    robot_dofs = _robot_dof_indices(model, robot_base_name)
-
-    if data.impl.name == "JAX":
-        moments = data._impl.actuator_moment[actuator_ids]
-    elif data.impl.name == "WARP":
-        # Warp stores each moment row sparsely. Supported joint transmissions
-        # have at most six entries, including the free-joint transmissions.
-        if model.nJmom == 0:
-            raise ValueError("Robot actuators have no transmission moments")
-        offsets = jnp.arange(6, dtype=jnp.int32)
-        row_start = data._impl.moment_rowadr[actuator_ids]
-        row_count = data._impl.moment_rownnz[actuator_ids]
-        addresses = jnp.clip(
-            row_start[:, None] + offsets[None, :], 0, model.nJmom - 1
+        get_task_space_inverse_inertia(
+            model, data, robot_base_name, task_space_jacobian
         )
-        valid = offsets[None, :] < row_count[:, None]
-        columns = jnp.where(valid, data._impl.moment_colind[addresses], 0)
-        values = jnp.where(valid, data._impl.actuator_moment[addresses], 0)
-        moments = jnp.zeros((actuator_ids.size, model.nv), dtype=data.qvel.dtype)
-        moments = moments.at[
-            jnp.arange(actuator_ids.size)[:, None], columns
-        ].add(values)
-    else:
-        raise ValueError(f"Unsupported MJX implementation: {data.impl}")
+    )
 
-    return moments[:, robot_dofs], jnp.asarray(actuator_ids, dtype=jnp.int32)
+
+def get_generalised_forces_from_task_space_qpos(
+    model: mjx.Model,
+    data: mjx.Data,
+    robot_base_name: str,
+    qpos_error: jnp.ndarray,
+    kd: jnp.ndarray | float,
+    kp: jnp.ndarray | float,
+    task_space_jacobian: jnp.ndarray,
+    task_space_jacobian_derivative: jnp.ndarray,
+) -> jnp.ndarray:
+    """Map a task-coordinate PD error to robot-base generalized forces.
+
+    ``qpos_error`` is already expressed in the task's velocity tangent space:
+    for example, an EEF pose uses three position and three axis-angle values,
+    while a partial joint task uses one value per selected DOF.  Consequently,
+    this helper does not interpret absolute targets, deltas, or quaternions.
+
+    The supplied Jacobian maps robot-base generalized velocity to task
+    velocity.  Its derivative must use the same coordinate order.  Constraint
+    forces are intentionally omitted, and passive forces are compensated, in
+    line with the existing OSC helpers.
+    """
+    robot_dofs = _robot_dof_indices(model, robot_base_name)
+    robot_nv = robot_dofs.shape[0]
+    if qpos_error.ndim != 1:
+        raise ValueError("qpos_error must be one-dimensional")
+    task_nv = qpos_error.shape[0]
+    expected_shape = (task_nv, robot_nv)
+    if task_space_jacobian.shape != expected_shape:
+        raise ValueError(
+            "task_space_jacobian must have shape "
+            f"{expected_shape}, got {task_space_jacobian.shape}"
+        )
+    if task_space_jacobian_derivative.shape != expected_shape:
+        raise ValueError(
+            "task_space_jacobian_derivative must have shape "
+            f"{expected_shape}, got {task_space_jacobian_derivative.shape}"
+        )
+
+    kp = jnp.asarray(kp)
+    kd = jnp.asarray(kd)
+    if kp.shape not in ((), (task_nv,)) or kd.shape not in ((), (task_nv,)):
+        raise ValueError(
+            "kp and kd must be scalars or have one value per task coordinate"
+        )
+
+    robot_qvel = data.qvel[robot_dofs]
+    desired_acceleration = (
+        kp * qpos_error - kd * (task_space_jacobian @ robot_qvel)
+    )
+    inverse_inertia = get_inverse_generalised_inertia(
+        model, data, robot_base_name
+    )
+    task_inertia = jnp.linalg.pinv(
+        task_space_jacobian
+        @ inverse_inertia
+        @ task_space_jacobian.T
+    )
+    bias_minus_passive = (
+        get_generalised_bias_forces(model, data, robot_base_name)
+        - data.qfrc_passive[robot_dofs]
+    )
+    task_force = task_inertia @ (
+        desired_acceleration
+        - task_space_jacobian_derivative @ robot_qvel
+        + task_space_jacobian @ inverse_inertia @ bias_minus_passive
+    )
+    return task_space_jacobian.T @ task_force
 
 
 def get_actuator_control_input_from_generalised_forces(
@@ -377,16 +349,40 @@ def get_actuator_control_input_from_generalised_forces(
     actuator configurations outside the supported subset raise ValueError at
     trace time.
     """
-    moments, actuator_ids = get_robot_actuator_moment_arms(
-        model, data, robot_base_name
-    )
+    actuator_ids_static = _robot_actuator_indices(model, robot_base_name)
+    robot_dofs = _robot_dof_indices(model, robot_base_name)
+    actuator_ids = jnp.asarray(actuator_ids_static, dtype=jnp.int32)
+    if data.impl.name == "JAX":
+        moments = data._impl.actuator_moment[actuator_ids_static]
+    elif data.impl.name == "WARP":
+        # Warp stores moment rows sparsely. Supported joint transmissions have
+        # at most six entries, including free-joint transmissions.
+        if model.nJmom == 0:
+            raise ValueError("Robot actuators have no transmission moments")
+        offsets = jnp.arange(6, dtype=jnp.int32)
+        row_start = data._impl.moment_rowadr[actuator_ids_static]
+        row_count = data._impl.moment_rownnz[actuator_ids_static]
+        addresses = jnp.clip(
+            row_start[:, None] + offsets[None, :], 0, model.nJmom - 1
+        )
+        valid = offsets[None, :] < row_count[:, None]
+        columns = jnp.where(valid, data._impl.moment_colind[addresses], 0)
+        values = jnp.where(valid, data._impl.actuator_moment[addresses], 0)
+        moments = jnp.zeros(
+            (actuator_ids_static.size, model.nv), dtype=data.qvel.dtype
+        )
+        moments = moments.at[
+            jnp.arange(actuator_ids_static.size)[:, None], columns
+        ].add(values)
+    else:
+        raise ValueError(f"Unsupported MJX implementation: {data.impl}")
+    moments = moments[:, robot_dofs]
     if tau.shape != (moments.shape[1],):
         raise ValueError(
             "tau must have one entry per robot DOF: "
             f"expected {(moments.shape[1],)}, got {tau.shape}"
         )
 
-    actuator_ids_static = _robot_actuator_indices(model, robot_base_name)
     nactuator = model.actuator_trntype.shape[0]
     if model.nu != nactuator or data.actuator_length.shape[0] != nactuator:
         raise ValueError("Only single-input, single-output actuators are supported")
@@ -464,66 +460,218 @@ def get_actuator_control_input_from_generalised_forces(
     return controls, valid
 
 
-def get_actuator_control_input_from_eef_deltas(
+def get_partial_dof_jacobian(
+    model: mjx.Model,
+    robot_base_name: str,
+    rebase_body_name: str,
+) -> jnp.ndarray:
+    """Return ``S`` mapping robot-base velocity to rebased descendant velocity.
+
+    If ``qdot_r`` contains all velocity coordinates below ``robot_base_name``
+    and ``qdot_p`` contains just the coordinates of descendant joints below
+    ``rebase_body_name``, then ``qdot_p = S @ qdot_r``.  This is a constant
+    coordinate-selection Jacobian, not a Cartesian body Jacobian.
+    """
+    partial_local_dofs, robot_global_dofs = _partial_dof_indices(
+        model, robot_base_name, rebase_body_name
+    )
+    robot_nv = robot_global_dofs.size
+    return jnp.asarray(
+        np.eye(robot_nv, dtype=np.float32)[partial_local_dofs], dtype=jnp.float32
+    )
+
+
+def get_eef_gripper_task_space_jacobian(
     model: mjx.Model,
     data: mjx.Data,
-    xpos_delta: jnp.ndarray,
-    xquat_delta: jnp.ndarray,
-    kd: jnp.ndarray | float,
-    ke: jnp.ndarray | float,
-    eef_name: str,
     robot_base_name: str,
+    eef_body: str,
+    gripper_body: str,
+) -> jnp.ndarray:
+    """Return the stacked EEF-pose and gripper-coordinate task Jacobian.
+
+    The first six rows map robot-base generalized velocity to the EEF body's
+    world-frame linear and angular velocity.  The remaining rows map it to
+    the generalized velocities of all descendant joints below
+    ``gripper_body``.  Both blocks therefore share the same robot-base DOF
+    columns and can be used as one equal-priority task-space Jacobian.
+    """
+    eef_jacobian = get_cartesian_body_jacobian(
+        model, data, eef_body, robot_base_name
+    )
+    gripper_jacobian = get_partial_dof_jacobian(
+        model, robot_base_name, gripper_body
+    ).astype(eef_jacobian.dtype)
+    return jnp.concatenate((eef_jacobian, gripper_jacobian), axis=0)
+
+
+def get_eef_gripper_task_space_jacobian_derivative(
+    model: mjx.Model,
+    data: mjx.Data,
+    robot_base_name: str,
+    eef_body: str,
+    gripper_body: str,
+) -> jnp.ndarray:
+    """Return the derivative of the stacked EEF-pose/gripper task Jacobian.
+
+    The Cartesian body Jacobian changes with the robot configuration.  The
+    gripper block is the fixed coordinate-selection matrix ``S``, so its time
+    derivative is identically zero.
+    """
+    eef_jacobian_derivative = get_cartesian_body_jacobian_derivative(
+        model, data, eef_body, robot_base_name
+    )
+    gripper_jacobian = get_partial_dof_jacobian(
+        model, robot_base_name, gripper_body
+    )
+    gripper_jacobian_derivative = jnp.zeros(
+        gripper_jacobian.shape,
+        dtype=eef_jacobian_derivative.dtype,
+    )
+    return jnp.concatenate(
+        (eef_jacobian_derivative, gripper_jacobian_derivative), axis=0
+    )
+
+
+def get_actuator_control_input_from_eef_gripper_pos_commands(
+    model: mjx.Model,
+    data: mjx.Data,
+    robot_base_name: str,
+    eef_body: str,
+    gripper_body: str,
+    eef_pose_delta: jnp.ndarray,
+    gripper_qpos_delta: jnp.ndarray,
+    kd: jnp.ndarray | float,
+    kp: jnp.ndarray | float,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Return robot actuator controls and their validity for EEF pose deltas."""
-    tau = get_generalised_forces_from_eef_deltas(
+    """Map EEF-pose and gripper-qpos deltas to robot actuator controls.
+
+    Assumptions:
+
+    * ``eef_pose_delta`` is ordered as ``[delta_x, delta_y, delta_z,
+      axis_angle_x, axis_angle_y, axis_angle_z]``.  The translation is a
+      world-frame delta.  The final three values define a true relative
+      world-frame rotation, represented as axis-angle—not component-wise
+      quaternion or orientation differences.
+    * ``gripper_qpos_delta`` has one tangent-space entry per descendant joint
+      DOF below ``gripper_body``.  Ball/free-joint rotations therefore use
+      three tangent coordinates rather than quaternion components.
+    * ``kp`` and ``kd`` are scalar or one value per combined task coordinate:
+      six EEF coordinates followed by the gripper subtree's tangent DOFs.
+    * Desired task velocity and acceleration are zero.  Constraint-force
+      compensation remains intentionally excluded by the shared OSC helper.
+
+    The EEF and gripper are treated as one equal-priority task.  One combined
+    generalized force is therefore converted to controls only once, avoiding
+    separate actuator inversions for the two commands.
+    """
+    if eef_pose_delta.shape != (6,):
+        raise ValueError(
+            "eef_pose_delta must have shape (6,) "
+            "[world translation delta, relative world axis-angle]"
+        )
+
+    relative_axis_angle = eef_pose_delta[3:]
+    relative_angle = jnp.linalg.norm(relative_axis_angle)
+    # For the zero-angle case, sin(angle / 2) / angle has the finite limit
+    # 1/2. This produces a proper relative quaternion in JIT-compatible JAX.
+    quaternion_scale = jnp.where(
+        relative_angle > 1e-8,
+        jnp.sin(relative_angle / 2.0) / relative_angle,
+        0.5,
+    )
+    relative_quaternion = jnp.concatenate(
+        (
+            jnp.cos(relative_angle / 2.0)[None],
+            relative_axis_angle * quaternion_scale,
+        )
+    )
+    rotation_axis, rotation_angle = mjx_math.quat_to_axis_angle(
+        relative_quaternion
+    )
+    eef_qpos_error = jnp.concatenate(
+        (
+            eef_pose_delta[:3],
+            rotation_axis * rotation_angle,
+        )
+    )
+
+    selection = get_partial_dof_jacobian(
+        model, robot_base_name, gripper_body
+    )
+    partial_nv = selection.shape[0]
+    if gripper_qpos_delta.shape != (partial_nv,):
+        raise ValueError(
+            "gripper_qpos_delta must have shape "
+            f"{(partial_nv,)}, got {gripper_qpos_delta.shape}"
+        )
+
+    task_space_jacobian = get_eef_gripper_task_space_jacobian(
+        model, data, robot_base_name, eef_body, gripper_body
+    )
+    task_space_jacobian_derivative = (
+        get_eef_gripper_task_space_jacobian_derivative(
+            model, data, robot_base_name, eef_body, gripper_body
+        )
+    )
+    tau = get_generalised_forces_from_task_space_qpos(
         model,
         data,
-        xpos_delta,
-        xquat_delta,
-        kd,
-        ke,
-        eef_name,
         robot_base_name,
+        jnp.concatenate((eef_qpos_error, gripper_qpos_delta)),
+        kd,
+        kp,
+        task_space_jacobian,
+        task_space_jacobian_derivative,
     )
     return get_actuator_control_input_from_generalised_forces(
         model, data, tau, robot_base_name
     )
 
 
-def get_actuator_control_input_from_qpos(
+def get_generalised_forces_input_from_partial_qpos(
     model: mjx.Model,
     data: mjx.Data,
-    qpos: jnp.ndarray,
+    partial_qpos: jnp.ndarray,
     is_delta: bool,
     kd: jnp.ndarray | float,
     kp: jnp.ndarray | float,
     robot_base_name: str,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Map a robot position target or tangent-space delta to controls.
+    rebase_body_name: str,
+) -> jnp.ndarray:
+    """Generate robot-base forces for a descendant-joint position command.
 
-    Absolute targets have one entry per robot qpos coordinate and contain
-    unit quaternions. Deltas have one entry per robot DOF, so ball/free-joint
-    rotations use three tangent coordinates rather than four quaternion
-    components. The current robot velocity is the zero-velocity target for
-    PD control. ``is_delta`` is static at JAX trace time because the input
-    lengths can differ when quaternion joints are present.
+    ``partial_qpos`` addresses all joints attached to ``rebase_body_name`` or
+    its descendants.  Absolute commands use that subtree's qpos coordinates;
+    delta commands use its tangent-space DOFs.  The partial task is lifted
+    through the full robot-base inertia, so it can later be combined with an
+    EEF task force before one actuator-force solve.
+
+    Constraints are intentionally omitted.  Passive force is compensated,
+    matching the existing qpos and EEF helpers.  ``S`` is constant for a
+    fixed MJCF topology, so its derivative is zero.
     """
     robot_dofs = _robot_dof_indices(model, robot_base_name)
-    robot_nv = robot_dofs.shape[0]
+    selection = get_partial_dof_jacobian(
+        model, robot_base_name, rebase_body_name
+    ).astype(data.qvel.dtype)
+    partial_nv = selection.shape[0]
     kd = jnp.asarray(kd)
     kp = jnp.asarray(kp)
-    if kd.shape not in ((), (robot_nv,)) or kp.shape not in ((), (robot_nv,)):
-        raise ValueError("kp and kd must be scalars or have one value per robot DOF")
+    if kd.shape not in ((), (partial_nv,)) or kp.shape not in ((), (partial_nv,)):
+        raise ValueError(
+            "kp and kd must be scalars or have one value per partial DOF"
+        )
 
     if is_delta:
-        if qpos.shape != (robot_nv,):
+        if partial_qpos.shape != (partial_nv,):
             raise ValueError(
-                f"qpos delta must have shape {(robot_nv,)}, got {qpos.shape}"
+                "partial qpos delta must have shape "
+                f"{(partial_nv,)}, got {partial_qpos.shape}"
             )
-        position_error = qpos
+        position_error = partial_qpos
     else:
-        in_robot = _robot_body_mask(model, robot_base_name)
-        joint_ids = np.flatnonzero(in_robot[np.asarray(model.jnt_bodyid)])
+        joint_ids = _partial_joint_ids(model, robot_base_name, rebase_body_name)
         joint_types = np.asarray(model.jnt_type)
         qpos_addresses = np.asarray(model.jnt_qposadr)
         joint_widths = [
@@ -532,17 +680,18 @@ def get_actuator_control_input_from_qpos(
             else 1
             for joint_id in joint_ids
         ]
-        robot_nq = sum(joint_widths)
-        if qpos.shape != (robot_nq,):
+        partial_nq = sum(joint_widths)
+        if partial_qpos.shape != (partial_nq,):
             raise ValueError(
-                f"absolute qpos must have shape {(robot_nq,)}, got {qpos.shape}"
+                "absolute partial qpos must have shape "
+                f"{(partial_nq,)}, got {partial_qpos.shape}"
             )
 
         errors = []
         target_address = 0
         for joint_id, width in zip(joint_ids, joint_widths):
             current_address = int(qpos_addresses[joint_id])
-            target = qpos[target_address : target_address + width]
+            target = partial_qpos[target_address : target_address + width]
             current = data.qpos[current_address : current_address + width]
             if width == 7:
                 error = jnp.concatenate(
@@ -559,58 +708,130 @@ def get_actuator_control_input_from_qpos(
             target_address += width
         position_error = jnp.concatenate(errors)
 
-    desired_acceleration = kp * position_error - kd * data.qvel[robot_dofs]
-    # Match the EEF helper's reduced robot dynamics: hold environment DOF
-    # accelerations fixed and omit current constraint forces.
-    tau = (
-        get_generalised_inertia(model, data, robot_base_name)
-        @ desired_acceleration
-        + get_generalised_bias_forces(model, data, robot_base_name)
+    partial_velocity = selection @ data.qvel[robot_dofs]
+    desired_acceleration = kp * position_error - kd * partial_velocity
+    inverse_inertia = get_inverse_generalised_inertia(
+        model, data, robot_base_name
+    )
+    task_inertia = jnp.linalg.pinv(
+        selection @ inverse_inertia @ selection.T
+    )
+    bias_minus_passive = (
+        get_generalised_bias_forces(model, data, robot_base_name)
         - data.qfrc_passive[robot_dofs]
     )
-    return get_actuator_control_input_from_tau(
+    partial_force = task_inertia @ (
+        desired_acceleration + selection @ inverse_inertia @ bias_minus_passive
+    )
+    return selection.T @ partial_force
+
+
+def get_actuator_control_input_from_partial_qpos(
+    model: mjx.Model,
+    data: mjx.Data,
+    partial_qpos: jnp.ndarray,
+    is_delta: bool,
+    kd: jnp.ndarray | float,
+    kp: jnp.ndarray | float,
+    robot_base_name: str,
+    rebase_body_name: str,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Map a descendant-joint qpos target to robot actuator controls.
+
+    This wrapper is convenient for independent partial control.  For combined
+    EEF and gripper control, use the force-level helper above, combine forces
+    in robot-base coordinates, then call
+    ``get_actuator_control_input_from_generalised_forces`` once.
+    """
+    tau = get_generalised_forces_input_from_partial_qpos(
+        model,
+        data,
+        partial_qpos,
+        is_delta,
+        kd,
+        kp,
+        robot_base_name,
+        rebase_body_name,
+    )
+    return get_actuator_control_input_from_generalised_forces(
         model, data, tau, robot_base_name
     )
 
 
-def get_actuator_control_input_from_qvel(
+def get_actuator_control_input_from_partial_qvel(
     model: mjx.Model,
     data: mjx.Data,
-    qvel: jnp.ndarray,
+    partial_qvel: jnp.ndarray,
     is_delta: bool,
     kd: jnp.ndarray | float,
     robot_base_name: str,
+    rebase_body_name: str,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Map an absolute robot velocity target or velocity delta to controls."""
-    robot_dofs = _robot_dof_indices(model, robot_base_name)
-    robot_nv = robot_dofs.shape[0]
-    if qvel.shape != (robot_nv,):
-        raise ValueError(f"qvel must have shape {(robot_nv,)}, got {qvel.shape}")
-    kd = jnp.asarray(kd)
-    if kd.shape not in ((), (robot_nv,)):
-        raise ValueError("kd must be a scalar or have one value per robot DOF")
+    """Map a descendant-joint velocity target or delta to actuator controls.
 
-    velocity_error = qvel if is_delta else qvel - data.qvel[robot_dofs]
+    Absolute targets and deltas both have one entry per descendant DOF.  The
+    partial task is dynamically lifted through the full robot-base inertia;
+    this retains arm/gripper inertial coupling while only commanding the
+    rebased descendant coordinates.
+    """
+    robot_dofs = _robot_dof_indices(model, robot_base_name)
+    selection = get_partial_dof_jacobian(
+        model, robot_base_name, rebase_body_name
+    ).astype(data.qvel.dtype)
+    partial_nv = selection.shape[0]
+    if partial_qvel.shape != (partial_nv,):
+        raise ValueError(
+            "partial qvel must have shape "
+            f"{(partial_nv,)}, got {partial_qvel.shape}"
+        )
+    kd = jnp.asarray(kd)
+    if kd.shape not in ((), (partial_nv,)):
+        raise ValueError("kd must be a scalar or have one value per partial DOF")
+
+    current_velocity = selection @ data.qvel[robot_dofs]
+    velocity_error = (
+        partial_qvel if is_delta else partial_qvel - current_velocity
+    )
     desired_acceleration = kd * velocity_error
-    # Match the EEF helper's reduced robot dynamics and passive-force term.
-    tau = (
-        get_generalised_inertia(model, data, robot_base_name)
-        @ desired_acceleration
-        + get_generalised_bias_forces(model, data, robot_base_name)
+    inverse_inertia = get_inverse_generalised_inertia(
+        model, data, robot_base_name
+    )
+    task_inertia = jnp.linalg.pinv(
+        selection @ inverse_inertia @ selection.T
+    )
+    bias_minus_passive = (
+        get_generalised_bias_forces(model, data, robot_base_name)
         - data.qfrc_passive[robot_dofs]
     )
-    return get_actuator_control_input_from_tau(
-        model, data, tau, robot_base_name
+    partial_force = task_inertia @ (
+        desired_acceleration + selection @ inverse_inertia @ bias_minus_passive
+    )
+    return get_actuator_control_input_from_generalised_forces(
+        model, data, selection.T @ partial_force, robot_base_name
     )
 
 
-def get_actuator_control_input_from_tau(
+def get_actuator_control_input_from_partial_tau(
     model: mjx.Model,
     data: mjx.Data,
-    tau: jnp.ndarray,
+    partial_tau: jnp.ndarray,
     robot_base_name: str,
+    rebase_body_name: str,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Map robot DOF forces to robot actuator controls and a validity flag."""
+    """Map descendant-coordinate generalized forces to actuator controls.
+
+    ``partial_tau`` is a covector in the selected descendant coordinates.
+    Its robot-base representation is therefore ``S.T @ partial_tau``.
+    """
+    selection = get_partial_dof_jacobian(
+        model, robot_base_name, rebase_body_name
+    ).astype(data.qvel.dtype)
+    partial_nv = selection.shape[0]
+    if partial_tau.shape != (partial_nv,):
+        raise ValueError(
+            "partial tau must have shape "
+            f"{(partial_nv,)}, got {partial_tau.shape}"
+        )
     return get_actuator_control_input_from_generalised_forces(
-        model, data, tau, robot_base_name
+        model, data, selection.T @ partial_tau, robot_base_name
     )

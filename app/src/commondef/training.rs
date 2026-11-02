@@ -58,25 +58,9 @@ pub enum InputStateItemSensors {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
-pub struct OutputStateTree {
+pub struct OutputState {
     pub is_delta: bool, 
-    //This is to be interpreted as rebase
-    // body tree to be included from the earlier specified base's tree
-    // This inclusion operation is to be applied before the exclusion list 
-    // If this list is empty it is interpreted as 
-    // meaning all bodies from the prior base need to be included 
-    pub rebase_body_tree: Option<String>,
-    //This list is to be interpreted as the list of 
-    // body trees to be excluded after the inclusion operation
-    pub excluded_body_trees: Vec<String>,
-    pub state_item: OutputStateItem
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
-#[typeshare]
-pub struct OutputStateSingular {
-    pub is_delta: bool, 
-    pub body_name: String,
+    pub rebase_body: String,
     pub state_item: OutputStateItem
 }
 
@@ -118,8 +102,8 @@ pub struct StandardInputSpec {
 pub struct ProprioceptiveOutputSpec {
     //When null the entire model's state is returned otherwise only the 
     // state of the bodies encapsulated by the robot body base
-    pub base_body_name: Option<String>,
-    pub state: OutputStateTree
+    pub base_body_name: String,
+    pub state: OutputState
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
@@ -128,8 +112,8 @@ pub struct EEFOutputSpec {
     //When null the entire model's state is returned otherwise only the 
     // state of the bodies encapsulated by the robot body base
     pub base_body_name: Option<String>,
-    pub eef_state: OutputStateSingular,
-    pub gripper: OutputStateTree
+    pub eef_state: OutputState,
+    pub gripper: OutputState
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]

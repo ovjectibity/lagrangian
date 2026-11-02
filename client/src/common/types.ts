@@ -107,23 +107,16 @@ export type OutputStateItem =
 	| { type: "GeneralisedForces", content?: undefined }
 	| { type: "XPose", content: XPoseSpec };
 
-export interface OutputStateSingular {
+export interface OutputState {
 	is_delta: boolean;
-	body_name: string;
-	state_item: OutputStateItem;
-}
-
-export interface OutputStateTree {
-	is_delta: boolean;
-	rebase_body_tree?: string;
-	excluded_body_trees: string[];
+	rebase_body: string;
 	state_item: OutputStateItem;
 }
 
 export interface EEFOutputSpec {
 	base_body_name?: string;
-	eef_state: OutputStateSingular;
-	gripper: OutputStateTree;
+	eef_state: OutputState;
+	gripper: OutputState;
 }
 
 export interface FlowNoiseConfig {
@@ -244,8 +237,8 @@ export interface Project {
 }
 
 export interface ProprioceptiveOutputSpec {
-	base_body_name?: string;
-	state: OutputStateTree;
+	base_body_name: string;
+	state: OutputState;
 }
 
 export type InputState = 
