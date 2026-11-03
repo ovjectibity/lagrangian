@@ -15,6 +15,7 @@ import jax.numpy as jnp
 import numpy as np
 import orbax.checkpoint as ocp
 
+from commondef.ioadapter import ControlPolicyInputState
 from commondef.remoteworkermessages import (
     Checkpoint,
     StopTrainingMessage,
@@ -25,8 +26,11 @@ from commondef.remoteworkermessages import (
 )
 from commondef.training import (
     CheckpointFrequencyTypes,
-    ControlModelVLA,
     ControlOutputModeFlowMatchingAction,
+    InputStateItemSensors,
+    InputStateTypes,
+    MLModelMLP,
+    MLModelVLA,
     MetricsData,
     PPOTrainingMethod,
     PPOTrainingRunState,
@@ -45,6 +49,7 @@ from models.mlp import MLPModel
 from models.model import PPOTrainedModel
 from models.pi0.pi0 import Pi0Model
 from simulator.simulator import MjxSimulator, MujocoSimulator
+from simulator.state import SimulatorState
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +94,7 @@ class TrainingWorkflow:
         self.id = training_id
         self.training_controller = training_controller
         self.params: PPOTrainingMethod = training_controller.training_method.content
-        self.simulator_state: dict[str, Any] = {}
+        self.simulator_state: SimulatorState | None = None
 
         try:
             root_rng = rng_key if rng_key is not None else jax.random.PRNGKey(0)
@@ -116,12 +121,14 @@ class TrainingWorkflow:
 
             mode = self.training_controller.acceleration_mode
             needs_render_context = any(
-                input_spec.all_cameras
+                state.type == InputStateTypes.INPUT_STATE_SENSORS
+                and state.content == InputStateItemSensors.CAMERAS
                 for input_spec in (
                     self.model.get_control_input_spec(),
                     self.model.get_value_input_spec(),
                     self.model.get_reward_input_spec(),
                 )
+                for state in input_spec.content.states
             )
             if mode in (
                 TrainingAccelerationMode.MLCPUSIMULATIONCPU,
@@ -131,21 +138,13 @@ class TrainingWorkflow:
                 contact_sensor_addresses, contact_body_pairs = (
                     MujocoSimulator._get_contact_pair_sensor_metadata(mujoco_model)
                 )
-                self.simulator_state = {
-                    "simulator_class": MujocoSimulator,
-                    "mjx_data": None,
-                    "mjx_model": None,
-                    "mujoco_data": mujoco_data,
-                    "mujoco_model": mujoco_model,
-                    "render_ctx": None,
-                    "render_ctx_pytree": None,
-                    "contact_sensor_addresses": contact_sensor_addresses,
-                    "contact_body_pairs": contact_body_pairs,
-                }
-                if needs_render_context:
-                    self.simulator_state["render_ctx"] = (
-                        MujocoSimulator.get_render_context(mujoco_model)
-                    )
+                self.simulator_state = SimulatorState(
+                    simulator_class=MujocoSimulator,
+                    mujoco_data=mujoco_data,
+                    mujoco_model=mujoco_model,
+                    contact_sensor_addresses=contact_sensor_addresses,
+                    contact_body_pairs=contact_body_pairs,
+                )
             elif mode == TrainingAccelerationMode.MLGPUSIMULATIONGPU:
                 (
                     mjx_data,
@@ -159,34 +158,43 @@ class TrainingWorkflow:
                 contact_sensor_addresses, contact_body_pairs = (
                     MjxSimulator._get_contact_pair_sensor_metadata(mujoco_model)
                 )
-                self.simulator_state = {
-                    "simulator_class": MjxSimulator,
-                    "mjx_data": mjx_data,
-                    "mjx_model": mjx_model,
-                    "mujoco_data": mujoco_data,
-                    "mujoco_model": mujoco_model,
-                    "render_ctx": None,
-                    "render_ctx_pytree": None,
-                    "contact_sensor_addresses": jnp.asarray(
+                self.simulator_state = SimulatorState(
+                    simulator_class=MjxSimulator,
+                    mjx_data=mjx_data,
+                    mjx_model=mjx_model,
+                    mujoco_data=mujoco_data,
+                    mujoco_model=mujoco_model,
+                    contact_sensor_addresses=jnp.asarray(
                         contact_sensor_addresses,
                         dtype=jnp.int32,
                     ),
-                    "contact_body_pairs": jnp.asarray(
+                    contact_body_pairs=jnp.asarray(
                         contact_body_pairs,
                         dtype=jnp.int32,
                     ),
-                }
-                if needs_render_context:
-                    render_ctx = MjxSimulator.get_render_context(
-                        mujoco_model,
-                        nworld=self.params.num_trajs,
-                    )
-                    self.simulator_state["render_ctx"] = render_ctx
-                    self.simulator_state["render_ctx_pytree"] = render_ctx.pytree()
+                )
             else:
                 raise ValueError(
                     f"Unsupported local training acceleration mode: {mode}"
                 )
+
+            if needs_render_context:
+                if mujoco_model.ncam == 0:
+                    raise ValueError(
+                        "Training input specs request Cameras, but the model has no cameras"
+                    )
+                simulator_class = self.simulator_state.simulator_class
+                render_ctx = simulator_class.get_render_context(
+                    mujoco_model,
+                    nworld=(
+                        self.params.num_trajs
+                        if simulator_class is MjxSimulator
+                        else 1
+                    ),
+                )
+                self.simulator_state.render_ctx = render_ctx
+                if simulator_class is MjxSimulator:
+                    self.simulator_state.render_ctx_pytree = render_ctx.pytree()
 
             self.trainer = PPOTrainer(
                 model=self.model,
@@ -214,9 +222,11 @@ class TrainingWorkflow:
 
     def close(self) -> None:
         """Release caller-owned rendering resources, if any."""
-        render_ctx = self.simulator_state.get("render_ctx")
-        self.simulator_state["render_ctx"] = None
-        self.simulator_state["render_ctx_pytree"] = None
+        if self.simulator_state is None:
+            return
+        render_ctx = self.simulator_state.render_ctx
+        self.simulator_state.render_ctx = None
+        self.simulator_state.render_ctx_pytree = None
         if render_ctx is None:
             return
 
@@ -233,7 +243,9 @@ class TrainingWorkflow:
         logger.info("Training render context released: training_id=%s", self.id)
 
     @staticmethod
-    def _load_user_reward_fn(code: str) -> Any:
+    def _load_user_reward_fn(
+        code: str,
+    ) -> Callable[[ControlPolicyInputState, ControlPolicyInputState], float]:
         namespace: dict[str, Any] = {
             "jax": jax,
             "jnp": jnp,
@@ -241,6 +253,7 @@ class TrainingWorkflow:
             "np": np,
             "math": math,
             "functools": functools,
+            "ControlPolicyInputState": ControlPolicyInputState,
             "__builtins__": {"__import__": __import__},
         }
         exec(compile(code, "<reward_fn>", "exec"), namespace)
@@ -252,10 +265,15 @@ class TrainingWorkflow:
     @staticmethod
     def _build_model_for_training(
         params: PPOTrainingMethod,
-        reward_fn: Any,
-        rng_key: Any = None,
+        reward_fn: Callable[[ControlPolicyInputState, ControlPolicyInputState], float],
+        rng_key: jax.Array | None = None,
     ) -> PPOTrainedModel:
-        if isinstance(params.control_model, ControlModelVLA):
+        control_model = params.control_model
+        if not isinstance(params.value_model.model, MLModelMLP):
+            raise ValueError("Only MLP value models are supported for training")
+        value_mlp = params.value_model.model.content
+
+        if isinstance(control_model.model, MLModelVLA):
             if not isinstance(
                 params.control_output_mode,
                 ControlOutputModeFlowMatchingAction,
@@ -264,22 +282,24 @@ class TrainingWorkflow:
                     "VLA control model requires "
                     "control_output_mode=FlowMatchingAction(FlowNoise)"
                 )
-            vla_spec = params.control_model.content
+            vla_spec = control_model.model.content
             noise_mlp_spec = params.control_output_mode.content.content.noise_model
             return Pi0Model(
                 vla_spec,
                 noise_mlp_spec,
-                control_input_spec=vla_spec.input_spec,
-                value_input_spec=params.value_model.content.input_spec,
+                control_input_spec=control_model.input_spec,
+                value_input_spec=params.value_model.input_spec,
                 reward_input_spec=params.reward_function.input_spec,
-                value_mlp_spec=params.value_model.content,
+                control_output_spec=control_model.output_spec,
+                value_mlp_spec=value_mlp,
                 reward_fn=reward_fn,
                 rng_key=rng_key,
                 n_action_steps=1,
             )
 
-        control_mlp = params.control_model.content
-        value_mlp = params.value_model.content
+        if not isinstance(control_model.model, MLModelMLP):
+            raise ValueError("Unsupported training ML model")
+        control_mlp = control_model.model.content
         policy, policy_store = MLPModel.init_policy(
             input_dimension=int(control_mlp.input_dim),
             output_dimension=int(control_mlp.output_dim),
@@ -301,9 +321,10 @@ class TrainingWorkflow:
             val_estimator=value,
             pol_store=policy_store,
             val_estimator_store=value_store,
-            control_input_spec=control_mlp.input_spec,
-            value_input_spec=value_mlp.input_spec,
+            control_input_spec=control_model.input_spec,
+            value_input_spec=params.value_model.input_spec,
             reward_input_spec=params.reward_function.input_spec,
+            control_output_spec=control_model.output_spec,
             reward_fn=reward_fn,
             rng_key=rng_key,
         )
@@ -414,6 +435,9 @@ class TrainingWorkflow:
         tx: TrainingTaskSink,
         should_stop: Callable[[], bool] | None = None,
     ) -> None:
+        simulator_state = self.simulator_state
+        if simulator_state is None:
+            raise RuntimeError("Training simulator state is not initialized")
         use_gpu = (
             self.training_controller.acceleration_mode
             == TrainingAccelerationMode.MLGPUSIMULATIONGPU
@@ -440,7 +464,7 @@ class TrainingWorkflow:
                 control_wstates, value_wstates, model_outputs, action_samples, rewards = (
                     self.trainer.gen_trajectories_gpu(
                         self.params.num_trajs,
-                        self.simulator_state,
+                        simulator_state,
                         epoch_rng,
                     )
                 )
@@ -479,7 +503,7 @@ class TrainingWorkflow:
                 )
                 trajs = self.trainer.gen_trajectories(
                     self.params.num_trajs,
-                    self.simulator_state,
+                    simulator_state,
                 )
                 runtime_info = self.trainer.train_an_epoch(trajs, post_update_callback)
                 mean_entropy = self.trainer.get_rollout_mean_entropy(trajs)

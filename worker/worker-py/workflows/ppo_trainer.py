@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 import time
 from typing import Any, Callable, Sequence
@@ -12,7 +12,14 @@ import jax.numpy as jnp
 import numpy as np
 from jax import random
 
+from commondef.ioadapter import ControlPolicyInputState
+from commondef.training import (
+    ControlPolicyInputSpec,
+    InputStateItemSensors,
+    InputStateTypes,
+)
 from simulator.simulator import MjxSimulator, MujocoSimulator, Simulator
+from simulator.state import SimulatorState
 from models.model import PPOTrainedModel
 
 
@@ -23,17 +30,17 @@ Params = Any
 
 
 def _tree_stack(items: Sequence[Any]) -> Any:
-    """Stack a list of pytrees (e.g. per-step parts dicts) into one pytree with a
+    """Stack a list of pytrees (e.g. structured input states) into one pytree with a
     leading axis, i.e. jnp.stack applied leaf-wise."""
     return jax.tree_util.tree_map(lambda *xs: jnp.stack(xs), *items)
 
 @dataclass
 class Trajectory:
-    # labeled parts dicts with a leading timestep axis (jnp.stack over time).
+    # Structured input states with a leading timestep axis on every array leaf.
     # control_wstates leaves: [traj_depth, ...]      — policy re-evaluation (control spec)
     # value_wstates leaves:   [traj_depth + 1, ...]  — value estimation incl. terminal (value spec)
-    control_wstates: dict[str, Array]
-    value_wstates: dict[str, Array]
+    control_wstates: ControlPolicyInputState
+    value_wstates: ControlPolicyInputState
     policy_outputs: dict[str,Array]
     policy_output_samples: list[Array]
     policy_output_sample_log_probs: list[float]
@@ -86,12 +93,45 @@ class PPOTrainer:
         self.epsilon = epsilon
         self.gamma_lambda = gamma_lambda
         self.model = model
+        # These layouts are static for the model throughout training.
+        self._control_camera_indices = self._camera_state_indices(
+            model.get_control_input_spec()
+        )
+        self._value_camera_indices = self._camera_state_indices(
+            model.get_value_input_spec()
+        )
+        self._reward_camera_indices = self._camera_state_indices(
+            model.get_reward_input_spec()
+        )
         self.learning_rate = learning_rate
         self._rng_key = rng_key if rng_key is not None else random.PRNGKey(seed)
         self.policy_opt = self._init_adam_state(self.model.get_policy_store())
         self.value_opt = self._init_adam_state(self.model.get_value_store())
         self._jit_gen_trajs: Any = None
         self._jit_train_epoch: Any = None
+
+    @staticmethod
+    def _camera_state_indices(input_spec: ControlPolicyInputSpec) -> tuple[int, ...]:
+        return tuple(
+            index
+            for index, state in enumerate(input_spec.content.states)
+            if state.type == InputStateTypes.INPUT_STATE_SENSORS
+            and state.content == InputStateItemSensors.CAMERAS
+        )
+
+    @staticmethod
+    def _with_camera_frames(
+        state: ControlPolicyInputState,
+        camera_frames: Array | np.ndarray,
+        camera_indices: tuple[int, ...],
+    ) -> ControlPolicyInputState:
+        """Replace camera placeholders, preserving spec order and PyTree metadata."""
+        if not camera_indices:
+            return state
+        states = list(state.content.states)
+        for index in camera_indices:
+            states[index] = replace(states[index], content=camera_frames)
+        return replace(state, content=replace(state.content, states=states))
 
     @staticmethod
     def _init_adam_state(params: Params) -> dict[str, Any]:
@@ -133,34 +173,34 @@ class PPOTrainer:
         self,
         data: Any,
         rng_key: Array,
-        simulator_state: dict[str, Any],
+        simulator_state: SimulatorState,
     ) -> tuple[
         Any,
         Array,
-        dict[str, Array],
-        dict[str, Array],
+        ControlPolicyInputState,
+        ControlPolicyInputState,
         dict[str, Array],
         Array,
         Array,
         float,
     ]:
         """Generate one CPU trajectory step and return its updated state."""
-        simulator_class = simulator_state["simulator_class"]
+        simulator_class = simulator_state.simulator_class
         if simulator_class is not MujocoSimulator:
             raise ValueError("gen_trajectory_step requires MujocoSimulator state")
-        model = simulator_state["mujoco_model"]
+        model = simulator_state.mujoco_model
         if model is None:
             raise ValueError("MuJoCo data and model are required for CPU trajectories")
-        render_ctx = simulator_state["render_ctx"]
-        contact_sensor_addresses = simulator_state["contact_sensor_addresses"]
-        contact_body_pairs = simulator_state["contact_body_pairs"]
+        render_ctx = simulator_state.render_ctx
+        contact_sensor_addresses = simulator_state.contact_sensor_addresses
+        contact_body_pairs = simulator_state.contact_body_pairs
 
         control_input_spec = self.model.get_control_input_spec()
         value_input_spec = self.model.get_value_input_spec()
         reward_input_spec = self.model.get_reward_input_spec()
         policy_fn = self.model.get_policy_fn()
         policy_store = self.model.get_policy_store()
-        output_mode = self.model.get_control_policy_output_mode()
+        output_spec = self.model.get_control_policy_output_spec()
 
         control_parts = simulator_class.get_model_state_pure(
             control_input_spec,
@@ -183,31 +223,39 @@ class PPOTrainer:
             contact_sensor_addresses,
             contact_body_pairs,
         )
-        if model.ncam > 0 and any(
-            spec.all_cameras
-            for spec in (control_input_spec, value_input_spec, reward_input_spec)
+        if (
+            self._control_camera_indices
+            or self._value_camera_indices
+            or self._reward_camera_indices
         ):
+            if render_ctx is None:
+                raise ValueError("Camera input specs require a render context")
             cameras, data = simulator_class.get_model_render(data, model, render_ctx)
-            if control_input_spec.all_cameras:
-                control_parts["cameras"] = cameras
-            if value_input_spec.all_cameras:
-                value_parts["cameras"] = cameras
-            if reward_input_spec.all_cameras:
-                reward_parts_pre["cameras"] = cameras
+            control_parts = self._with_camera_frames(
+                control_parts, cameras, self._control_camera_indices
+            )
+            value_parts = self._with_camera_frames(
+                value_parts, cameras, self._value_camera_indices
+            )
+            reward_parts_pre = self._with_camera_frames(
+                reward_parts_pre, cameras, self._reward_camera_indices
+            )
         rng_key, step_key = jax.random.split(rng_key)
-        pol_output = policy_fn(policy_store, {**control_parts, "rng_key": step_key})
+        pol_output = policy_fn(policy_store, control_parts, step_key)
         sampled_action = pol_output["sampled_action"]
         sampled_action_log_prob = pol_output["sampled_action_log_prob"]
         # Chunked policies such as Pi0 return [action_steps, action_dim];
         # this workload currently executes only the first action per step.
         action = sampled_action[0] if sampled_action.ndim == 2 else sampled_action
 
-        controls = simulator_class.get_actuator_input_from_control_input(
+        controls, valid = simulator_class.get_actuator_input_from_control_input(
             model,
             data,
             np.asarray(action),
-            output_mode,
+            output_spec,
         )
+        if not bool(valid):
+            raise ValueError("Invalid actuator control mapping in CPU trajectory step")
         data = simulator_class.forward_dyn_pure(data, model, controls)
         reward_parts_post = simulator_class.get_model_state_pure(
             reward_input_spec,
@@ -216,9 +264,11 @@ class PPOTrainer:
             contact_sensor_addresses,
             contact_body_pairs,
         )
-        if reward_input_spec.all_cameras and model.ncam > 0:
+        if self._reward_camera_indices:
             cameras, data = simulator_class.get_model_render(data, model, render_ctx)
-            reward_parts_post["cameras"] = cameras
+            reward_parts_post = self._with_camera_frames(
+                reward_parts_post, cameras, self._reward_camera_indices
+            )
         reward = float(self.model.get_reward(reward_parts_pre, reward_parts_post))
         return (
             data,
@@ -234,13 +284,13 @@ class PPOTrainer:
     def gen_trajectories(
         self,
         num_trajs: int,
-        simulator_state: dict[str, Any],
+        simulator_state: SimulatorState,
     ) -> list[Trajectory]:
-        simulator_class = simulator_state["simulator_class"]
+        simulator_class = simulator_state.simulator_class
         if simulator_class is not MujocoSimulator:
             raise ValueError("gen_trajectories requires MujocoSimulator state")
-        initial_data = simulator_state["mujoco_data"]
-        model = simulator_state["mujoco_model"]
+        initial_data = simulator_state.mujoco_data
+        model = simulator_state.mujoco_model
         if initial_data is None or model is None:
             raise ValueError("MuJoCo data and model are required for CPU trajectories")
 
@@ -248,8 +298,8 @@ class PPOTrainer:
         self._rng_key = split_keys[0]
         rng_states = list(split_keys[1:])
         data_states = [initial_data] * num_trajs
-        control_wstates: list[list[dict[str, Array]]] = [[] for _ in range(num_trajs)]
-        value_wstates: list[list[dict[str, Array]]] = [[] for _ in range(num_trajs)]
+        control_wstates: list[list[ControlPolicyInputState]] = [[] for _ in range(num_trajs)]
+        value_wstates: list[list[ControlPolicyInputState]] = [[] for _ in range(num_trajs)]
         policy_outputs: list[list[dict[str, Array]]] = [[] for _ in range(num_trajs)]
         action_samples: list[list[Array]] = [[] for _ in range(num_trajs)]
         action_log_probs: list[list[float]] = [[] for _ in range(num_trajs)]
@@ -282,12 +332,12 @@ class PPOTrainer:
                 value_wstates[traj_index].append(value_parts)
                 policy_outputs[traj_index].append(pol_output)
                 action_samples[traj_index].append(action)
-                action_log_probs[traj_index].append(sampled_action_log_prob)
+                action_log_probs[traj_index].append(float(sampled_action_log_prob))
                 rewards[traj_index].append(reward)
 
         value_input_spec = self.model.get_value_input_spec()
-        contact_sensor_addresses = simulator_state["contact_sensor_addresses"]
-        contact_body_pairs = simulator_state["contact_body_pairs"]
+        contact_sensor_addresses = simulator_state.contact_sensor_addresses
+        contact_body_pairs = simulator_state.contact_body_pairs
         trajectories: list[Trajectory] = []
         for traj_index in range(num_trajs):
             terminal_value_parts = simulator_class.get_model_state_pure(
@@ -297,11 +347,13 @@ class PPOTrainer:
                 contact_sensor_addresses,
                 contact_body_pairs,
             )
-            if value_input_spec.all_cameras and model.ncam > 0:
+            if self._value_camera_indices:
                 cameras, data_states[traj_index] = simulator_class.get_model_render(
-                    data_states[traj_index], model, simulator_state["render_ctx"]
+                    data_states[traj_index], model, simulator_state.render_ctx
                 )
-                terminal_value_parts["cameras"] = cameras
+                terminal_value_parts = self._with_camera_frames(
+                    terminal_value_parts, cameras, self._value_camera_indices
+                )
             value_wstates[traj_index].append(terminal_value_parts)
             v_terminal = float(self.model.get_value_output(terminal_value_parts))
             trajectories.append(
@@ -319,7 +371,7 @@ class PPOTrainer:
         return trajectories
 
     def compute_gae(self, traj: Trajectory) -> Array:
-        # Single batched value call over the [T+1, ...] value-state dict (no
+        # Single batched value call over the [T+1, ...] structured value state (no
         # per-step loop); shares the pure GAE implementation with the GPU path.
         rewards = jnp.asarray(traj.rewards, dtype=jnp.float32)
         return pure_compute_gae(
@@ -348,7 +400,7 @@ class PPOTrainer:
         start_log_probs = jnp.stack(
             [jnp.asarray(traj.policy_output_sample_log_probs) for traj in trajs]
         )
-        # Each traj.control_wstates is already a [T, ...] dict — stack over trajs → [num_trajs, T, ...].
+        # Each state leaf is [T, ...]; stacking adds [num_trajs, T, ...].
         wstates = _tree_stack([traj.control_wstates for traj in trajs])
         policy_outputs = _tree_stack([traj.policy_outputs for traj in trajs])
 
@@ -370,7 +422,7 @@ class PPOTrainer:
         value_store: Params | None = None,
     ) -> Array:
         rtgs = jnp.stack([jnp.asarray(traj.rtgs) for traj in trajs])
-        # value_wstates is a [T+1, ...] dict; strip the terminal (axis 0) then stack over trajs.
+        # Strip each value leaf's terminal state, then stack over trajectories.
         wstates = _tree_stack(
             [jax.tree_util.tree_map(lambda x: x[: self.traj_depth], traj.value_wstates) for traj in trajs]
         )
@@ -484,9 +536,9 @@ class PPOTrainer:
         mjx_model: Any,
         rng_key: Array,
         simulator_class: type[Simulator],
-        control_state_fn: Callable[[Any, Any], dict[str, Array]],
-        value_state_fn: Callable[[Any, Any], dict[str, Array]],
-        reward_state_fn: Callable[[Any, Any], dict[str, Array]],
+        control_state_fn: Callable[[Any, Any], ControlPolicyInputState],
+        value_state_fn: Callable[[Any, Any], ControlPolicyInputState],
+        reward_state_fn: Callable[[Any, Any], ControlPolicyInputState],
         control_has_cameras: bool,
         value_has_cameras: bool,
         reward_has_cameras: bool,
@@ -495,18 +547,19 @@ class PPOTrainer:
     ) -> tuple[
         tuple[Any, Array],
         tuple[
-            dict[str, Array],
-            dict[str, Array],
+            ControlPolicyInputState,
+            ControlPolicyInputState,
             dict[str, Array],
             Array,
-            dict[str, Array],
+            ControlPolicyInputState,
+            Array,
         ],
     ]:
         """Generate one JAX-traceable GPU trajectory step."""
         policy_fn = self.model.get_policy_fn()
         if policy_store is None:
             policy_store = self.model.get_policy_store()
-        output_mode = self.model.get_control_policy_output_mode()
+        output_spec = self.model.get_control_policy_output_spec()
 
         rng_key, step_key = jax.random.split(rng_key)
         control_parts = control_state_fn(mjx_data, mjx_model)
@@ -514,29 +567,37 @@ class PPOTrainer:
         reward_parts_pre = reward_state_fn(mjx_data, mjx_model)
         if camera_frames is not None:
             if control_has_cameras:
-                control_parts["cameras"] = camera_frames
+                control_parts = self._with_camera_frames(
+                    control_parts, camera_frames, self._control_camera_indices
+                )
             if value_has_cameras:
-                value_parts["cameras"] = camera_frames
+                value_parts = self._with_camera_frames(
+                    value_parts, camera_frames, self._value_camera_indices
+                )
             if reward_has_cameras:
-                reward_parts_pre["cameras"] = camera_frames
+                reward_parts_pre = self._with_camera_frames(
+                    reward_parts_pre, camera_frames, self._reward_camera_indices
+                )
 
-        # Thread a fresh per-step key in via the dict; control_parts itself is
-        # stored without it (log-prob recompute is deterministic).
         policy_output = policy_fn(
             policy_store,
-            {**control_parts, "rng_key": step_key},
+            control_parts,
+            step_key,
         )
         sampled_action = policy_output["sampled_action"]
         # Chunked policies such as Pi0 return [action_steps, action_dim];
         # this workload currently executes only the first action per step.
         action = sampled_action[0] if sampled_action.ndim == 2 else sampled_action
 
-        controls = simulator_class.get_actuator_input_from_control_input(
+        controls, valid = simulator_class.get_actuator_input_from_control_input(
             mjx_model,
             mjx_data,
             action,
-            output_mode,
+            output_spec,
         )
+        # The host checks validity after the compiled rollout. Never apply
+        # invalid/NaN controls while that device computation is completing.
+        controls = jnp.where(valid, controls, mjx_data.ctrl)
         mjx_data = simulator_class.forward_dyn_pure(
             mjx_data,
             mjx_model,
@@ -548,14 +609,21 @@ class PPOTrainer:
             policy_output,
             action,
             reward_parts_pre,
+            valid,
         )
 
     def gen_trajectories_gpu(
         self,
         num_trajs: int,
-        simulator_state: dict[str, Any],
+        simulator_state: SimulatorState,
         rng_key: Array,
-    ) -> tuple[dict[str, Array], dict[str, Array], dict[str, Array], Array, Array]:
+    ) -> tuple[
+        ControlPolicyInputState,
+        ControlPolicyInputState,
+        dict[str, Array],
+        Array,
+        Array,
+    ]:
         """Generate trajectories with a scan over vmapped GPU steps.
 
         Args:
@@ -565,10 +633,10 @@ class PPOTrainer:
 
         Returns:
             (control_wstates, value_wstates, policy_outputs, action_samples, rewards)
-            control_wstates: control parts dict, leaves [num_trajs, traj_depth, ...]
-            value_wstates:   value parts dict, leaves [num_trajs, traj_depth+1, ...]  — incl. terminal
-            policy_outputs:   [num_trajs, traj_depth, nu*2]
-            action_samples:  [num_trajs, traj_depth, nu]
+            control_wstates: structured state, leaves [num_trajs, traj_depth, ...]
+            value_wstates: structured state, leaves [num_trajs, traj_depth+1, ...]
+            policy_outputs: model output dictionary, leaves [num_trajs, traj_depth, ...]
+            action_samples: [num_trajs, traj_depth, action_dim]
             rewards:         [num_trajs, traj_depth]
         """
         logger.info(
@@ -583,34 +651,35 @@ class PPOTrainer:
             num_trajs,
         )
 
-        simulator_class = simulator_state["simulator_class"]
+        simulator_class = simulator_state.simulator_class
         if simulator_class is not MjxSimulator:
             raise ValueError("gen_trajectories_gpu requires MjxSimulator state")
-        mjx_data = simulator_state["mjx_data"]
-        mjx_model = simulator_state["mjx_model"]
+        mjx_data = simulator_state.mjx_data
+        mjx_model = simulator_state.mjx_model
         if mjx_data is None or mjx_model is None:
             raise ValueError("MJX data and model are required for GPU trajectories")
         batched_data = mjx_data
 
-        render_ctx = simulator_state["render_ctx_pytree"]
-        contact_sensor_addresses = simulator_state["contact_sensor_addresses"]
-        contact_body_pairs = simulator_state["contact_body_pairs"]
+        render_ctx = simulator_state.render_ctx_pytree
+        contact_sensor_addresses = simulator_state.contact_sensor_addresses
+        contact_body_pairs = simulator_state.contact_body_pairs
         control_input_spec = self.model.get_control_input_spec()
         value_input_spec = self.model.get_value_input_spec()
         reward_input_spec = self.model.get_reward_input_spec()
         reward_fn = self.model.get_pure_reward_fn()
-        has_cameras = int(mjx_model.ncam) > 0
-        control_has_cameras = has_cameras and control_input_spec.all_cameras
-        value_has_cameras = has_cameras and value_input_spec.all_cameras
-        reward_has_cameras = has_cameras and reward_input_spec.all_cameras
+        control_has_cameras = bool(self._control_camera_indices)
+        value_has_cameras = bool(self._value_camera_indices)
+        reward_has_cameras = bool(self._reward_camera_indices)
         needs_step_render = (
             control_has_cameras or value_has_cameras or reward_has_cameras
         )
+        if needs_step_render and render_ctx is None:
+            raise ValueError("Camera input specs require a render context")
 
         def control_state_fn(
             data: Any,
             model: Any,
-        ) -> dict[str, Array]:
+        ) -> ControlPolicyInputState:
             return simulator_class.get_model_state_pure(
                 control_input_spec,
                 data,
@@ -622,7 +691,7 @@ class PPOTrainer:
         def value_state_fn(
             data: Any,
             model: Any,
-        ) -> dict[str, Array]:
+        ) -> ControlPolicyInputState:
             return simulator_class.get_model_state_pure(
                 value_input_spec,
                 data,
@@ -634,7 +703,7 @@ class PPOTrainer:
         def reward_state_fn(
             data: Any,
             model: Any,
-        ) -> dict[str, Array]:
+        ) -> ControlPolicyInputState:
             return simulator_class.get_model_state_pure(
                 reward_input_spec,
                 data,
@@ -645,11 +714,22 @@ class PPOTrainer:
 
         def all_trajectories(
             ps: Params,
-            model: Any,
             data: Any,
             trajectory_keys: Array,
             ctx: Any,
-        ) -> tuple[dict[str, Array], dict[str, Array], dict[str, Array], Array, Array]:
+        ) -> tuple[
+            ControlPolicyInputState,
+            ControlPolicyInputState,
+            dict[str, Array],
+            Array,
+            Array,
+            Array,
+        ]:
+            # Model topology and the IO specs are fixed for this trainer.
+            # Capturing the model keeps topology available to NumPy/name
+            # lookups during tracing; state and policy parameters remain inputs.
+            model = mjx_model
+
             def trajectory_step(
                 step_data: Any,
                 step_key: Array,
@@ -657,11 +737,12 @@ class PPOTrainer:
             ) -> tuple[
                 tuple[Any, Array],
                 tuple[
-                    dict[str, Array],
-                    dict[str, Array],
+                    ControlPolicyInputState,
+                    ControlPolicyInputState,
                     dict[str, Array],
                     Array,
-                    dict[str, Array],
+                    ControlPolicyInputState,
+                    Array,
                 ],
             ]:
                 return self.gen_trajectory_step_gpu(
@@ -685,9 +766,10 @@ class PPOTrainer:
             ) -> tuple[
                 tuple[Any, Array],
                 tuple[
+                    ControlPolicyInputState,
+                    ControlPolicyInputState,
                     dict[str, Array],
-                    dict[str, Array],
-                    dict[str, Array],
+                    Array,
                     Array,
                     Array,
                 ],
@@ -704,6 +786,7 @@ class PPOTrainer:
                     policy_output,
                     action,
                     reward_parts_pre,
+                    controls_valid,
                 ) = jax.vmap(
                     trajectory_step,
                     in_axes=(0, 0, 0 if needs_step_render else None),
@@ -715,7 +798,9 @@ class PPOTrainer:
                     post_frames, next_data = simulator_class.get_model_render(
                         next_data, model, ctx
                     )
-                    reward_parts_post["cameras"] = post_frames
+                    reward_parts_post = self._with_camera_frames(
+                        reward_parts_post, post_frames, self._reward_camera_indices
+                    )
                 rewards = jax.vmap(reward_fn)(reward_parts_pre, reward_parts_post)
                 return (next_data, next_keys), (
                     control_parts,
@@ -723,6 +808,7 @@ class PPOTrainer:
                     policy_output,
                     action,
                     rewards,
+                    controls_valid,
                 )
 
             (data_final, _), step_outputs = jax.lax.scan(
@@ -737,6 +823,7 @@ class PPOTrainer:
                 policy_outputs_t,
                 action_samples_t,
                 rewards_t,
+                controls_valid_t,
             ) = step_outputs
 
             terminal_value_parts = jax.vmap(
@@ -747,7 +834,9 @@ class PPOTrainer:
                 terminal_frames, data_final = simulator_class.get_model_render(
                     data_final, model, ctx
                 )
-                terminal_value_parts["cameras"] = terminal_frames
+                terminal_value_parts = self._with_camera_frames(
+                    terminal_value_parts, terminal_frames, self._value_camera_indices
+                )
             value_states_t = jax.tree_util.tree_map(
                 lambda seq, term: jnp.concatenate([seq, term[None]], axis=0),
                 value_states_t,
@@ -766,13 +855,14 @@ class PPOTrainer:
                 to_environment_major(policy_outputs_t),
                 jnp.swapaxes(action_samples_t, 0, 1),
                 jnp.swapaxes(rewards_t, 0, 1),
+                jnp.swapaxes(controls_valid_t, 0, 1),
             )
 
         if self._jit_gen_trajs is None:
             ##DEBUG TRACING & COMPILE:
             # See what JAX will actually compile before running it
             # jaxpr = jax.make_jaxpr(all_trajectories)(
-            #     policy_store, mjx_model, batched_data, keys, render_ctx
+            #     policy_store, batched_data, keys, render_ctx
             # )
             # print(jaxpr)  # full trace as a Jaxpr (JAX's IR before HLO lowering)
 
@@ -780,7 +870,6 @@ class PPOTrainer:
             t0 = time.time()
             lowered = jax.jit(all_trajectories).lower(
                 policy_store,
-                mjx_model,
                 batched_data,
                 keys,
                 render_ctx,
@@ -801,7 +890,6 @@ class PPOTrainer:
         t_exec = time.time()
         result = self._jit_gen_trajs(
             policy_store,
-            mjx_model,
             batched_data,
             keys,
             render_ctx,
@@ -809,12 +897,20 @@ class PPOTrainer:
         jax.block_until_ready(result)
         t_exec_done = time.time()
         logger.info("gen_trajectories_gpu: execution took %.2fs", t_exec_done - t_exec)
-        return result
+        controls_valid = np.asarray(result[5])
+        if not controls_valid.all():
+            trajectory_index, timestep = np.argwhere(~controls_valid)[0]
+            raise ValueError(
+                "Invalid actuator control mapping: "
+                f"trajectory_index={int(trajectory_index)} timestep={int(timestep)}"
+            )
+        # Validity is a rollout diagnostic; preserve the public five-item result.
+        return result[:5]
 
     def train_an_epoch_gpu(
         self,
-        control_wstates: dict[str, Array],
-        value_wstates: dict[str, Array],
+        control_wstates: ControlPolicyInputState,
+        value_wstates: ControlPolicyInputState,
         policy_outputs: dict[str,Array],
         action_samples: Array,
         rewards: Array
@@ -822,11 +918,11 @@ class PPOTrainer:
         """GPU training epoch using pure learning_step.
 
         Args:
-            control_wstates: control parts dict, leaves [num_trajs, traj_depth, ...]
-            value_wstates:   value parts dict, leaves [num_trajs, traj_depth+1, ...]  — incl. terminal
+            control_wstates: structured state, leaves [num_trajs, traj_depth, ...]
+            value_wstates: structured state, leaves [num_trajs, traj_depth+1, ...]
             policy_outputs: model-produced dictionary whose array leaves have
                 leading dimensions [num_trajs, traj_depth, ...]
-            action_samples:  [num_trajs, traj_depth, nu]
+            action_samples:  [num_trajs, traj_depth, action_dim]
             rewards:         [num_trajs, traj_depth]
 
         Returns:
@@ -845,9 +941,13 @@ class PPOTrainer:
 
         logger.info("train_an_epoch_gpu: computing RTGs for %s trajs", num_trajs_in)
 
-        def compute_rtg_for_traj(traj_rewards: Array, traj_value_wstates: Any) -> Array:
-            terminal = jax.tree_util.tree_map(lambda x: x[-1:], traj_value_wstates)
-            v_terminal = jnp.squeeze(value_fn(self.model.get_value_store(), terminal), axis=-1)[0]
+        def compute_rtg_for_traj(
+            traj_rewards: Array, traj_value_wstates: ControlPolicyInputState
+        ) -> Array:
+            terminal = jax.tree_util.tree_map(lambda x: x[-1], traj_value_wstates)
+            v_terminal = jnp.asarray(
+                value_fn(self.model.get_value_store(), terminal)
+            ).reshape(())
             return pure_compute_rtg(traj_rewards, gamma, v_terminal)
 
         rtgs = jax.vmap(compute_rtg_for_traj)(rewards, value_wstates)   # [num_trajs, traj_depth]
@@ -855,7 +955,9 @@ class PPOTrainer:
 
         logger.info("train_an_epoch_gpu: computing GAEs for %s trajs", num_trajs_in)
 
-        def compute_gae_for_traj(traj_value_wstates: Array, traj_rewards: Array) -> Array:
+        def compute_gae_for_traj(
+            traj_value_wstates: ControlPolicyInputState, traj_rewards: Array
+        ) -> Array:
             return pure_compute_gae(traj_value_wstates, traj_rewards, value_fn, self.model.get_value_store(), gamma, lam)
 
         gaes_raw = jax.vmap(compute_gae_for_traj)(value_wstates, rewards)  # [num_trajs, traj_depth]
@@ -869,7 +971,7 @@ class PPOTrainer:
         start_log_probs = policy_outputs["sampled_action_log_prob"]
         logger.info("train_an_epoch_gpu: start log probs computed (shape=%s)", start_log_probs.shape)
 
-        # control_wstates is already a dict of [num_trajs, traj_depth, ...] — no terminal to strip
+        # Control leaves already have [num_trajs, traj_depth, ...] axes.
         # value_wstates_t strips the terminal (axis 1) from each leaf for per-step value loss
         value_wstates_t = jax.tree_util.tree_map(lambda x: x[:, :self.traj_depth], value_wstates)
 
@@ -879,8 +981,8 @@ class PPOTrainer:
 
         def update_all_steps_fn(
             carry: tuple[Params, Params, dict, dict],
-            control_wstates_a: Array,
-            value_wstates_a: Array,
+            control_wstates_a: ControlPolicyInputState,
+            value_wstates_a: ControlPolicyInputState,
             policy_output: dict[str,Array],
             start_log_probs_a: Array,
             gaes_a: Array,
@@ -977,9 +1079,9 @@ class PPOTrainer:
 # Pure standalone functions for GPU-accelerated learning
 #
 # Trajectory arrays convention (all [num_trajs, traj_depth, ...]):
-#   wstates:        [num_trajs, traj_depth+1, state_dim]  (includes terminal state)
-#   action_samples: [num_trajs, traj_depth, nu]
-#   policy_outputs:  [num_trajs, traj_depth, nu*2]
+#   wstates:        structured PyTree, leaves [num_trajs, traj_depth(+1), ...]
+#   action_samples: [num_trajs, traj_depth, action_dim]
+#   policy_outputs: model output dictionary, leaves [num_trajs, traj_depth, ...]
 #   log_probs:      [num_trajs, traj_depth]
 #   rewards:        [num_trajs, traj_depth]
 #   rtgs:           [num_trajs, traj_depth]
@@ -1018,9 +1120,9 @@ def pure_compute_rtg(rewards: Array, gamma: float, v_terminal: Array) -> Array:
 
 
 def pure_compute_gae(
-    wstates: dict[str, Array],
+    wstates: ControlPolicyInputState,
     rewards: Array,
-    value_fn: Callable[[Params, dict[str, Array]], Array],
+    value_fn: Callable[[Params, ControlPolicyInputState], Array],
     value_store: Params,
     gamma: float,
     lam: float,
@@ -1028,7 +1130,7 @@ def pure_compute_gae(
     """Compute generalised advantage estimates for a single trajectory without a Python loop.
 
     Args:
-        wstates:     value-state parts dict, leaves [T+1, ...] (incl. terminal at index T)
+        wstates:     structured value state, leaves [T+1, ...] (incl. terminal)
         rewards:     [T] float array
         value_fn:    callable (params, state) -> [1] or scalar
         value_store: value network parameters
@@ -1039,8 +1141,9 @@ def pure_compute_gae(
         gaes: [T] float array
     """
     # Batch value computation over all T+1 states in one call
-    all_values = value_fn(value_store, wstates)                  # [T+1, 1] or [T+1]
-    all_values = jnp.squeeze(jnp.asarray(all_values), axis=-1)   # [T+1]
+    all_values = jnp.asarray(value_fn(value_store, wstates))    # [T+1, 1] or [T+1]
+    if all_values.ndim > 1 and all_values.shape[-1] == 1:
+        all_values = jnp.squeeze(all_values, axis=-1)
     values = all_values[:-1]       # [T]
     values_next = all_values[1:]   # [T]
 
@@ -1052,15 +1155,15 @@ def pure_compute_gae(
 
     _, gaes_reversed = jax.lax.scan(
         scan_fn,
-        jnp.array(0.0),
+        jnp.array(0.0, dtype=deltas.dtype),
         jnp.flip(deltas, axis=0),
     )
     return jnp.flip(gaes_reversed, axis=0)
 
 def pure_ppo_clip_loss(
     policy_store: Params,
-    policy_fn_log_prob: Callable[[Params, dict[str, Array], dict[str, Array]], Array],
-    wstates: dict[str, Array],
+    policy_fn_log_prob: Callable[[Params, ControlPolicyInputState, dict[str, Array]], Array],
+    wstates: ControlPolicyInputState,
     policy_output: dict[str,Array],
     start_log_probs: Array,
     gaes: Array,
@@ -1072,7 +1175,7 @@ def pure_ppo_clip_loss(
         policy_store:       policy network parameters
         policy_fn_log_prob: pure fn (params, wstates, policy_output) -> per-step
                             joint log-probs [num_trajs, T] of the recorded actions
-        wstates:            control parts dict, leaves [num_trajs, T, ...]
+        wstates:            structured control state, leaves [num_trajs, T, ...]
         policy_output:      recorded policy stats dict (incl. "sampled_action")
         start_log_probs:    [num_trajs, T] log-probs at sampling time
         gaes:               [num_trajs, T] normalised advantages
@@ -1089,16 +1192,16 @@ def pure_ppo_clip_loss(
 
 def pure_value_loss(
     value_store: Params,
-    value_fn: Callable[[Params, dict[str, Array]], Array],
-    wstates: dict[str, Array],
+    value_fn: Callable[[Params, ControlPolicyInputState], Array],
+    wstates: ControlPolicyInputState,
     rtgs: Array,
 ) -> Array:
     """MSE value function loss.
 
     Args:
         value_store: value network parameters
-        value_fn:    callable (params, [num_trajs, T, state_dim]) -> [num_trajs, T, 1]
-        wstates:     [num_trajs, T, state_dim]
+        value_fn:    callable (params, structured state) -> [num_trajs, T, 1]
+        wstates:     structured value state, leaves [num_trajs, T, ...]
         rtgs:        [num_trajs, T]
 
     Returns:
@@ -1116,10 +1219,10 @@ def learning_step(
     value_store: Params,
     policy_opt: dict,
     value_opt: dict,
-    policy_fn_log_prob: Callable[[Params, dict[str, Array], dict[str, Array]], Array],
-    value_fn: Callable[[Params, dict[str, Array]], Array],
-    control_wstates: dict[str, Array],
-    value_wstates: dict[str, Array],
+    policy_fn_log_prob: Callable[[Params, ControlPolicyInputState, dict[str, Array]], Array],
+    value_fn: Callable[[Params, ControlPolicyInputState], Array],
+    control_wstates: ControlPolicyInputState,
+    value_wstates: ControlPolicyInputState,
     policy_output: dict[str,Array],
     start_log_probs: Array,
     gaes: Array,
@@ -1140,8 +1243,8 @@ def learning_step(
         policy_fn_log_prob: pure fn (params, control_wstates, policy_output) ->
                             per-step joint log-probs [num_trajs, T]
         value_fn:           callable (params, value_wstates) -> values
-        control_wstates:    control parts dict, leaves [num_trajs, T, ...]  — policy loss
-        value_wstates:      value parts dict, leaves [num_trajs, T, ...]    — value loss
+        control_wstates:    structured control state, leaves [num_trajs, T, ...]
+        value_wstates:      structured value state, leaves [num_trajs, T, ...]
         policy_output:      recorded policy stats dict (incl. "sampled_action")
         start_log_probs:    [num_trajs, T] log-probs at sampling time
         gaes:               [num_trajs, T] normalised advantages
