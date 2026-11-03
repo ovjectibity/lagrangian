@@ -16,6 +16,52 @@ use rocket::tokio::sync::{broadcast, Mutex as AsyncMutex};
 use rocket::tokio::task::JoinHandle;
 use utoipa::OpenApi;
 
+fn has_contact_pairs(
+    input: &crate::commondef::training::PolicyInputSpec,
+) -> bool {
+    use crate::commondef::training::{
+        InputState, InputStateItemSensors, PolicyInputSpec,
+    };
+
+    let PolicyInputSpec::StandardInputSpec(spec) = input;
+    spec.states.iter().any(|state| {
+        matches!(
+            state,
+            InputState::InputStateSensors(
+                InputStateItemSensors::ContactPairs
+            )
+        )
+    })
+}
+
+#[cfg(test)]
+mod policy_input_tests {
+    use super::has_contact_pairs;
+    use crate::commondef::training::{
+        InputState, InputStateItemSensors, PolicyInputSpec,
+        StandardInputSpec,
+    };
+
+    #[test]
+    fn detects_contact_pairs_in_sensor_list() {
+        let mut spec = StandardInputSpec {
+            base_body_name: None,
+            states: vec![InputState::InputStateSensors(
+                InputStateItemSensors::Cameras,
+            )],
+        };
+        assert!(!has_contact_pairs(
+            &PolicyInputSpec::StandardInputSpec(spec.clone())
+        ));
+        spec.states.push(InputState::InputStateSensors(
+            InputStateItemSensors::ContactPairs,
+        ));
+        assert!(has_contact_pairs(
+            &PolicyInputSpec::StandardInputSpec(spec)
+        ));
+    }
+}
+
 // ── OpenAPI spec ──────────────────────────────
 
 #[derive(OpenApi)]
@@ -73,16 +119,21 @@ use utoipa::OpenApi;
         crate::commondef::training::VLAModel,
         crate::commondef::training::ControlModel,
         crate::commondef::training::ValueModel,
-        crate::commondef::training
-            ::ControlPolicyInputSpec,
-        crate::commondef::training
-            ::ControlPolicyOutputSpec,
-        crate::commondef::training
-            ::OrdinaryIOStateConfiguration,
-        crate::commondef::training
-            ::EEFOnlyIOStateConfiguration,
-        crate::commondef::training
-            ::IOStateOrientationType,
+        crate::commondef::training::MLModel,
+        crate::commondef::training::PolicyInputSpec,
+        crate::commondef::training::PolicyOutputSpec,
+        crate::commondef::training::StandardInputSpec,
+        crate::commondef::training::ProprioceptiveOutputSpec,
+        crate::commondef::training::EEFOutputSpec,
+        crate::commondef::training::InputState,
+        crate::commondef::training::InputStateControllable,
+        crate::commondef::training::InputStateItemControllable,
+        crate::commondef::training::InputStateItemSensors,
+        crate::commondef::training::OutputState,
+        crate::commondef::training::OutputStateItem,
+        crate::commondef::training::XPoseSpec,
+        crate::commondef::training::IOStateXFrame,
+        crate::commondef::training::IOStateXOrientationType,
         crate::commondef::training::ModelType,
         crate::commondef::training::CheckpointType,
         crate::commondef::training::Pretrained,

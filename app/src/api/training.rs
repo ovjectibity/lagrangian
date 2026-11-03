@@ -18,11 +18,11 @@ use crate::commondef::record::TrainingRunStatus;
 
 use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
 use crate::commondef::training::{
-    Checkpoint, CheckpointType, ControlModel,
-    ControlPolicyInputSpec, ModelType, RewardLanguage,
+    Checkpoint, CheckpointType, MLModel, ModelType,
+    RewardLanguage,
     StopTrainingMessage, TrainingGraph,
     TrainingJobController, TrainingMethod, TrainingUpdate,
-    TrainingUpdatesMessage, ValueModel,
+    TrainingUpdatesMessage,
 };
 use crate::workflows::local_worker_controller::LocalWorkerController;
 
@@ -135,30 +135,15 @@ async fn resolve_mlp_json<M: serde::Serialize>(
 fn validate_model_types(controller: &TrainingJobController) -> Result<(), &'static str> {
     let TrainingMethod::PPO(ref p) = controller.training_method;
 
-    let control_spec = match &p.control_model {
-        ControlModel::MLP(m) => &m.input_spec,
-        ControlModel::VLA(m) => &m.input_spec,
-    };
-    if matches!(
-        control_spec,
-        ControlPolicyInputSpec::OrdinaryConfiguration(
-            spec
-        ) if spec.contact_pairs
-    ) {
+    if super::has_contact_pairs(&p.control_model.input_spec) {
         return Err("contact_pairs is not allowed in control model input_spec");
     }
-    let ValueModel::MLP(ref vm) = p.value_model;
-    if matches!(
-        &vm.input_spec,
-        ControlPolicyInputSpec::OrdinaryConfiguration(
-            spec
-        ) if spec.contact_pairs
-    ) {
+    if super::has_contact_pairs(&p.value_model.input_spec) {
         return Err("contact_pairs is not allowed in value model input_spec");
     }
 
-    match &p.control_model {
-        ControlModel::MLP(m) => {
+    match &p.control_model.model {
+        MLModel::MLP(m) => {
             if matches!(
                 &m.model_type,
                 ModelType::Checkpoint(CheckpointType::Pretrained(_))
@@ -167,7 +152,7 @@ fn validate_model_types(controller: &TrainingJobController) -> Result<(), &'stat
                      allowed for MLP control models");
             }
         }
-        ControlModel::VLA(m) => match &m.model_type {
+        MLModel::VLA(m) => match &m.model_type {
             ModelType::New => {
                 return Err("VLA model must specify a \
                          pretrained checkpoint, not New");
@@ -181,12 +166,21 @@ fn validate_model_types(controller: &TrainingJobController) -> Result<(), &'stat
         },
     }
 
-    if matches!(
-        &vm.model_type,
-        ModelType::Checkpoint(CheckpointType::Pretrained(_))
-    ) {
-        return Err("Pretrained model type is not allowed \
-             for value models");
+    match &p.value_model.model {
+        MLModel::MLP(vm) => {
+            if matches!(
+                &vm.model_type,
+                ModelType::Checkpoint(
+                    CheckpointType::Pretrained(_)
+                )
+            ) {
+                return Err("Pretrained model type is not allowed \
+                     for value models");
+            }
+        }
+        MLModel::VLA(_) => {
+            return Err("VLA value models are not supported");
+        }
     }
 
     Ok(())
@@ -480,8 +474,8 @@ async fn build_ctrl_val_json(
 ) -> (Option<String>, Option<String>) {
     let TrainingMethod::PPO(ref p) = controller.training_method;
 
-    let ctrl = match &p.control_model {
-        ControlModel::MLP(m) => match &m.model_type {
+    let ctrl = match &p.control_model.model {
+        MLModel::MLP(m) => match &m.model_type {
             ModelType::Checkpoint(CheckpointType::Checkpoint(id)) => crate::postgres_orm()
                 .get_checkpoint_ref(id)
                 .await
@@ -494,12 +488,11 @@ async fn build_ctrl_val_json(
                 }),
             _ => serde_json::to_string(m).ok(),
         },
-        ControlModel::VLA(_) => None,
+        MLModel::VLA(_) => None,
     };
 
-    let val = {
-        let ValueModel::MLP(ref m) = p.value_model;
-        match &m.model_type {
+    let val = match &p.value_model.model {
+        MLModel::MLP(m) => match &m.model_type {
             ModelType::Checkpoint(CheckpointType::Checkpoint(id)) => crate::postgres_orm()
                 .get_checkpoint_ref(id)
                 .await
@@ -511,7 +504,8 @@ async fn build_ctrl_val_json(
                         .and_then(|m| serde_json::to_string(m).ok())
                 }),
             _ => serde_json::to_string(m).ok(),
-        }
+        },
+        MLModel::VLA(_) => None,
     };
 
     (ctrl, val)
@@ -521,15 +515,15 @@ async fn build_ctrl_val_json(
 /// control/value checkpoints referenced by the controller.
 async fn build_worker_checkpoints(controller: &TrainingJobController) -> Vec<Checkpoint> {
     use crate::commondef::training::{
-        CheckpointType as CT, ControlModel as CM, ModelType as MT, TrainingMethod as TM,
-        ValueModel as VM,
+        CheckpointType as CT, MLModel as ML,
+        ModelType as MT, TrainingMethod as TM,
     };
     use std::collections::HashMap;
 
     let mut map: HashMap<String, Checkpoint> = HashMap::new();
     let TM::PPO(ref ppo) = controller.training_method;
 
-    if let CM::MLP(ref m) = ppo.control_model {
+    if let ML::MLP(ref m) = ppo.control_model.model {
         if let MT::Checkpoint(CT::Checkpoint(ref src_id)) = m.model_type {
             if let Some(r) = crate::postgres_orm()
                 .get_checkpoint_ref(src_id)
@@ -553,26 +547,27 @@ async fn build_worker_checkpoints(controller: &TrainingJobController) -> Vec<Che
         }
     }
 
-    let VM::MLP(ref vm) = ppo.value_model;
-    if let MT::Checkpoint(CT::Checkpoint(ref src_id)) = vm.model_type {
-        if !map.contains_key(src_id) {
-            if let Some(r) = crate::postgres_orm()
-                .get_checkpoint_ref(src_id)
-                .await
-                .ok()
-                .flatten()
-            {
-                if let Ok(bytes) = std::fs::read(&r.path) {
-                    map.insert(
-                        src_id.clone(),
-                        Checkpoint {
-                            id: Some(src_id.clone()),
-                            model_zip_base64: Some(BASE64.encode(&bytes)),
-                            model_zip_path: None,
-                            control_model_mlp: r.control_model_params.clone(),
-                            value_model_mlp: r.value_model_params.clone(),
-                        },
-                    );
+    if let ML::MLP(ref vm) = ppo.value_model.model {
+        if let MT::Checkpoint(CT::Checkpoint(ref src_id)) = vm.model_type {
+            if !map.contains_key(src_id) {
+                if let Some(r) = crate::postgres_orm()
+                    .get_checkpoint_ref(src_id)
+                    .await
+                    .ok()
+                    .flatten()
+                {
+                    if let Ok(bytes) = std::fs::read(&r.path) {
+                        map.insert(
+                            src_id.clone(),
+                            Checkpoint {
+                                id: Some(src_id.clone()),
+                                model_zip_base64: Some(BASE64.encode(&bytes)),
+                                model_zip_path: None,
+                                control_model_mlp: r.control_model_params.clone(),
+                                value_model_mlp: r.value_model_params.clone(),
+                            },
+                        );
+                    }
                 }
             }
         }
