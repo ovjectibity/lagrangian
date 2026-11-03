@@ -21,7 +21,14 @@ import jax
 import jax.numpy as jnp
 from jax import random
 
-from commondef.training import ControlPolicyOutputMode, ModelInputSpec, VLAModel
+from commondef.ioadapter import ControlPolicyInputState
+from commondef.training import (
+    ControlPolicyInputSpec,
+    ControlPolicyOutputSpec,
+    InputStateItemSensors,
+    InputStateTypes,
+    VLAModel,
+)
 from commondef.training import MLPModel as MLPModelSpec
 from models.base import FlaxMLP
 from models.model import PPOTrainedModel, TestingModel
@@ -55,16 +62,17 @@ def _init_mlp(
 def _prep_pi0_inputs(
     pi0: Pi0Jax,
     frozen: Params,
-    parts: dict[str, Array],
+    policy_input: ControlPolicyInputState,
+    input_spec: ControlPolicyInputSpec,
     task_tokens: Array,
 ) -> tuple[tuple[Array, Array], Array]:
-    """Single-sample: parts dict → (LM KV cache, normalised+padded state).
+    """Single-sample structured state → LM KV cache and normalised state.
 
     Mirrors the observation preprocessing of Pi0Jax.infer so the training
     denoise loop and the log-prob recompute see identical conditioning.
     Pure/traceable (task tokens are pre-encoded by the caller).
     """
-    images, proprio = Pi0Model._split_observation(parts)
+    images, proprio = Pi0Model._split_observation(policy_input, input_spec)
     norm_dim = frozen["norm_state"]["mean"].shape[0]
     dim = min(proprio.shape[0], norm_dim)
     norm_state = pi0._normalize(
@@ -101,17 +109,16 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     Value store:  a small Flax MLP initialised from value_mlp_spec.
     """
 
-    _STATE_KEY_ORDER = ("cameras", "qpos", "qvel", "xpos", "xquat")
-
     def __init__(
         self,
         vla_spec: VLAModel,
         noise_mlp_spec: MLPModelSpec | None,
-        control_input_spec: ModelInputSpec,
-        value_input_spec: ModelInputSpec,
-        reward_input_spec: ModelInputSpec,
+        control_input_spec: ControlPolicyInputSpec,
+        value_input_spec: ControlPolicyInputSpec,
+        reward_input_spec: ControlPolicyInputSpec,
+        control_output_spec: ControlPolicyOutputSpec,
         value_mlp_spec: MLPModelSpec | None = None,
-        reward_fn: Callable[[dict[str, Array], dict[str, Array]], float] | None = None,
+        reward_fn: Callable[[ControlPolicyInputState, ControlPolicyInputState], float] | None = None,
         rng_key: Array | None = None,
         n_action_steps: int = 1,
     ) -> None:
@@ -141,6 +148,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         self._control_input_spec = control_input_spec
         self._value_input_spec = value_input_spec
         self._reward_input_spec = reward_input_spec
+        self._control_output_spec = control_output_spec
         self._reward_fn = reward_fn
 
         if value_mlp_spec is not None:
@@ -152,8 +160,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
             self._value_fn = None
             self._value_store = None
 
-        # Held key for eager sampling (get_policy_output / get_test_action); the
-        # scan threads fresh per-step keys via policy_input["rng_key"] instead.
+        # Eager inference owns this key; pure policy calls receive one explicitly.
         self._rng_key = sampling_rng
         self._last_task: str = ""
 
@@ -161,44 +168,92 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     # Input spec ownership
     # ------------------------------------------------------------------
 
-    def get_control_input_spec(self) -> ModelInputSpec:
+    def get_control_input_spec(self) -> ControlPolicyInputSpec:
         return self._control_input_spec
 
-    def get_value_input_spec(self) -> ModelInputSpec:
+    def get_value_input_spec(self) -> ControlPolicyInputSpec:
         return self._value_input_spec
 
-    def get_reward_input_spec(self) -> ModelInputSpec:
+    def get_reward_input_spec(self) -> ControlPolicyInputSpec:
         return self._reward_input_spec
 
     # ------------------------------------------------------------------
     # State assembly
     # ------------------------------------------------------------------
 
-    @classmethod
-    def _split_observation(cls, parts: dict[str, Array]) -> tuple[Array, Array]:
-        """Split a labeled parts dict into (camera images, proprio state vector).
+    @staticmethod
+    def _split_observation(
+        state: ControlPolicyInputState,
+        input_spec: ControlPolicyInputSpec,
+    ) -> tuple[Array, Array]:
+        """Extract camera images and concatenate other state leaves in spec order.
 
-        Camera frames come straight through as the image input; the remaining
-        proprio parts are concatenated in _STATE_KEY_ORDER.
+        Rendered camera leaves must use [..., camera, H, W, RGB]. Repeated
+        camera requests refer to the same rendered images, used only once.
+        The caller must replace the getter's empty camera placeholders before
+        invoking a Pi-0 policy. Other leaves retain their trailing feature axis.
         """
-        images = parts["cameras"]
-        proprio = jnp.concatenate(
-            [parts[k] for k in cls._STATE_KEY_ORDER if k != "cameras" and k in parts]
+        images: Array | None = None
+        features: list[Array] = []
+        for requested, actual in zip(
+            input_spec.content.states, state.content.states, strict=True
+        ):
+            if requested.type != actual.type:
+                raise ValueError("Input state entries must match input spec order")
+            if requested.type == InputStateTypes.INPUT_STATE_CONTROLLABLE:
+                features.append(jnp.asarray(actual.content.state_item))
+            elif requested.content == InputStateItemSensors.CAMERAS:
+                camera_frames = jnp.asarray(actual.content)
+                if camera_frames.ndim < 4 or camera_frames.shape[-1] != 3:
+                    raise ValueError(
+                        "Pi-0 requires rendered cameras with shape "
+                        "[..., camera, H, W, RGB]"
+                    )
+                if images is None:
+                    images = camera_frames
+            else:
+                features.append(jnp.asarray(actual.content))
+        if images is None:
+            raise ValueError("Pi-0 control input spec must request Cameras")
+        proprio = (
+            jnp.concatenate(features, axis=-1)
+            if features
+            else jnp.zeros(images.shape[:-4] + (0,), dtype=jnp.float32)
         )
         return images, proprio
 
-    @classmethod
-    def _assemble_value(cls, parts: dict[str, Array]) -> Array:
-        """Concatenate value-input parts into a flat vector for the value MLP.
-
-        cameras (if present) arrive as [..., ncam, H, W, C]; flatten those
-        trailing 4 dims so they concatenate with the 1-D proprio parts. Concat
-        is on the feature axis (batch-safe over leading [num_trajs, T, ...]).
-        """
-        return jnp.concatenate([
-            parts[k].reshape(*parts[k].shape[:-4], -1) if k == "cameras" else parts[k]
-            for k in cls._STATE_KEY_ORDER if k in parts
-        ], axis=-1)
+    @staticmethod
+    def _assemble_value(
+        state: ControlPolicyInputState,
+        input_spec: ControlPolicyInputSpec,
+    ) -> Array:
+        """Flatten value features in spec order, preserving leading batch axes."""
+        features: list[Array] = []
+        for requested, actual in zip(
+            input_spec.content.states, state.content.states, strict=True
+        ):
+            if requested.type != actual.type:
+                raise ValueError("Input state entries must match input spec order")
+            if requested.type == InputStateTypes.INPUT_STATE_CONTROLLABLE:
+                value = jnp.asarray(actual.content.state_item)
+            else:
+                value = jnp.asarray(actual.content)
+                if (
+                    requested.content == InputStateItemSensors.CAMERAS
+                    and value.shape[-1] != 0
+                ):
+                    if value.ndim < 4:
+                        raise ValueError(
+                            "Camera input must have shape [..., camera, H, W, RGB]"
+                        )
+                    feature_size = 1
+                    for dimension in value.shape[-4:]:
+                        feature_size *= dimension
+                    value = value.reshape(value.shape[:-4] + (feature_size,))
+            features.append(value)
+        if not features:
+            raise ValueError("Value input spec must request at least one state")
+        return jnp.concatenate(features, axis=-1)
 
     # ------------------------------------------------------------------
     # PPOTrainedModel interface
@@ -208,16 +263,17 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     def init_ppo_trained_model(cls, *args, **kwargs) -> "Pi0Model":
         raise NotImplementedError("Construct Pi0Model directly.")
 
-    def get_policy_output(self, policy_input: dict[str, Array]) -> dict[str, Array]:
-        # Eager path: split the held key in place and thread it in via the dict.
+    def get_policy_output(
+        self, policy_input: ControlPolicyInputState
+    ) -> dict[str, Array]:
         self._rng_key, subkey = random.split(self._rng_key)
-        return self.get_policy_fn()(self._policy_store, {**policy_input, "rng_key": subkey})
+        return self.get_policy_fn()(self._policy_store, policy_input, subkey)
 
     # Outputs the sampled action chunk, the denoising process state and the
-    # log prob for that trajectory. The per-call sampling key is read from
-    # policy_input["rng_key"] (popped before assembling the network input),
-    # so the scan can thread a fresh key each step.
-    def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], dict[str, Array]]:
+    # log prob for that trajectory. The sampling key is an explicit argument.
+    def get_policy_fn(
+        self,
+    ) -> Callable[[Params, ControlPolicyInputState, Array], dict[str, Array]]:
         if self._noise_fn is None:
             raise RuntimeError(
                 "Pi0Model was built without a noise model spec; the FlowNoise "
@@ -226,6 +282,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         pi0 = self._pi0
         frozen = self._frozen_store
         noise_fn = self._noise_fn
+        input_spec = self._control_input_spec
         task_tokens = pi0._encode_task(self._last_task)
         n_steps = pi0._num_inference_steps
         chunk = pi0._chunk_size
@@ -233,14 +290,18 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         n_action_steps = pi0._n_action_steps
         dt = 1.0 / n_steps
 
-        def _policy(policy_store: Params, policy_input: dict[str, Array]) -> dict[str, Array]:
-            key = policy_input["rng_key"]
-            parts = {k: v for k, v in policy_input.items() if k != "rng_key"}
+        def _policy(
+            policy_store: Params,
+            policy_input: ControlPolicyInputState,
+            rng_key: Array,
+        ) -> dict[str, Array]:
             trainable = policy_store["pi0"]
             noise_store = policy_store["noise"]
-            lm_kv, state_pad = _prep_pi0_inputs(pi0, frozen, parts, task_tokens)
+            lm_kv, state_pad = _prep_pi0_inputs(
+                pi0, frozen, policy_input, input_spec, task_tokens
+            )
 
-            init_key, steps_key = random.split(key)
+            init_key, steps_key = random.split(rng_key)
             x0 = random.normal(init_key, (chunk, max_action_dim))
             ts = 1.0 - jnp.arange(n_steps, dtype=jnp.float32) * dt
             step_keys = random.split(steps_key, n_steps)
@@ -286,13 +347,13 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         return _policy
 
     def get_policy_output_log_prob(
-        self, policy_input: dict[str, Array], policy_output: dict[str, Array]
+        self, policy_input: ControlPolicyInputState, policy_output: dict[str, Array]
     ) -> Array:
         return self.get_policy_output_log_prob_fn()(self._policy_store, policy_input, policy_output)
 
     def get_policy_output_log_prob_fn(
         self,
-    ) -> Callable[[Params, dict[str, Array], dict[str, Array]], Array]:
+    ) -> Callable[[Params, ControlPolicyInputState, dict[str, Array]], Array]:
         if self._noise_fn is None:
             raise RuntimeError(
                 "Pi0Model was built without a noise model spec; the FlowNoise "
@@ -301,19 +362,21 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         pi0 = self._pi0
         frozen = self._frozen_store
         noise_fn = self._noise_fn
+        input_spec = self._control_input_spec
         task_tokens = pi0._encode_task(self._last_task)
         n_steps = pi0._num_inference_steps
         dt = 1.0 / n_steps
 
         def _single(
             policy_store: Params,
-            policy_input: dict[str, Array],
+            policy_input: ControlPolicyInputState,
             policy_output: dict[str, Array],
         ) -> Array:
-            parts = {k: v for k, v in policy_input.items() if k != "rng_key"}
             trainable = policy_store["pi0"]
             noise_store = policy_store["noise"]
-            lm_kv, state_pad = _prep_pi0_inputs(pi0, frozen, parts, task_tokens)
+            lm_kv, state_pad = _prep_pi0_inputs(
+                pi0, frozen, policy_input, input_spec, task_tokens
+            )
 
             # Recompute the FlowNoise log prob of the recorded denoising
             # trajectory under the *current* params (Formula 5, arxiv:2510.25889):
@@ -340,29 +403,35 @@ class Pi0Model(PPOTrainedModel, TestingModel):
 
         def log_prob_fn(
             policy_store: Params,
-            policy_input: dict[str, Array],
+            policy_input: ControlPolicyInputState,
             policy_output: dict[str, Array],
         ) -> Array:
-            # The trainer calls this with [num_trajs, T, ...] (or [T, ...])
-            # leading axes on every leaf; vmap over each extra leading axis
-            # (cameras is always present for a VLA and is [ncam, H, W, C]
-            # unbatched).
+            # The trainer supplies [num_trajs, T, ...] (or [T, ...]) leading
+            # axes on every leaf; vmap over each extra leading axis.
+            # Camera rank is static during tracing: its last four axes are
+            # [camera, H, W, RGB], with rollout batch/time axes preceding them.
+            images, _ = Pi0Model._split_observation(policy_input, input_spec)
             fn = _single
-            for _ in range(policy_input["cameras"].ndim - 4):
+            for _ in range(images.ndim - 4):
                 fn = jax.vmap(fn, in_axes=(None, 0, 0))
             return fn(policy_store, policy_input, policy_output)
 
         return log_prob_fn
 
-    def get_value_output(self, parts: dict[str, Array]) -> float:
-        flat = self._assemble_value(parts)
-        self._ensure_value_store(flat)
-        val = self._value_fn(self._value_store, flat)
+    def get_value_output(self, value_input: ControlPolicyInputState) -> float:
+        val = self.get_value_fn()(self.get_value_store(), value_input)
         return float(jnp.squeeze(val))
 
-    def get_value_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
-        # value MLP takes a flat tensor; assemble the parts dict internally.
-        return lambda store, parts: self._value_fn(store, self._assemble_value(parts))
+    def get_value_fn(
+        self,
+    ) -> Callable[[Params, ControlPolicyInputState], Array]:
+        if self._value_fn is None:
+            raise RuntimeError("No value estimator initialized in Pi0Model")
+        value_fn = self._value_fn
+        input_spec = self._value_input_spec
+        return lambda store, state: value_fn(
+            store, Pi0Model._assemble_value(state, input_spec)
+        )
 
     def get_policy_store(self) -> Params:
         return self._policy_store
@@ -371,26 +440,30 @@ class Pi0Model(PPOTrainedModel, TestingModel):
         return self._policy_store
 
     def get_value_store(self) -> Params:
+        if self._value_store is None:
+            raise RuntimeError("No value estimator store initialized in Pi0Model")
         return self._value_store
 
     def get_value_store_mut(self) -> Params:
+        if self._value_store is None:
+            raise RuntimeError("No value estimator store initialized in Pi0Model")
         return self._value_store
 
-    def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
-        return ControlPolicyOutputMode.TARGETPOSITIONS
+    def get_control_policy_output_spec(self) -> ControlPolicyOutputSpec:
+        return self._control_output_spec
 
     def get_reward(
         self,
-        parts_pre: dict[str, Array],
-        parts_post: dict[str, Array],
+        state_pre: ControlPolicyInputState,
+        state_post: ControlPolicyInputState,
     ) -> float:
         if self._reward_fn is None:
             raise RuntimeError("No reward function injected into Pi0Model")
-        return float(self._reward_fn(parts_pre, parts_post))
+        return float(self._reward_fn(state_pre, state_post))
 
     def get_pure_reward_fn(
         self,
-    ) -> Callable[[dict[str, Array], dict[str, Array]], float]:
+    ) -> Callable[[ControlPolicyInputState, ControlPolicyInputState], float]:
         if self._reward_fn is None:
             raise RuntimeError("No reward function injected into Pi0Model")
         return self._reward_fn
@@ -399,32 +472,27 @@ class Pi0Model(PPOTrainedModel, TestingModel):
     # TestingModel interface — deterministic Euler ODE (no noise model)
     # ------------------------------------------------------------------
 
-    def get_test_action(self, parts: dict[str, Array]) -> Array:
+    def get_test_action(self, policy_input: ControlPolicyInputState) -> Array:
         self._rng_key, key = random.split(self._rng_key)
-        return self.get_test_policy()(self._policy_store, {**parts, "rng_key": key})
+        return self.get_test_policy()(self._policy_store, policy_input, key)
 
-    def get_test_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
+    def get_test_policy(
+        self,
+    ) -> Callable[[Params, ControlPolicyInputState, Array], Array]:
         pi0 = self._pi0
         frozen = self._frozen_store
         task = self._last_task
+        input_spec = self._control_input_spec
 
-        def _test_policy(params: Params, parts: dict[str, Array]) -> Array:
-            key = parts["rng_key"]
-            feats = {k: v for k, v in parts.items() if k != "rng_key"}
-            images, proprio = Pi0Model._split_observation(feats)
-            return pi0.infer(params["pi0"], frozen, images, proprio, task, key)
+        def _test_policy(
+            params: Params,
+            policy_input: ControlPolicyInputState,
+            rng_key: Array,
+        ) -> Array:
+            images, proprio = Pi0Model._split_observation(policy_input, input_spec)
+            return pi0.infer(params["pi0"], frozen, images, proprio, task, rng_key)
 
         return _test_policy
 
     def get_test_params(self) -> Params:
         return self._policy_store
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    def _ensure_value_store(self, state: Array) -> None:
-        if self._value_store is None:
-            module = FlaxMLP(num_hidden_layers=2, hidden_layer_dim=256, output_dim=1)
-            self._value_fn = module.apply
-            self._value_store = module.init(random.PRNGKey(99), jnp.zeros_like(state))

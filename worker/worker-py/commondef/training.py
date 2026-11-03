@@ -22,19 +22,10 @@ class ModelTypeNew(BaseModel):
     type: Literal[ModelTypeTypes.NEW] = ModelTypeTypes.NEW
 
 ModelType = Union[ModelTypeCheckpoint, ModelTypeNew]
-class ControlPolicyInputSpecTypes(str, Enum):
-    STANDARD_INPUT_SPEC = "StandardInputSpec"
-
-class ControlPolicyInputSpecStandardInputSpec(BaseModel):
-    type: Literal[ControlPolicyInputSpecTypes.STANDARD_INPUT_SPEC] = ControlPolicyInputSpecTypes.STANDARD_INPUT_SPEC
-    content: StandardInputSpec
-
-ControlPolicyInputSpec = ControlPolicyInputSpecStandardInputSpec
 class MLPModel(BaseModel):
     model_type: ModelType
     num_hidden_layers: int
     hidden_layer_dim: int
-    input_spec: ControlPolicyInputSpec
     output_dim: int
     input_dim: int
 
@@ -46,6 +37,45 @@ class Checkpoint(BaseModel):
     model_zip_path: Optional[str] = Field(default=None)
     control_model_mlp: Optional[MLPModel] = Field(default=None)
     value_model_mlp: Optional[MLPModel] = Field(default=None)
+
+class MLModelTypes(str, Enum):
+    MLP = "MLP"
+    VLA = "VLA"
+
+class MLModelMLP(BaseModel):
+    type: Literal[MLModelTypes.MLP] = MLModelTypes.MLP
+    content: MLPModel
+
+class MLModelVLA(BaseModel):
+    type: Literal[MLModelTypes.VLA] = MLModelTypes.VLA
+    content: VLAModel
+
+MLModel = Union[MLModelMLP, MLModelVLA]
+class ControlPolicyInputSpecTypes(str, Enum):
+    STANDARD_INPUT_SPEC = "StandardInputSpec"
+
+class ControlPolicyInputSpecStandardInputSpec(BaseModel):
+    type: Literal[ControlPolicyInputSpecTypes.STANDARD_INPUT_SPEC] = ControlPolicyInputSpecTypes.STANDARD_INPUT_SPEC
+    content: StandardInputSpec
+
+ControlPolicyInputSpec = ControlPolicyInputSpecStandardInputSpec
+class ControlPolicyOutputSpecTypes(str, Enum):
+    PROPRIOCEPTIVE_OUTPUT_SPEC = "ProprioceptiveOutputSpec"
+    EEF_OUTPUT_SPEC = "EEFOutputSpec"
+
+class ControlPolicyOutputSpecProprioceptiveOutputSpec(BaseModel):
+    type: Literal[ControlPolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC] = ControlPolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC
+    content: ProprioceptiveOutputSpec
+
+class ControlPolicyOutputSpecEEFOutputSpec(BaseModel):
+    type: Literal[ControlPolicyOutputSpecTypes.EEF_OUTPUT_SPEC] = ControlPolicyOutputSpecTypes.EEF_OUTPUT_SPEC
+    content: EEFOutputSpec
+
+ControlPolicyOutputSpec = Union[ControlPolicyOutputSpecProprioceptiveOutputSpec, ControlPolicyOutputSpecEEFOutputSpec]
+class ControlModel(BaseModel):
+    model: MLModel
+    input_spec: ControlPolicyInputSpec
+    output: ControlPolicyOutputSpec
 
 class OutputStateItemTypes(str, Enum):
     Q_POS = "QPos"
@@ -117,27 +147,10 @@ class RewardSystem(BaseModel):
     reward_function_code: str
     input_spec: ControlPolicyInputSpec
 
-class ControlModelTypes(str, Enum):
-    MLP = "MLP"
-    VLA = "VLA"
+class ValueModel(BaseModel):
+    input_spec: ControlPolicyInputSpec
+    model: MLModel
 
-class ControlModelMLP(BaseModel):
-    type: Literal[ControlModelTypes.MLP] = ControlModelTypes.MLP
-    content: MLPModel
-
-class ControlModelVLA(BaseModel):
-    type: Literal[ControlModelTypes.VLA] = ControlModelTypes.VLA
-    content: VLAModel
-
-ControlModel = Union[ControlModelMLP, ControlModelVLA]
-class ValueModelTypes(str, Enum):
-    MLP = "MLP"
-
-class ValueModelMLP(BaseModel):
-    type: Literal[ValueModelTypes.MLP] = ValueModelTypes.MLP
-    content: MLPModel
-
-ValueModel = ValueModelMLP
 class ControlOutputModeTypes(str, Enum):
     ACTION_MEAN = "ActionMean"
     FLOW_MATCHING_ACTION = "FlowMatchingAction"
@@ -292,23 +305,8 @@ class TrainingUpdatesMessage(BaseModel):
     id: str
     updates: List[TrainingUpdate]
 
-class ControlPolicyOutputSpecTypes(str, Enum):
-    PROPRIOCEPTIVE_OUTPUT_SPEC = "ProprioceptiveOutputSpec"
-    EEF_OUTPUT_SPEC = "EEFOutputSpec"
-
-class ControlPolicyOutputSpecProprioceptiveOutputSpec(BaseModel):
-    type: Literal[ControlPolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC] = ControlPolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC
-    content: ProprioceptiveOutputSpec
-
-class ControlPolicyOutputSpecEEFOutputSpec(BaseModel):
-    type: Literal[ControlPolicyOutputSpecTypes.EEF_OUTPUT_SPEC] = ControlPolicyOutputSpecTypes.EEF_OUTPUT_SPEC
-    content: EEFOutputSpec
-
-ControlPolicyOutputSpec = Union[ControlPolicyOutputSpecProprioceptiveOutputSpec, ControlPolicyOutputSpecEEFOutputSpec]
 class VLAModel(BaseModel):
     model_type: ModelType
-    input_spec: ControlPolicyInputSpec
-    output: ControlPolicyOutputSpec
 
 class IOStateXFrame(str, Enum):
     WORLDFRAME = "WorldFrame"

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Callable
-from commondef.training import ModelInputSpec, ControlPolicyOutputMode
+from commondef.training import ControlPolicyInputSpec, ControlPolicyOutputSpec
+from commondef.ioadapter import ControlPolicyInputState
 import jax
 
 Array = jax.Array
@@ -10,31 +11,20 @@ class TestingModel(ABC):
     """Minimal interface for test-time inference, independent of PPO concepts."""
 
     @abstractmethod
-    def get_control_input_spec(self) -> ModelInputSpec:
-        """Input spec the simulator uses to build the state dict for control inference."""
+    def get_control_input_spec(self) -> ControlPolicyInputSpec:
+        """Input spec the simulator uses for control-policy inference."""
         ...
 
     @abstractmethod
-    def get_test_action(self, parts: dict[str, Array]) -> Array:
-        """Single-step inference: labeled state parts dict → control action.
-
-        parts keys: "cameras", "qpos", "qvel", "xpos", "xquat" (only flags set).
-        The model assembles its own model-specific input from these parts and
-        returns just the action (the underlying policy produces a stats dict;
-        this extracts the action from it). Eager path — the model supplies its
-        own sampling key.
-        """
+    def get_test_action(self, policy_input: ControlPolicyInputState) -> Array:
+        """Run eager single-step inference using a structured simulator state."""
         ...
 
     @abstractmethod
-    def get_test_policy(self) -> Callable[[Params, dict[str, Array]], Array]:
-        """Pure (params, parts) -> action for vmap-able MJX batched testing.
-
-        Receives the labeled parts dict (which must include the per-call sampling
-        key under "rng_key"), assembles the model input internally, and returns
-        just the action. Must be a pure JAX function (safe to jax.vmap over
-        batched pytree dicts).
-        """
+    def get_test_policy(
+        self,
+    ) -> Callable[[Params, ControlPolicyInputState, Array], Array]:
+        """Return pure ``(params, state, rng_key) -> action`` inference."""
         ...
 
     @abstractmethod
@@ -43,8 +33,8 @@ class TestingModel(ABC):
         ...
 
     @abstractmethod
-    def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
-        """Control signal semantics used for simulator actuator mapping."""
+    def get_control_policy_output_spec(self) -> ControlPolicyOutputSpec:
+        """Static interpretation of the policy's flat control output."""
         ...
 
 
@@ -63,29 +53,31 @@ class PPOTrainedModel(ABC):
     # --- Input spec ownership (mirrors Rust PPOTrainedModel trait) ---
 
     @abstractmethod
-    def get_control_input_spec(self) -> ModelInputSpec:
+    def get_control_input_spec(self) -> ControlPolicyInputSpec:
         pass
 
     @abstractmethod
-    def get_value_input_spec(self) -> ModelInputSpec:
+    def get_value_input_spec(self) -> ControlPolicyInputSpec:
         pass
 
     @abstractmethod
-    def get_reward_input_spec(self) -> ModelInputSpec:
+    def get_reward_input_spec(self) -> ControlPolicyInputSpec:
         pass
 
-    # --- Reward (pre/post state dicts, matching Rust and the C ABI reward interface) ---
+    # --- Reward (pre/post structured state, matching the Rust/C ABI contract) ---
 
     @abstractmethod
     def get_reward(
         self,
-        parts_pre: dict[str, Array],
-        parts_post: dict[str, Array],
+        state_pre: ControlPolicyInputState,
+        state_post: ControlPolicyInputState,
     ) -> float:
         pass
 
     @abstractmethod
-    def get_pure_reward_fn(self) -> Callable[[dict[str, Array], dict[str, Array]], float]:
+    def get_pure_reward_fn(
+        self,
+    ) -> Callable[[ControlPolicyInputState, ControlPolicyInputState], float]:
         pass
 
     # --- Policy / value inference ---
@@ -95,16 +87,19 @@ class PPOTrainedModel(ABC):
     # --- For flow matching VLAs like Pi-0 this might also 
     # --- require some additional state such as that generated during the unrolling process 
 
-    # policy_input carries the per-call sampling key under "rng_key"; the model
-    # pops it before assembling the network input. The held key (from the
-    # constructor) is used by eager get_policy_output; the scan threads fresh
-    # per-step keys in via the dict.
     @abstractmethod
-    def get_policy_output(self, policy_input: dict[str, Array]) -> dict[str,Array]:
+    def get_policy_output(
+        self,
+        policy_input: ControlPolicyInputState,
+    ) -> dict[str, Array]:
+        """Return an eager policy sample using the model-owned RNG state."""
         pass
 
     @abstractmethod
-    def get_policy_fn(self) -> Callable[[Params, dict[str, Array]], dict[str,Array]]:
+    def get_policy_fn(
+        self,
+    ) -> Callable[[Params, ControlPolicyInputState, Array], dict[str, Array]]:
+        """Return pure ``(params, state, rng_key) -> sampled policy output``."""
         pass
     
     # --- The get_policy_output_log_prob function recomputes what it would take to generate the output sample
@@ -112,19 +107,27 @@ class PPOTrainedModel(ABC):
     # --- which generated that output process ----------------
 
     @abstractmethod
-    def get_policy_output_log_prob(self, policy_input: dict[str, Array], policy_output: dict[str, Array]) -> Array: 
+    def get_policy_output_log_prob(
+        self,
+        policy_input: ControlPolicyInputState,
+        policy_output: dict[str, Array],
+    ) -> Array:
         pass
 
     @abstractmethod
-    def get_policy_output_log_prob_fn(self) -> Callable[[Params, dict[str, Array], dict[str, Array]], Array]: 
+    def get_policy_output_log_prob_fn(
+        self,
+    ) -> Callable[[Params, ControlPolicyInputState, dict[str, Array]], Array]:
         pass
 
     @abstractmethod
-    def get_value_output(self, parts: dict[str, Array]) -> float:
+    def get_value_output(self, value_input: ControlPolicyInputState) -> float:
         pass
 
     @abstractmethod
-    def get_value_fn(self) -> Callable[[Params, dict[str, Array]], Array]:
+    def get_value_fn(
+        self,
+    ) -> Callable[[Params, ControlPolicyInputState], Array]:
         pass
 
     @abstractmethod
@@ -144,5 +147,5 @@ class PPOTrainedModel(ABC):
         pass
 
     @abstractmethod
-    def get_control_policy_output_mode(self) -> ControlPolicyOutputMode:
+    def get_control_policy_output_spec(self) -> ControlPolicyOutputSpec:
         pass
