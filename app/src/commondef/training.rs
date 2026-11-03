@@ -157,8 +157,6 @@ pub enum ModelType {
 #[typeshare]
 pub struct VLAModel {
     pub model_type: ModelType,
-    pub input_spec: ControlPolicyInputSpec,
-    pub output: ControlPolicyOutputSpec,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
@@ -167,7 +165,6 @@ pub struct MLPModel {
     pub model_type: ModelType,
     pub num_hidden_layers: i32,
     pub hidden_layer_dim: i32,
-    pub input_spec: ControlPolicyInputSpec,
     pub output_dim: i32,
     pub input_dim: i32,
 }
@@ -175,16 +172,24 @@ pub struct MLPModel {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
-pub enum ControlModel {
+pub enum MLModel {
     MLP(MLPModel),
     VLA(VLAModel)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
-#[serde(tag = "type", content = "content")]
 #[typeshare]
-pub enum ValueModel {
-    MLP(MLPModel)
+pub struct ControlModel {
+    pub model: MLModel,
+    pub input_spec: ControlPolicyInputSpec,
+    pub output: ControlPolicyOutputSpec,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct ValueModel {
+    pub input_spec: ControlPolicyInputSpec,
+    pub model: MLModel
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]

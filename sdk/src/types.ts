@@ -47,14 +47,10 @@ export type ModelType =
 	| { type: "Checkpoint", content: CheckpointType }
 	| { type: "New", content?: undefined };
 
-export type ControlPolicyInputSpec = 
-	| { type: "StandardInputSpec", content: StandardInputSpec };
-
 export interface MLPModel {
 	model_type: ModelType;
 	num_hidden_layers: number;
 	hidden_layer_dim: number;
-	input_spec: ControlPolicyInputSpec;
 	output_dim: number;
 	input_dim: number;
 }
@@ -78,14 +74,27 @@ export interface CheckpointReference {
 	value_model_params?: MLPModel;
 }
 
+export type MLModel = 
+	| { type: "MLP", content: MLPModel }
+	| { type: "VLA", content: VLAModel };
+
+export type ControlPolicyInputSpec = 
+	| { type: "StandardInputSpec", content: StandardInputSpec };
+
+export type ControlPolicyOutputSpec = 
+	| { type: "ProprioceptiveOutputSpec", content: ProprioceptiveOutputSpec }
+	| { type: "EEFOutputSpec", content: EEFOutputSpec };
+
+export interface ControlModel {
+	model: MLModel;
+	input_spec: ControlPolicyInputSpec;
+	output: ControlPolicyOutputSpec;
+}
+
 export interface CustomTestMethodTestParams {
 	num_timesteps: number;
 	num_parallel_envs: number;
 }
-
-export type ControlModel = 
-	| { type: "MLP", content: MLPModel }
-	| { type: "VLA", content: VLAModel };
 
 export interface CustomTestMethod {
 	test_params: CustomTestMethodTestParams;
@@ -203,8 +212,10 @@ export interface RewardSystem {
 	input_spec: ControlPolicyInputSpec;
 }
 
-export type ValueModel = 
-	| { type: "MLP", content: MLPModel };
+export interface ValueModel {
+	input_spec: ControlPolicyInputSpec;
+	model: MLModel;
+}
 
 export type ControlOutputMode = 
 	| { type: "ActionMean", content?: undefined }
@@ -400,14 +411,8 @@ export interface TrainingUpdatesMessage {
 	updates: TrainingUpdate[];
 }
 
-export type ControlPolicyOutputSpec = 
-	| { type: "ProprioceptiveOutputSpec", content: ProprioceptiveOutputSpec }
-	| { type: "EEFOutputSpec", content: EEFOutputSpec };
-
 export interface VLAModel {
 	model_type: ModelType;
-	input_spec: ControlPolicyInputSpec;
-	output: ControlPolicyOutputSpec;
 }
 
 export interface WorldBody {

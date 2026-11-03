@@ -362,6 +362,25 @@
       ]
     },
     "ControlModel": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "$ref": "#/definitions/MLModel"
+        },
+        "input_spec": {
+          "$ref": "#/definitions/ControlPolicyInputSpec"
+        },
+        "output": {
+          "$ref": "#/definitions/ControlPolicyOutputSpec"
+        }
+      },
+      "required": [
+        "model",
+        "input_spec",
+        "output"
+      ]
+    },
+    "MLModel": {
       "oneOf": [
         {
           "type": "object",
@@ -411,9 +430,6 @@
           "type": "integer",
           "format": "int32"
         },
-        "input_spec": {
-          "$ref": "#/definitions/ControlPolicyInputSpec"
-        },
         "output_dim": {
           "type": "integer",
           "format": "int32"
@@ -427,7 +443,6 @@
         "model_type",
         "num_hidden_layers",
         "hidden_layer_dim",
-        "input_spec",
         "output_dim",
         "input_dim"
       ]
@@ -511,18 +526,10 @@
       "properties": {
         "model_type": {
           "$ref": "#/definitions/ModelType"
-        },
-        "input_spec": {
-          "$ref": "#/definitions/ControlPolicyInputSpec"
-        },
-        "output": {
-          "$ref": "#/definitions/ControlPolicyOutputSpec"
         }
       },
       "required": [
-        "model_type",
-        "input_spec",
-        "output"
+        "model_type"
       ]
     },
     "ControlPolicyOutputSpec": {
@@ -673,23 +680,18 @@
       ]
     },
     "ValueModel": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "MLP"
-            },
-            "content": {
-              "$ref": "#/definitions/MLPModel"
-            }
-          },
-          "required": [
-            "type",
-            "content"
-          ]
+      "type": "object",
+      "properties": {
+        "input_spec": {
+          "$ref": "#/definitions/ControlPolicyInputSpec"
+        },
+        "model": {
+          "$ref": "#/definitions/MLModel"
         }
+      },
+      "required": [
+        "input_spec",
+        "model"
       ]
     },
     "ControlOutputMode": {

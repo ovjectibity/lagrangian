@@ -128,6 +128,25 @@
       ]
     },
     "ControlModel": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "$ref": "#/definitions/MLModel"
+        },
+        "input_spec": {
+          "$ref": "#/definitions/ControlPolicyInputSpec"
+        },
+        "output": {
+          "$ref": "#/definitions/ControlPolicyOutputSpec"
+        }
+      },
+      "required": [
+        "model",
+        "input_spec",
+        "output"
+      ]
+    },
+    "MLModel": {
       "oneOf": [
         {
           "type": "object",
@@ -177,9 +196,6 @@
           "type": "integer",
           "format": "int32"
         },
-        "input_spec": {
-          "$ref": "#/definitions/ControlPolicyInputSpec"
-        },
         "output_dim": {
           "type": "integer",
           "format": "int32"
@@ -193,7 +209,6 @@
         "model_type",
         "num_hidden_layers",
         "hidden_layer_dim",
-        "input_spec",
         "output_dim",
         "input_dim"
       ]
@@ -270,6 +285,17 @@
       "type": "string",
       "enum": [
         "Pi0"
+      ]
+    },
+    "VLAModel": {
+      "type": "object",
+      "properties": {
+        "model_type": {
+          "$ref": "#/definitions/ModelType"
+        }
+      },
+      "required": [
+        "model_type"
       ]
     },
     "ControlPolicyInputSpec": {
@@ -461,25 +487,6 @@
       "enum": [
         "Cameras",
         "ContactPairs"
-      ]
-    },
-    "VLAModel": {
-      "type": "object",
-      "properties": {
-        "model_type": {
-          "$ref": "#/definitions/ModelType"
-        },
-        "input_spec": {
-          "$ref": "#/definitions/ControlPolicyInputSpec"
-        },
-        "output": {
-          "$ref": "#/definitions/ControlPolicyOutputSpec"
-        }
-      },
-      "required": [
-        "model_type",
-        "input_spec",
-        "output"
       ]
     },
     "ControlPolicyOutputSpec": {
