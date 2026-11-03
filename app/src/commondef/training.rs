@@ -182,7 +182,7 @@ pub enum MLModel {
 pub struct ControlModel {
     pub model: MLModel,
     pub input_spec: ControlPolicyInputSpec,
-    pub output: ControlPolicyOutputSpec,
+    pub output_spec: ControlPolicyOutputSpec,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]

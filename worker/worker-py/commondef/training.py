@@ -75,7 +75,7 @@ ControlPolicyOutputSpec = Union[ControlPolicyOutputSpecProprioceptiveOutputSpec,
 class ControlModel(BaseModel):
     model: MLModel
     input_spec: ControlPolicyInputSpec
-    output: ControlPolicyOutputSpec
+    output_spec: ControlPolicyOutputSpec
 
 class OutputStateItemTypes(str, Enum):
     Q_POS = "QPos"

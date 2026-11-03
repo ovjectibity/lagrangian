@@ -136,14 +136,14 @@
         "input_spec": {
           "$ref": "#/definitions/ControlPolicyInputSpec"
         },
-        "output": {
+        "output_spec": {
           "$ref": "#/definitions/ControlPolicyOutputSpec"
         }
       },
       "required": [
         "model",
         "input_spec",
-        "output"
+        "output_spec"
       ]
     },
     "MLModel": {

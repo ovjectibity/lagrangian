@@ -88,7 +88,7 @@ export type ControlPolicyOutputSpec =
 export interface ControlModel {
 	model: MLModel;
 	input_spec: ControlPolicyInputSpec;
-	output: ControlPolicyOutputSpec;
+	output_spec: ControlPolicyOutputSpec;
 }
 
 export interface CustomTestMethodTestParams {

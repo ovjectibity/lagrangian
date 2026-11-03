@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import copy
+from dataclasses import replace
 import logging
 from typing import Any, Callable
 
@@ -10,6 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from commondef import testing_updates_pb2 as pb
+from commondef.ioadapter import ControlPolicyInputState
 from commondef.remoteworkermessages import (
     RemoteWorkerClientMessageStopTestingMessage,
     StopTestMessage,
@@ -22,12 +24,21 @@ from commondef.testing import (
     TestMethodCustom,
     TestMethodDataset,
 )
-from commondef.training import ControlModelVLA, ModelInputSpec
+from commondef.training import (
+    ControlModel,
+    ControlPolicyInputSpecStandardInputSpec,
+    InputStateItemSensors,
+    InputStateTypes,
+    MLModelMLP,
+    MLModelVLA,
+    StandardInputSpec,
+)
 from datasets.libero.libero import get_task_mjcfs
 from models.mlp import MLPModel
 from models.model import TestingModel
 from models.pi0.pi0 import Pi0Model
 from simulator.simulator import MjxSimulator, MujocoSimulator
+from simulator.state import SimulatorState
 
 
 logger = logging.getLogger(__name__)
@@ -131,7 +142,7 @@ class TestingWorkflow:
     ) -> None:
         self.id = test_id
         self.test_controller = test_controller
-        self.simulator_states: dict[int | None, dict[str, Any]] = {}
+        self.simulator_states: dict[int | None, SimulatorState] = {}
 
         try:
             test_method = test_controller.test_method
@@ -179,13 +190,20 @@ class TestingWorkflow:
             )
 
             control_spec = self.model.get_control_input_spec()
+            # The spec and this layout stay fixed throughout the rollout.
+            self._camera_state_indices: tuple[int, ...] = tuple(
+                index
+                for index, state in enumerate(control_spec.content.states)
+                if state.type == InputStateTypes.INPUT_STATE_SENSORS
+                and state.content == InputStateItemSensors.CAMERAS
+            )
             mode = self.test_controller.acceleration_mode
 
             def initialize_simulator_state(
                 *,
                 source_model_path: str | None = None,
                 mjcf: str | None = None,
-            ) -> dict[str, Any]:
+            ) -> SimulatorState:
                 if mode == TrainingAccelerationMode.MLGPUSIMULATIONGPU:
                     (
                         mjx_data,
@@ -200,23 +218,21 @@ class TestingWorkflow:
                     contact_sensor_addresses, contact_body_pairs = (
                         MjxSimulator._get_contact_pair_sensor_metadata(mujoco_model)
                     )
-                    return {
-                        "simulator_class": MjxSimulator,
-                        "mjx_data": mjx_data,
-                        "mjx_model": mjx_model,
-                        "mujoco_data": mujoco_data,
-                        "mujoco_model": mujoco_model,
-                        "render_ctx": None,
-                        "render_ctx_pytree": None,
-                        "contact_sensor_addresses": jnp.asarray(
+                    return SimulatorState(
+                        simulator_class=MjxSimulator,
+                        mjx_data=mjx_data,
+                        mjx_model=mjx_model,
+                        mujoco_data=mujoco_data,
+                        mujoco_model=mujoco_model,
+                        contact_sensor_addresses=jnp.asarray(
                             contact_sensor_addresses,
                             dtype=jnp.int32,
                         ),
-                        "contact_body_pairs": jnp.asarray(
+                        contact_body_pairs=jnp.asarray(
                             contact_body_pairs,
                             dtype=jnp.int32,
                         ),
-                    }
+                    )
                 if mode in (
                     TrainingAccelerationMode.MLCPUSIMULATIONCPU,
                     TrainingAccelerationMode.MLGPUSIMULATIONCPU,
@@ -228,36 +244,36 @@ class TestingWorkflow:
                     contact_sensor_addresses, contact_body_pairs = (
                         MujocoSimulator._get_contact_pair_sensor_metadata(mujoco_model)
                     )
-                    return {
-                        "simulator_class": MujocoSimulator,
-                        "mjx_data": None,
-                        "mjx_model": None,
-                        "mujoco_data": mujoco_data,
-                        "mujoco_model": mujoco_model,
-                        "render_ctx": None,
-                        "render_ctx_pytree": None,
-                        "contact_sensor_addresses": contact_sensor_addresses,
-                        "contact_body_pairs": contact_body_pairs,
-                    }
+                    return SimulatorState(
+                        simulator_class=MujocoSimulator,
+                        mujoco_data=mujoco_data,
+                        mujoco_model=mujoco_model,
+                        contact_sensor_addresses=contact_sensor_addresses,
+                        contact_body_pairs=contact_body_pairs,
+                    )
                 raise ValueError(
                     f"Unsupported local testing acceleration mode: {mode}"
                 )
 
             def initialize_render_context(
-                simulator_state: dict[str, Any],
+                simulator_state: SimulatorState,
                 nworld: int,
             ) -> None:
-                simulator_class = simulator_state["simulator_class"]
-                mujoco_model = simulator_state["mujoco_model"]
+                simulator_class = simulator_state.simulator_class
+                mujoco_model = simulator_state.mujoco_model
+                if mujoco_model.ncam == 0:
+                    raise ValueError(
+                        "Control input spec requests Cameras, but the model has no cameras"
+                    )
                 if simulator_class is MjxSimulator:
                     render_ctx = MjxSimulator.get_render_context(
                         mujoco_model,
                         nworld=nworld,
                     )
-                    simulator_state["render_ctx"] = render_ctx
-                    simulator_state["render_ctx_pytree"] = render_ctx.pytree()
+                    simulator_state.render_ctx = render_ctx
+                    simulator_state.render_ctx_pytree = render_ctx.pytree()
                 else:
-                    simulator_state["render_ctx"] = (
+                    simulator_state.render_ctx = (
                         MujocoSimulator.get_render_context(mujoco_model)
                     )
 
@@ -266,7 +282,7 @@ class TestingWorkflow:
                     source_model_path=model_path,
                 )
                 self.simulator_states[None] = simulator_state
-                if control_spec.all_cameras:
+                if self._camera_state_indices:
                     initialize_render_context(
                         simulator_state,
                         nworld=self.num_envs_per_task,
@@ -275,10 +291,11 @@ class TestingWorkflow:
                 for task_index, mjcf in task_mjcfs.items():
                     simulator_state = initialize_simulator_state(mjcf=mjcf)
                     self.simulator_states[task_index] = simulator_state
-                    initialize_render_context(
-                        simulator_state,
-                        nworld=self.num_envs_per_task,
-                    )
+                    if self._camera_state_indices:
+                        initialize_render_context(
+                            simulator_state,
+                            nworld=self.num_envs_per_task,
+                        )
                     logger.info(
                         "Initialized LIBERO task simulator: id=%s task_index=%s "
                         "num_envs=%s acceleration=%s",
@@ -303,30 +320,28 @@ class TestingWorkflow:
 
     @staticmethod
     def _build_model_for_testing(
-        control_model: Any,
+        control_model: ControlModel,
         rng_key: jax.Array | None = None,
     ) -> TestingModel:
-        null_spec = ModelInputSpec(
-            all_cameras=False,
-            qpos_state=False,
-            qvel_state=False,
-            xpos_state=False,
-            xquat_state=False,
-            contact_pairs=False,
+        null_spec = ControlPolicyInputSpecStandardInputSpec(
+            content=StandardInputSpec(base_body_name=None, states=[]),
         )
-        if isinstance(control_model, ControlModelVLA):
-            vla_spec = control_model.content
+        if isinstance(control_model.model, MLModelVLA):
+            vla_spec = control_model.model.content
             return Pi0Model(
                 vla_spec,
                 noise_mlp_spec=None,
-                control_input_spec=vla_spec.input_spec,
+                control_input_spec=control_model.input_spec,
                 value_input_spec=null_spec,
                 reward_input_spec=null_spec,
+                control_output_spec=control_model.output_spec,
                 rng_key=rng_key,
                 n_action_steps=1,
             )
 
-        control_mlp = control_model.content
+        if not isinstance(control_model.model, MLModelMLP):
+            raise ValueError("Unsupported testing ML model")
+        control_mlp = control_model.model.content
         policy, policy_store = MLPModel.init_policy(
             input_dimension=int(control_mlp.input_dim),
             output_dimension=int(control_mlp.output_dim),
@@ -338,19 +353,36 @@ class TestingWorkflow:
         return MLPModel(
             policy=policy,
             policy_store=policy_store,
-            control_input_spec=control_mlp.input_spec,
+            control_input_spec=control_model.input_spec,
             value_input_spec=null_spec,
             reward_input_spec=null_spec,
+            control_output_spec=control_model.output_spec,
             reward_fn=None,
             rng_key=rng_key,
         )
 
+    def _with_camera_frames(
+        self,
+        state: ControlPolicyInputState,
+        camera_frames: Array | np.ndarray,
+    ) -> ControlPolicyInputState:
+        """Replace every camera placeholder with the same rendered frame array.
+
+        Runtime states are frozen PyTrees; replace their containers while
+        retaining all static metadata and the order requested by the spec.
+        Rendering happens once per timestep, outside the environment vmap.
+        """
+        states = list(state.content.states)
+        for index in self._camera_state_indices:
+            states[index] = replace(states[index], content=camera_frames)
+        return replace(state, content=replace(state.content, states=states))
+
     def close(self) -> None:
         """Release caller-owned rendering resources, if any."""
         for task_index, simulator_state in self.simulator_states.items():
-            render_ctx = simulator_state.get("render_ctx")
-            simulator_state["render_ctx"] = None
-            simulator_state["render_ctx_pytree"] = None
+            render_ctx = simulator_state.render_ctx
+            simulator_state.render_ctx = None
+            simulator_state.render_ctx_pytree = None
             if render_ctx is None:
                 continue
 
@@ -399,7 +431,7 @@ class TestingWorkflow:
         )
 
         simulator_classes = {
-            simulator_state["simulator_class"]
+            simulator_state.simulator_class
             for simulator_state in self.simulator_states.values()
         }
         if simulator_classes == {MjxSimulator}:
@@ -433,7 +465,7 @@ class TestingWorkflow:
     ) -> None:
         test_policy_fn = self.model.get_test_policy()
         params = self.model.get_test_params()
-        output_mode = self.model.get_control_policy_output_mode()
+        output_spec = self.model.get_control_policy_output_spec()
         control_spec = self.model.get_control_input_spec()
 
         for task_index, simulator_state in self.simulator_states.items():
@@ -445,11 +477,11 @@ class TestingWorkflow:
                 )
                 break
 
-            simulator_class = simulator_state["simulator_class"]
+            simulator_class = simulator_state.simulator_class
             if simulator_class is not MjxSimulator:
                 raise ValueError("MJX batched testing requires MjxSimulator state")
-            mjx_data = simulator_state["mjx_data"]
-            mjx_model = simulator_state["mjx_model"]
+            mjx_data = simulator_state.mjx_data
+            mjx_model = simulator_state.mjx_model
             if mjx_data is None or mjx_model is None:
                 raise ValueError("MJX data and model are required for batched testing")
 
@@ -460,12 +492,12 @@ class TestingWorkflow:
             )
             nbody = int(mjx_model.nbody)
             batched_data = mjx_data
-            render_ctx = simulator_state["render_ctx_pytree"]
-            contact_sensor_addresses = simulator_state["contact_sensor_addresses"]
-            contact_body_pairs = simulator_state["contact_body_pairs"]
-            has_cameras = control_spec.all_cameras and int(mjx_model.ncam) > 0
+            render_ctx = simulator_state.render_ctx_pytree
+            contact_sensor_addresses = simulator_state.contact_sensor_addresses
+            contact_body_pairs = simulator_state.contact_body_pairs
+            has_cameras = bool(self._camera_state_indices)
 
-            def state_fn(data: Any) -> dict[str, Array]:
+            def state_fn(data: Any) -> ControlPolicyInputState:
                 return simulator_class.get_model_state_pure(
                     control_spec,
                     data,
@@ -474,49 +506,55 @@ class TestingWorkflow:
                     contact_body_pairs,
                 )
 
-            def scan_body(carry: Any, _: Any) -> tuple[Any, tuple[Any, Any, Any]]:
+            def scan_body(
+                carry: tuple[Any, Array], _: None
+            ) -> tuple[tuple[Any, Array], tuple[Array, Array, Array, Array]]:
                 bd, rng = carry
                 rng, step_key = jax.random.split(rng)
                 env_keys = jax.random.split(step_key, num_envs)
-                parts_batched = jax.vmap(state_fn)(bd)
+                input_state: ControlPolicyInputState = jax.vmap(state_fn)(bd)
                 if has_cameras:
                     camera_frames, bd = simulator_class.get_model_render(
                         bd, mjx_model, render_ctx
                     )
-                    parts_batched["cameras"] = camera_frames
+                    input_state = self._with_camera_frames(input_state, camera_frames)
                 else:
                     camera_frames = jnp.empty(
                         (num_envs, 0, 0, 0, 3), dtype=jnp.float32
                     )
                 actions = jax.vmap(
-                    lambda p, k: test_policy_fn(params, {**p, "rng_key": k})
-                )(parts_batched, env_keys)
+                    test_policy_fn, in_axes=(None, 0, 0)
+                )(params, input_state, env_keys)
                 # Batched chunked policies such as Pi0 return
                 # [num_envs, action_steps, action_dim]; execute only the first
                 # action for each environment during this simulator step.
                 if actions.ndim == 3:
                     actions = actions[:, 0]
 
-                def step(data: Any, action: Array) -> Any:
-                    controls = (
+                def step(data: Any, action: Array) -> tuple[Any, Array]:
+                    controls, valid = (
                         simulator_class.get_actuator_input_from_control_input(
                             mjx_model,
                             data,
                             action,
-                            output_mode,
+                            output_spec,
                         )
                     )
-                    return simulator_class.forward_dyn_pure(
-                        data,
-                        mjx_model,
-                        controls,
+                    # A dynamic validity flag cannot raise a Python error in
+                    # scan. Retain existing controls for an invalid solve and
+                    # report it at the chunk boundary before publishing updates.
+                    controls = jnp.where(valid, controls, data.ctrl)
+                    return (
+                        simulator_class.forward_dyn_pure(data, mjx_model, controls),
+                        valid,
                     )
 
-                bd_next = jax.vmap(step)(bd, actions)
+                bd_next, controls_valid = jax.vmap(step)(bd, actions)
                 return (bd_next, rng), (
                     camera_frames,
                     bd_next.xpos[:, :nbody],
                     bd_next.xquat[:, :nbody],
+                    controls_valid,
                 )
 
             remaining = num_timesteps
@@ -532,13 +570,22 @@ class TestingWorkflow:
                 chunk = min(UPDATE_CHUNK_SIZE, remaining)
                 (
                     (batched_data, self._rng_key),
-                    (camera_frames, chunk_xpos, chunk_xquat),
+                    (camera_frames, chunk_xpos, chunk_xquat, controls_valid),
                 ) = jax.lax.scan(
                     scan_body,
                     (batched_data, self._rng_key),
                     None,
                     length=chunk,
                 )
+                valid_np = np.asarray(controls_valid)
+                if not valid_np.all():
+                    chunk_step, env_index = np.argwhere(~valid_np)[0]
+                    timestep = num_timesteps - remaining + int(chunk_step)
+                    raise ValueError(
+                        "Invalid actuator control mapping: "
+                        f"task_index={task_index} env_index={int(env_index)} "
+                        f"timestep={timestep}"
+                    )
                 xpos_np = chunk_xpos.reshape(chunk, num_envs, -1).tolist()
                 xquat_np = chunk_xquat.reshape(chunk, num_envs, -1).tolist()
                 sim_state = [
@@ -569,7 +616,9 @@ class TestingWorkflow:
         num_envs: int,
     ) -> None:
         control_spec = self.model.get_control_input_spec()
-        output_mode = self.model.get_control_policy_output_mode()
+        output_spec = self.model.get_control_policy_output_spec()
+        test_policy_fn = self.model.get_test_policy()
+        params = self.model.get_test_params()
 
         for task_index, simulator_state in self.simulator_states.items():
             if should_stop is not None and should_stop():
@@ -580,19 +629,19 @@ class TestingWorkflow:
                 )
                 break
 
-            simulator_class = simulator_state["simulator_class"]
+            simulator_class = simulator_state.simulator_class
             if simulator_class is not MujocoSimulator:
                 raise ValueError("Sequential testing requires MujocoSimulator state")
-            initial_data = simulator_state["mujoco_data"]
-            model = simulator_state["mujoco_model"]
+            initial_data = simulator_state.mujoco_data
+            model = simulator_state.mujoco_model
             if initial_data is None or model is None:
                 raise ValueError(
                     "MuJoCo data and model are required for sequential testing"
                 )
 
-            render_ctx = simulator_state["render_ctx"]
-            contact_sensor_addresses = simulator_state["contact_sensor_addresses"]
-            contact_body_pairs = simulator_state["contact_body_pairs"]
+            render_ctx = simulator_state.render_ctx
+            contact_sensor_addresses = simulator_state.contact_sensor_addresses
+            contact_body_pairs = simulator_state.contact_body_pairs
             logger.info(
                 "Sequential test task started: id=%s task_index=%s",
                 self.id,
@@ -631,31 +680,42 @@ class TestingWorkflow:
                         env_index,
                         timestep,
                     )
-                    parts = simulator_class.get_model_state_pure(
-                        control_spec,
-                        data,
-                        model,
-                        contact_sensor_addresses,
-                        contact_body_pairs,
+                    input_state: ControlPolicyInputState = (
+                        simulator_class.get_model_state_pure(
+                            control_spec,
+                            data,
+                            model,
+                            contact_sensor_addresses,
+                            contact_body_pairs,
+                        )
                     )
                     cameras = None
-                    if control_spec.all_cameras and model.ncam > 0:
+                    if self._camera_state_indices:
                         cameras, data = simulator_class.get_model_render(
                             data, model, render_ctx
                         )
-                        parts["cameras"] = cameras
-                    action = self.model.get_test_action(parts)
+                        input_state = self._with_camera_frames(input_state, cameras)
+                    self._rng_key, step_key = jax.random.split(self._rng_key)
+                    action = test_policy_fn(params, input_state, step_key)
                     # Chunked policies such as Pi0 return
                     # [action_steps, action_dim]; this workload currently
                     # executes only the first action per step.
                     if action.ndim == 2:
                         action = action[0]
-                    controls = simulator_class.get_actuator_input_from_control_input(
-                        model,
-                        data,
-                        np.asarray(action),
-                        output_mode,
+                    controls, valid = (
+                        simulator_class.get_actuator_input_from_control_input(
+                            model,
+                            data,
+                            np.asarray(action),
+                            output_spec,
+                        )
                     )
+                    if not bool(valid):
+                        raise ValueError(
+                            "Invalid actuator control mapping: "
+                            f"task_index={task_index} env_index={env_index} "
+                            f"timestep={timestep}"
+                        )
                     data = simulator_class.forward_dyn_pure(data, model, controls)
                     xpos = data.xpos[: model.nbody].reshape(-1).tolist()
                     xquat = data.xquat[: model.nbody].reshape(-1).tolist()
