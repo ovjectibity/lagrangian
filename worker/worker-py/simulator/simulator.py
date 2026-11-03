@@ -14,6 +14,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from commondef.training import (
+    ControlPolicyOutputSpec,
+    ControlPolicyOutputSpecEEFOutputSpec,
+    ControlPolicyOutputSpecProprioceptiveOutputSpec,
     ControlPolicyInputSpec,
     ControlPolicyInputSpecTypes,
     InputStateItemControllableTypes,
@@ -21,6 +24,7 @@ from commondef.training import (
     InputStateTypes,
     IOStateXFrame,
     IOStateXOrientationType,
+    OutputStateItemTypes,
 )
 from commondef.ioadapter import (
     ControlPolicyInputState,
@@ -29,6 +33,13 @@ from commondef.ioadapter import (
     InputStateDataInputStateControllable,
     InputStateDataInputStateSensors,
     StandardInputData,
+)
+from simulator.ioadapter import (
+    get_actuator_control_input_from_eef_gripper_pos_commands,
+    get_actuator_control_input_from_partial_qpos,
+    get_actuator_control_input_from_partial_qvel,
+    get_actuator_control_input_from_partial_tau,
+    get_partial_dof_jacobian,
 )
 
 try:
@@ -629,209 +640,111 @@ class MjxSimulator(Simulator):
         model: Any,
         data: Any,
         control_input: jnp.ndarray,
-        control_policy_output_mode: ControlPolicyOutputMode,
-    ) -> jnp.ndarray:
-        """Map an nv-sized policy output onto supported MJX controls.
+        control_policy_output_spec: ControlPolicyOutputSpec,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Map one static output spec and its flat policy output to controls.
 
-        ``control_policy_output_mode`` must be static when this function is
-        transformed with ``jax.jit``. Unsupported mappings retain the
-        corresponding values from ``data.ctrl``.
+        The output spec must be static for JAX transformations because it
+        contains body names, state kinds, and command layout.  Controls are
+        returned in robot-actuator order with a JIT-safe validity flag.
         """
         if control_input.ndim != 1:
             raise ValueError("control_input must be one-dimensional")
-        if control_input.shape[0] != data.qvel.shape[0]:
-            raise ValueError(
-                "control_input length must equal model.nv: "
-                f"expected {data.qvel.shape[0]}, got {control_input.shape[0]}"
-            )
+        # Temporary fixed gains until they are made part of the output spec.
+        kp = 25.0
+        kd = 10.0
 
-        mode_label = control_policy_output_mode.value
-        logger.warning(
-            "Tracing MJX control mapping for %s; unsupported mappings retain "
-            "their existing data.ctrl values",
-            mode_label,
-        )
+        if isinstance(
+            control_policy_output_spec,
+            ControlPolicyOutputSpecProprioceptiveOutputSpec,
+        ):
+            output_spec = control_policy_output_spec.content
+            state = output_spec.state
+            state_type = state.state_item.type
+            if state_type == OutputStateItemTypes.X_POSE:
+                raise ValueError("XPose is unsupported for proprioceptive output")
 
-        nu = data.ctrl.shape[0]
-        nv = data.qvel.shape[0]
-        nactuator = model.actuator_trnid.shape[0]
-        njnt = model.jnt_dofadr.shape[0]
-        noutput = data.actuator_length.shape[0]
-        if nu == 0 or nactuator == 0 or njnt == 0 or noutput == 0:
-            if logger.isEnabledFor(logging.DEBUG) and nv > 0:
-                jax.debug.print(
-                    f"WARNING: MJX {mode_label} mapping ignored all "
-                    "{count} policy "
-                    "values because the model has no supported actuators",
-                    count=nv,
+            if state_type == OutputStateItemTypes.Q_POS:
+                return get_actuator_control_input_from_partial_qpos(
+                    model,
+                    data,
+                    control_input,
+                    state.is_delta,
+                    kd,
+                    kp,
+                    output_spec.base_body_name,
+                    state.rebase_body,
                 )
-            return data.ctrl
-
-        actuator_indices = jnp.arange(nactuator, dtype=jnp.int32)
-        control_addresses = (
-            model.actuator_ctrladr
-            if hasattr(model, "actuator_ctrladr")
-            else actuator_indices
-        )
-        control_counts = (
-            model.actuator_ctrlnum
-            if hasattr(model, "actuator_ctrlnum")
-            else jnp.ones((nactuator,), dtype=jnp.int32)
-        )
-        output_addresses = (
-            model.actuator_outadr
-            if hasattr(model, "actuator_outadr")
-            else actuator_indices
-        )
-        output_counts = (
-            model.actuator_outnum
-            if hasattr(model, "actuator_outnum")
-            else jnp.ones((nactuator,), dtype=jnp.int32)
-        )
-
-        joint_ids = model.actuator_trnid[:, 0]
-        safe_joint_ids = jnp.clip(joint_ids, 0, njnt - 1)
-        joint_types = model.jnt_type[safe_joint_ids]
-        dof_addresses = model.jnt_dofadr[safe_joint_ids]
-        direct_joint = (
-            (model.actuator_trntype == int(mujoco.mjtTrn.mjTRN_JOINT))
-            | (
-                model.actuator_trntype
-                == int(mujoco.mjtTrn.mjTRN_JOINTINPARENT)
-            )
-        )
-        scalar_joint = (
-            (joint_types == int(mujoco.mjtJoint.mjJNT_HINGE))
-            | (joint_types == int(mujoco.mjtJoint.mjJNT_SLIDE))
-        )
-        valid_mapping = (
-            direct_joint
-            & (joint_ids >= 0)
-            & (joint_ids < njnt)
-            & scalar_joint
-            & (control_counts == 1)
-            & (output_counts == 1)
-            & (control_addresses >= 0)
-            & (control_addresses < nu)
-            & (output_addresses >= 0)
-            & (output_addresses < data.actuator_length.shape[0])
-            & (dof_addresses >= 0)
-            & (dof_addresses < nv)
-        )
-
-        gain_params = model.actuator_gainprm
-        bias_params = model.actuator_biasprm
-        fixed_gain = model.actuator_gaintype == int(
-            mujoco.mjtGain.mjGAIN_FIXED
-        )
-        affine_bias = model.actuator_biastype == int(
-            mujoco.mjtBias.mjBIAS_AFFINE
-        )
-        no_dynamics = model.actuator_dyntype == int(
-            mujoco.mjtDyn.mjDYN_NONE
-        )
-        position_actuator = (
-            fixed_gain
-            & affine_bias
-            & (
-                model.actuator_dyntype
-                != int(mujoco.mjtDyn.mjDYN_INTEGRATOR)
-            )
-            & jnp.isclose(bias_params[:, 0], 0.0)
-            & ~jnp.isclose(bias_params[:, 1], 0.0)
-            & jnp.isclose(gain_params[:, 0], -bias_params[:, 1])
-        )
-        velocity_actuator = (
-            fixed_gain
-            & affine_bias
-            & no_dynamics
-            & jnp.isclose(bias_params[:, 0], 0.0)
-            & jnp.isclose(bias_params[:, 1], 0.0)
-            & ~jnp.isclose(bias_params[:, 2], 0.0)
-            & jnp.isclose(gain_params[:, 0], -bias_params[:, 2])
-        )
-        motor_actuator = (
-            fixed_gain
-            & (model.actuator_biastype == int(mujoco.mjtBias.mjBIAS_NONE))
-            & no_dynamics
-        )
-
-        safe_dof_addresses = jnp.clip(dof_addresses, 0, nv - 1)
-        safe_control_addresses = jnp.clip(control_addresses, 0, nu - 1)
-        safe_output_addresses = jnp.clip(
-            output_addresses,
-            0,
-            data.actuator_length.shape[0] - 1,
-        )
-        policy_values = control_input[safe_dof_addresses]
-
-        if control_policy_output_mode == ControlPolicyOutputMode.TARGETPOSITIONSDIFF:
-            supported = valid_mapping & position_actuator
-            mapped_values = (
-                data.actuator_length[safe_output_addresses] + policy_values
-            )
-        elif control_policy_output_mode == ControlPolicyOutputMode.TARGETPOSITIONS:
-            supported = valid_mapping & position_actuator
-            mapped_values = policy_values
-        elif control_policy_output_mode == ControlPolicyOutputMode.TARGETVELOCITIES:
-            supported = valid_mapping & velocity_actuator
-            mapped_values = policy_values
-        elif control_policy_output_mode == ControlPolicyOutputMode.TARGETTORQUES:
-            supported = valid_mapping & motor_actuator
-            mapped_values = policy_values
-        else:
-            raise ValueError(
-                f"Unsupported control policy output mode: {control_policy_output_mode}"
-            )
-
-        limited = model.actuator_ctrllimited[safe_control_addresses]
-        control_ranges = model.actuator_ctrlrange[safe_control_addresses]
-        mapped_values = jnp.where(
-            limited,
-            jnp.clip(mapped_values, control_ranges[:, 0], control_ranges[:, 1]),
-            mapped_values,
-        )
-
-        control_slots = jnp.arange(nu, dtype=jnp.int32)
-        actuator_to_control = supported[:, None] & (
-            control_addresses[:, None] == control_slots[None, :]
-        )
-        mapped_controls = jnp.sum(
-            jnp.where(actuator_to_control, mapped_values[:, None], 0),
-            axis=0,
-        )
-        has_mapping = jnp.any(actuator_to_control, axis=0)
-        actuator_input = jnp.where(has_mapping, mapped_controls, data.ctrl)
-
-        if logger.isEnabledFor(logging.DEBUG):
-            dof_slots = jnp.arange(nv, dtype=jnp.int32)
-            mapped_dofs = jnp.any(
-                supported[:, None]
-                & (dof_addresses[:, None] == dof_slots[None, :]),
-                axis=0,
-            )
-            unsupported_actuators = nactuator - jnp.count_nonzero(supported)
-            unsupported_policy_values = nv - jnp.count_nonzero(mapped_dofs)
-
-            def log_unsupported(_: None) -> jnp.ndarray:
-                jax.debug.print(
-                    f"WARNING: MJX {mode_label} mapping retained existing "
-                    "controls "
-                    "for {actuator_count} unsupported actuators and ignored "
-                    "{input_count} policy values",
-                    actuator_count=unsupported_actuators,
-                    input_count=unsupported_policy_values,
+            if state_type == OutputStateItemTypes.Q_VEL:
+                return get_actuator_control_input_from_partial_qvel(
+                    model,
+                    data,
+                    control_input,
+                    state.is_delta,
+                    kd,
+                    output_spec.base_body_name,
+                    state.rebase_body,
                 )
-                return jnp.asarray(0, dtype=jnp.int32)
+            if state_type == OutputStateItemTypes.GENERALISED_FORCES:
+                return get_actuator_control_input_from_partial_tau(
+                    model,
+                    data,
+                    control_input,
+                    output_spec.base_body_name,
+                    state.rebase_body,
+                )
+            raise ValueError(f"Unsupported proprioceptive state item: {state_type}")
 
-            jax.lax.cond(
-                (unsupported_actuators > 0) | (unsupported_policy_values > 0),
-                log_unsupported,
-                lambda _: jnp.asarray(0, dtype=jnp.int32),
-                operand=None,
+        if isinstance(
+            control_policy_output_spec,
+            ControlPolicyOutputSpecEEFOutputSpec,
+        ):
+            output_spec = control_policy_output_spec.content
+            eef_state = output_spec.eef_state
+            gripper_state = output_spec.gripper
+            if eef_state.state_item.type != OutputStateItemTypes.X_POSE:
+                raise ValueError("EEF output requires an XPose eef_state")
+            if gripper_state.state_item.type != OutputStateItemTypes.Q_POS:
+                raise ValueError("EEF output requires a QPos gripper state")
+            if not eef_state.is_delta or not gripper_state.is_delta:
+                raise ValueError("Only delta EEF and gripper outputs are supported")
+            if not eef_state.rebase_body or not gripper_state.rebase_body:
+                raise ValueError(
+                    "EEF and gripper output states require rebase_body values"
+                )
+
+            pose_spec = eef_state.state_item.content
+            if pose_spec.frame_spec != IOStateXFrame.WORLDFRAME:
+                raise ValueError("EEF XPose output must use the world frame")
+            if pose_spec.orientation_spec != IOStateXOrientationType.AXISANGLE:
+                raise ValueError("EEF XPose output must use axis-angle orientation")
+
+            robot_base_name = output_spec.base_body_name or "world"
+            gripper_nv = get_partial_dof_jacobian(
+                model, robot_base_name, gripper_state.rebase_body
+            ).shape[0]
+            expected_control_shape = (6 + gripper_nv,)
+            if control_input.shape != expected_control_shape:
+                raise ValueError(
+                    "EEF control_input must have shape "
+                    f"{expected_control_shape}, got {control_input.shape}"
+                )
+            return get_actuator_control_input_from_eef_gripper_pos_commands(
+                model,
+                data,
+                robot_base_name,
+                eef_state.rebase_body,
+                gripper_state.rebase_body,
+                control_input[:6],
+                control_input[6:],
+                kd,
+                kp,
             )
 
-        return actuator_input
+        raise ValueError(
+            "Unsupported control policy output spec: "
+            f"{type(control_policy_output_spec).__name__}"
+        )
 
     @staticmethod
     def inverse_dyn_pure(
