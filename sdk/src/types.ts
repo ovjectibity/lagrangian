@@ -78,17 +78,17 @@ export type MLModel =
 	| { type: "MLP", content: MLPModel }
 	| { type: "VLA", content: VLAModel };
 
-export type ControlPolicyInputSpec = 
+export type PolicyInputSpec = 
 	| { type: "StandardInputSpec", content: StandardInputSpec };
 
-export type ControlPolicyOutputSpec = 
+export type PolicyOutputSpec = 
 	| { type: "ProprioceptiveOutputSpec", content: ProprioceptiveOutputSpec }
 	| { type: "EEFOutputSpec", content: EEFOutputSpec };
 
 export interface ControlModel {
 	model: MLModel;
-	input_spec: ControlPolicyInputSpec;
-	output_spec: ControlPolicyOutputSpec;
+	input_spec: PolicyInputSpec;
+	output_spec: PolicyOutputSpec;
 }
 
 export interface CustomTestMethodTestParams {
@@ -209,11 +209,11 @@ export enum RewardLanguage {
 export interface RewardSystem {
 	language: RewardLanguage;
 	reward_function_code: string;
-	input_spec: ControlPolicyInputSpec;
+	input_spec: PolicyInputSpec;
 }
 
 export interface ValueModel {
-	input_spec: ControlPolicyInputSpec;
+	input_spec: PolicyInputSpec;
 	model: MLModel;
 }
 

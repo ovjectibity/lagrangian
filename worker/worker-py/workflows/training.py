@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import numpy as np
 import orbax.checkpoint as ocp
 
-from commondef.ioadapter import ControlPolicyInputState
+from commondef.ioadapter import PolicyInputState
 from commondef.remoteworkermessages import (
     Checkpoint,
     StopTrainingMessage,
@@ -245,7 +245,7 @@ class TrainingWorkflow:
     @staticmethod
     def _load_user_reward_fn(
         code: str,
-    ) -> Callable[[ControlPolicyInputState, ControlPolicyInputState], float]:
+    ) -> Callable[[PolicyInputState, PolicyInputState], float]:
         namespace: dict[str, Any] = {
             "jax": jax,
             "jnp": jnp,
@@ -253,7 +253,7 @@ class TrainingWorkflow:
             "np": np,
             "math": math,
             "functools": functools,
-            "ControlPolicyInputState": ControlPolicyInputState,
+            "PolicyInputState": PolicyInputState,
             "__builtins__": {"__import__": __import__},
         }
         exec(compile(code, "<reward_fn>", "exec"), namespace)
@@ -265,7 +265,7 @@ class TrainingWorkflow:
     @staticmethod
     def _build_model_for_training(
         params: PPOTrainingMethod,
-        reward_fn: Callable[[ControlPolicyInputState, ControlPolicyInputState], float],
+        reward_fn: Callable[[PolicyInputState, PolicyInputState], float],
         rng_key: jax.Array | None = None,
     ) -> PPOTrainedModel:
         control_model = params.control_model

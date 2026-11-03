@@ -6,10 +6,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from commondef.ioadapter import ControlPolicyInputState
+from commondef.ioadapter import PolicyInputState
 from commondef.training import (
-    ControlPolicyInputSpec,
-    ControlPolicyOutputSpec,
+    PolicyInputSpec,
+    PolicyOutputSpec,
     InputStateItemSensors,
     InputStateTypes,
 )
@@ -24,13 +24,13 @@ class MLPModel(PPOTrainedModel, TestingModel):
         self,
         policy: Callable[[Params, Array], Array],
         policy_store: Params,
-        control_input_spec: ControlPolicyInputSpec,
-        value_input_spec: ControlPolicyInputSpec,
-        reward_input_spec: ControlPolicyInputSpec,
-        control_output_spec: ControlPolicyOutputSpec,
+        control_input_spec: PolicyInputSpec,
+        value_input_spec: PolicyInputSpec,
+        reward_input_spec: PolicyInputSpec,
+        control_output_spec: PolicyOutputSpec,
         value: Callable[[Params, Array], Array] | None = None,
         value_store: Params | None = None,
-        reward_fn: Callable[[ControlPolicyInputState, ControlPolicyInputState], float] | None = None,
+        reward_fn: Callable[[PolicyInputState, PolicyInputState], float] | None = None,
         rng_key: Array | None = None,
     ) -> None:
         if (value is None) != (value_store is None):
@@ -120,11 +120,11 @@ class MLPModel(PPOTrainedModel, TestingModel):
         val_estimator: Callable[[Params, Array], Array],
         pol_store: Params,
         val_estimator_store: Params,
-        control_input_spec: ControlPolicyInputSpec,
-        value_input_spec: ControlPolicyInputSpec,
-        reward_input_spec: ControlPolicyInputSpec,
-        control_output_spec: ControlPolicyOutputSpec,
-        reward_fn: Callable[[ControlPolicyInputState, ControlPolicyInputState], float] | None = None,
+        control_input_spec: PolicyInputSpec,
+        value_input_spec: PolicyInputSpec,
+        reward_input_spec: PolicyInputSpec,
+        control_output_spec: PolicyOutputSpec,
+        reward_fn: Callable[[PolicyInputState, PolicyInputState], float] | None = None,
         rng_key: Array | None = None,
     ) -> MLPModel:
         return cls(
@@ -142,19 +142,19 @@ class MLPModel(PPOTrainedModel, TestingModel):
 
     # --- Input spec ownership ---
 
-    def get_control_input_spec(self) -> ControlPolicyInputSpec:
+    def get_control_input_spec(self) -> PolicyInputSpec:
         return self._control_input_spec
 
-    def get_value_input_spec(self) -> ControlPolicyInputSpec:
+    def get_value_input_spec(self) -> PolicyInputSpec:
         return self._value_input_spec
 
-    def get_reward_input_spec(self) -> ControlPolicyInputSpec:
+    def get_reward_input_spec(self) -> PolicyInputSpec:
         return self._reward_input_spec
 
     @staticmethod
     def _assemble_input(
-        state: ControlPolicyInputState,
-        input_spec: ControlPolicyInputSpec,
+        state: PolicyInputState,
+        input_spec: PolicyInputSpec,
     ) -> Array:
         """Concatenate state leaves in spec order, retaining leading batch axes.
 
@@ -191,8 +191,8 @@ class MLPModel(PPOTrainedModel, TestingModel):
 
     def get_reward(
         self,
-        state_pre: ControlPolicyInputState,
-        state_post: ControlPolicyInputState,
+        state_pre: PolicyInputState,
+        state_post: PolicyInputState,
     ) -> float:
         if self._reward_fn is None:
             raise RuntimeError("No reward function injected into MLPModel")
@@ -200,7 +200,7 @@ class MLPModel(PPOTrainedModel, TestingModel):
 
     def get_pure_reward_fn(
         self,
-    ) -> Callable[[ControlPolicyInputState, ControlPolicyInputState], float]:
+    ) -> Callable[[PolicyInputState, PolicyInputState], float]:
         if self._reward_fn is None:
             raise RuntimeError("No reward function injected into MLPModel")
         return self._reward_fn
@@ -208,7 +208,7 @@ class MLPModel(PPOTrainedModel, TestingModel):
     # --- Policy / value inference ---
     
     def get_policy_output(
-        self, policy_input: ControlPolicyInputState
+        self, policy_input: PolicyInputState
     ) -> dict[str, Array]:
         self._rng_key, subkey = jax.random.split(self._rng_key)
         return self.get_policy_fn()(self.policy_store, policy_input, subkey)
@@ -216,12 +216,12 @@ class MLPModel(PPOTrainedModel, TestingModel):
     # Outputs the output action sample, the process state and the log prob for that action.
     def get_policy_fn(
         self,
-    ) -> Callable[[Params, ControlPolicyInputState, Array], dict[str, Array]]:
+    ) -> Callable[[Params, PolicyInputState, Array], dict[str, Array]]:
         policy = self.policy
         input_spec = self._control_input_spec
 
         def policy_fn(
-            store: Params, policy_input: ControlPolicyInputState, rng_key: Array
+            store: Params, policy_input: PolicyInputState, rng_key: Array
         ) -> dict[str, Array]:
             action_gaussian_params = policy(
                 store, MLPModel._assemble_input(policy_input, input_spec)
@@ -249,20 +249,20 @@ class MLPModel(PPOTrainedModel, TestingModel):
 
     def get_policy_output_log_prob(
         self,
-        policy_input: ControlPolicyInputState,
+        policy_input: PolicyInputState,
         policy_output: dict[str, Array],
     ) -> Array:
         return self.get_policy_output_log_prob_fn()(self.policy_store, policy_input, policy_output)
 
     def get_policy_output_log_prob_fn(
         self,
-    ) -> Callable[[Params, ControlPolicyInputState, dict[str, Array]], Array]:
+    ) -> Callable[[Params, PolicyInputState, dict[str, Array]], Array]:
         policy = self.policy
         input_spec = self._control_input_spec
 
         def log_prob_fn(
             params: Params,
-            policy_input: ControlPolicyInputState,
+            policy_input: PolicyInputState,
             output: dict[str, Array],
         ) -> Array:
             ## -1 to make this function batch friendly
@@ -281,7 +281,7 @@ class MLPModel(PPOTrainedModel, TestingModel):
             return log_prob
         return log_prob_fn
 
-    def get_value_output(self, value_input: ControlPolicyInputState) -> float:
+    def get_value_output(self, value_input: PolicyInputState) -> float:
         val = self.get_value_fn()(self.get_value_store(), value_input)
         val_arr = np.asarray(jax.device_get(val), dtype=np.float64).reshape(-1)
         if val_arr.size == 0:
@@ -290,7 +290,7 @@ class MLPModel(PPOTrainedModel, TestingModel):
 
     def get_value_fn(
         self,
-    ) -> Callable[[Params, ControlPolicyInputState], Array]:
+    ) -> Callable[[Params, PolicyInputState], Array]:
         if self.value is None:
             raise RuntimeError("No value estimator initialized in MLPModel")
         value = self.value
@@ -316,19 +316,19 @@ class MLPModel(PPOTrainedModel, TestingModel):
             raise RuntimeError("No value estimator store initialized in MLPModel")
         return self.value_store
 
-    def get_control_policy_output_spec(self) -> ControlPolicyOutputSpec:
+    def get_control_policy_output_spec(self) -> PolicyOutputSpec:
         return self._control_output_spec
 
     # --- TestingModel interface ---
     # get_policy_output / get_policy_fn now return a stats dict; test-time
     # inference wants just the action, so we extract "sampled_action".
 
-    def get_test_action(self, policy_input: ControlPolicyInputState) -> Array:
+    def get_test_action(self, policy_input: PolicyInputState) -> Array:
         return self.get_policy_output(policy_input)["sampled_action"]
 
     def get_test_policy(
         self,
-    ) -> Callable[[Params, ControlPolicyInputState, Array], Array]:
+    ) -> Callable[[Params, PolicyInputState, Array], Array]:
         policy_fn = self.get_policy_fn()
         return lambda store, state, rng_key: policy_fn(
             store, state, rng_key

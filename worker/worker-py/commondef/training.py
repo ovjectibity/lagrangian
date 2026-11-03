@@ -51,31 +51,31 @@ class MLModelVLA(BaseModel):
     content: VLAModel
 
 MLModel = Union[MLModelMLP, MLModelVLA]
-class ControlPolicyInputSpecTypes(str, Enum):
+class PolicyInputSpecTypes(str, Enum):
     STANDARD_INPUT_SPEC = "StandardInputSpec"
 
-class ControlPolicyInputSpecStandardInputSpec(BaseModel):
-    type: Literal[ControlPolicyInputSpecTypes.STANDARD_INPUT_SPEC] = ControlPolicyInputSpecTypes.STANDARD_INPUT_SPEC
+class PolicyInputSpecStandardInputSpec(BaseModel):
+    type: Literal[PolicyInputSpecTypes.STANDARD_INPUT_SPEC] = PolicyInputSpecTypes.STANDARD_INPUT_SPEC
     content: StandardInputSpec
 
-ControlPolicyInputSpec = ControlPolicyInputSpecStandardInputSpec
-class ControlPolicyOutputSpecTypes(str, Enum):
+PolicyInputSpec = PolicyInputSpecStandardInputSpec
+class PolicyOutputSpecTypes(str, Enum):
     PROPRIOCEPTIVE_OUTPUT_SPEC = "ProprioceptiveOutputSpec"
     EEF_OUTPUT_SPEC = "EEFOutputSpec"
 
-class ControlPolicyOutputSpecProprioceptiveOutputSpec(BaseModel):
-    type: Literal[ControlPolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC] = ControlPolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC
+class PolicyOutputSpecProprioceptiveOutputSpec(BaseModel):
+    type: Literal[PolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC] = PolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC
     content: ProprioceptiveOutputSpec
 
-class ControlPolicyOutputSpecEEFOutputSpec(BaseModel):
-    type: Literal[ControlPolicyOutputSpecTypes.EEF_OUTPUT_SPEC] = ControlPolicyOutputSpecTypes.EEF_OUTPUT_SPEC
+class PolicyOutputSpecEEFOutputSpec(BaseModel):
+    type: Literal[PolicyOutputSpecTypes.EEF_OUTPUT_SPEC] = PolicyOutputSpecTypes.EEF_OUTPUT_SPEC
     content: EEFOutputSpec
 
-ControlPolicyOutputSpec = Union[ControlPolicyOutputSpecProprioceptiveOutputSpec, ControlPolicyOutputSpecEEFOutputSpec]
+PolicyOutputSpec = Union[PolicyOutputSpecProprioceptiveOutputSpec, PolicyOutputSpecEEFOutputSpec]
 class ControlModel(BaseModel):
     model: MLModel
-    input_spec: ControlPolicyInputSpec
-    output_spec: ControlPolicyOutputSpec
+    input_spec: PolicyInputSpec
+    output_spec: PolicyOutputSpec
 
 class OutputStateItemTypes(str, Enum):
     Q_POS = "QPos"
@@ -145,10 +145,10 @@ class RewardLanguage(str, Enum):
 class RewardSystem(BaseModel):
     language: RewardLanguage
     reward_function_code: str
-    input_spec: ControlPolicyInputSpec
+    input_spec: PolicyInputSpec
 
 class ValueModel(BaseModel):
-    input_spec: ControlPolicyInputSpec
+    input_spec: PolicyInputSpec
     model: MLModel
 
 class ControlOutputModeTypes(str, Enum):

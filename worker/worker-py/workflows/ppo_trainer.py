@@ -12,9 +12,9 @@ import jax.numpy as jnp
 import numpy as np
 from jax import random
 
-from commondef.ioadapter import ControlPolicyInputState
+from commondef.ioadapter import PolicyInputState
 from commondef.training import (
-    ControlPolicyInputSpec,
+    PolicyInputSpec,
     InputStateItemSensors,
     InputStateTypes,
 )
@@ -39,8 +39,8 @@ class Trajectory:
     # Structured input states with a leading timestep axis on every array leaf.
     # control_wstates leaves: [traj_depth, ...]      — policy re-evaluation (control spec)
     # value_wstates leaves:   [traj_depth + 1, ...]  — value estimation incl. terminal (value spec)
-    control_wstates: ControlPolicyInputState
-    value_wstates: ControlPolicyInputState
+    control_wstates: PolicyInputState
+    value_wstates: PolicyInputState
     policy_outputs: dict[str,Array]
     policy_output_samples: list[Array]
     policy_output_sample_log_probs: list[float]
@@ -111,7 +111,7 @@ class PPOTrainer:
         self._jit_train_epoch: Any = None
 
     @staticmethod
-    def _camera_state_indices(input_spec: ControlPolicyInputSpec) -> tuple[int, ...]:
+    def _camera_state_indices(input_spec: PolicyInputSpec) -> tuple[int, ...]:
         return tuple(
             index
             for index, state in enumerate(input_spec.content.states)
@@ -121,10 +121,10 @@ class PPOTrainer:
 
     @staticmethod
     def _with_camera_frames(
-        state: ControlPolicyInputState,
+        state: PolicyInputState,
         camera_frames: Array | np.ndarray,
         camera_indices: tuple[int, ...],
-    ) -> ControlPolicyInputState:
+    ) -> PolicyInputState:
         """Replace camera placeholders, preserving spec order and PyTree metadata."""
         if not camera_indices:
             return state
@@ -177,8 +177,8 @@ class PPOTrainer:
     ) -> tuple[
         Any,
         Array,
-        ControlPolicyInputState,
-        ControlPolicyInputState,
+        PolicyInputState,
+        PolicyInputState,
         dict[str, Array],
         Array,
         Array,
@@ -298,8 +298,8 @@ class PPOTrainer:
         self._rng_key = split_keys[0]
         rng_states = list(split_keys[1:])
         data_states = [initial_data] * num_trajs
-        control_wstates: list[list[ControlPolicyInputState]] = [[] for _ in range(num_trajs)]
-        value_wstates: list[list[ControlPolicyInputState]] = [[] for _ in range(num_trajs)]
+        control_wstates: list[list[PolicyInputState]] = [[] for _ in range(num_trajs)]
+        value_wstates: list[list[PolicyInputState]] = [[] for _ in range(num_trajs)]
         policy_outputs: list[list[dict[str, Array]]] = [[] for _ in range(num_trajs)]
         action_samples: list[list[Array]] = [[] for _ in range(num_trajs)]
         action_log_probs: list[list[float]] = [[] for _ in range(num_trajs)]
@@ -536,9 +536,9 @@ class PPOTrainer:
         mjx_model: Any,
         rng_key: Array,
         simulator_class: type[Simulator],
-        control_state_fn: Callable[[Any, Any], ControlPolicyInputState],
-        value_state_fn: Callable[[Any, Any], ControlPolicyInputState],
-        reward_state_fn: Callable[[Any, Any], ControlPolicyInputState],
+        control_state_fn: Callable[[Any, Any], PolicyInputState],
+        value_state_fn: Callable[[Any, Any], PolicyInputState],
+        reward_state_fn: Callable[[Any, Any], PolicyInputState],
         control_has_cameras: bool,
         value_has_cameras: bool,
         reward_has_cameras: bool,
@@ -547,11 +547,11 @@ class PPOTrainer:
     ) -> tuple[
         tuple[Any, Array],
         tuple[
-            ControlPolicyInputState,
-            ControlPolicyInputState,
+            PolicyInputState,
+            PolicyInputState,
             dict[str, Array],
             Array,
-            ControlPolicyInputState,
+            PolicyInputState,
             Array,
         ],
     ]:
@@ -618,8 +618,8 @@ class PPOTrainer:
         simulator_state: SimulatorState,
         rng_key: Array,
     ) -> tuple[
-        ControlPolicyInputState,
-        ControlPolicyInputState,
+        PolicyInputState,
+        PolicyInputState,
         dict[str, Array],
         Array,
         Array,
@@ -679,7 +679,7 @@ class PPOTrainer:
         def control_state_fn(
             data: Any,
             model: Any,
-        ) -> ControlPolicyInputState:
+        ) -> PolicyInputState:
             return simulator_class.get_model_state_pure(
                 control_input_spec,
                 data,
@@ -691,7 +691,7 @@ class PPOTrainer:
         def value_state_fn(
             data: Any,
             model: Any,
-        ) -> ControlPolicyInputState:
+        ) -> PolicyInputState:
             return simulator_class.get_model_state_pure(
                 value_input_spec,
                 data,
@@ -703,7 +703,7 @@ class PPOTrainer:
         def reward_state_fn(
             data: Any,
             model: Any,
-        ) -> ControlPolicyInputState:
+        ) -> PolicyInputState:
             return simulator_class.get_model_state_pure(
                 reward_input_spec,
                 data,
@@ -718,8 +718,8 @@ class PPOTrainer:
             trajectory_keys: Array,
             ctx: Any,
         ) -> tuple[
-            ControlPolicyInputState,
-            ControlPolicyInputState,
+            PolicyInputState,
+            PolicyInputState,
             dict[str, Array],
             Array,
             Array,
@@ -737,11 +737,11 @@ class PPOTrainer:
             ) -> tuple[
                 tuple[Any, Array],
                 tuple[
-                    ControlPolicyInputState,
-                    ControlPolicyInputState,
+                    PolicyInputState,
+                    PolicyInputState,
                     dict[str, Array],
                     Array,
-                    ControlPolicyInputState,
+                    PolicyInputState,
                     Array,
                 ],
             ]:
@@ -766,8 +766,8 @@ class PPOTrainer:
             ) -> tuple[
                 tuple[Any, Array],
                 tuple[
-                    ControlPolicyInputState,
-                    ControlPolicyInputState,
+                    PolicyInputState,
+                    PolicyInputState,
                     dict[str, Array],
                     Array,
                     Array,
@@ -909,8 +909,8 @@ class PPOTrainer:
 
     def train_an_epoch_gpu(
         self,
-        control_wstates: ControlPolicyInputState,
-        value_wstates: ControlPolicyInputState,
+        control_wstates: PolicyInputState,
+        value_wstates: PolicyInputState,
         policy_outputs: dict[str,Array],
         action_samples: Array,
         rewards: Array
@@ -942,7 +942,7 @@ class PPOTrainer:
         logger.info("train_an_epoch_gpu: computing RTGs for %s trajs", num_trajs_in)
 
         def compute_rtg_for_traj(
-            traj_rewards: Array, traj_value_wstates: ControlPolicyInputState
+            traj_rewards: Array, traj_value_wstates: PolicyInputState
         ) -> Array:
             terminal = jax.tree_util.tree_map(lambda x: x[-1], traj_value_wstates)
             v_terminal = jnp.asarray(
@@ -956,7 +956,7 @@ class PPOTrainer:
         logger.info("train_an_epoch_gpu: computing GAEs for %s trajs", num_trajs_in)
 
         def compute_gae_for_traj(
-            traj_value_wstates: ControlPolicyInputState, traj_rewards: Array
+            traj_value_wstates: PolicyInputState, traj_rewards: Array
         ) -> Array:
             return pure_compute_gae(traj_value_wstates, traj_rewards, value_fn, self.model.get_value_store(), gamma, lam)
 
@@ -981,8 +981,8 @@ class PPOTrainer:
 
         def update_all_steps_fn(
             carry: tuple[Params, Params, dict, dict],
-            control_wstates_a: ControlPolicyInputState,
-            value_wstates_a: ControlPolicyInputState,
+            control_wstates_a: PolicyInputState,
+            value_wstates_a: PolicyInputState,
             policy_output: dict[str,Array],
             start_log_probs_a: Array,
             gaes_a: Array,
@@ -1120,9 +1120,9 @@ def pure_compute_rtg(rewards: Array, gamma: float, v_terminal: Array) -> Array:
 
 
 def pure_compute_gae(
-    wstates: ControlPolicyInputState,
+    wstates: PolicyInputState,
     rewards: Array,
-    value_fn: Callable[[Params, ControlPolicyInputState], Array],
+    value_fn: Callable[[Params, PolicyInputState], Array],
     value_store: Params,
     gamma: float,
     lam: float,
@@ -1162,8 +1162,8 @@ def pure_compute_gae(
 
 def pure_ppo_clip_loss(
     policy_store: Params,
-    policy_fn_log_prob: Callable[[Params, ControlPolicyInputState, dict[str, Array]], Array],
-    wstates: ControlPolicyInputState,
+    policy_fn_log_prob: Callable[[Params, PolicyInputState, dict[str, Array]], Array],
+    wstates: PolicyInputState,
     policy_output: dict[str,Array],
     start_log_probs: Array,
     gaes: Array,
@@ -1192,8 +1192,8 @@ def pure_ppo_clip_loss(
 
 def pure_value_loss(
     value_store: Params,
-    value_fn: Callable[[Params, ControlPolicyInputState], Array],
-    wstates: ControlPolicyInputState,
+    value_fn: Callable[[Params, PolicyInputState], Array],
+    wstates: PolicyInputState,
     rtgs: Array,
 ) -> Array:
     """MSE value function loss.
@@ -1219,10 +1219,10 @@ def learning_step(
     value_store: Params,
     policy_opt: dict,
     value_opt: dict,
-    policy_fn_log_prob: Callable[[Params, ControlPolicyInputState, dict[str, Array]], Array],
-    value_fn: Callable[[Params, ControlPolicyInputState], Array],
-    control_wstates: ControlPolicyInputState,
-    value_wstates: ControlPolicyInputState,
+    policy_fn_log_prob: Callable[[Params, PolicyInputState, dict[str, Array]], Array],
+    value_fn: Callable[[Params, PolicyInputState], Array],
+    control_wstates: PolicyInputState,
+    value_wstates: PolicyInputState,
     policy_output: dict[str,Array],
     start_log_probs: Array,
     gaes: Array,

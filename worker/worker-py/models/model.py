@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Callable
-from commondef.training import ControlPolicyInputSpec, ControlPolicyOutputSpec
-from commondef.ioadapter import ControlPolicyInputState
+from commondef.training import PolicyInputSpec, PolicyOutputSpec
+from commondef.ioadapter import PolicyInputState
 import jax
 
 Array = jax.Array
@@ -11,19 +11,19 @@ class TestingModel(ABC):
     """Minimal interface for test-time inference, independent of PPO concepts."""
 
     @abstractmethod
-    def get_control_input_spec(self) -> ControlPolicyInputSpec:
+    def get_control_input_spec(self) -> PolicyInputSpec:
         """Input spec the simulator uses for control-policy inference."""
         ...
 
     @abstractmethod
-    def get_test_action(self, policy_input: ControlPolicyInputState) -> Array:
+    def get_test_action(self, policy_input: PolicyInputState) -> Array:
         """Run eager single-step inference using a structured simulator state."""
         ...
 
     @abstractmethod
     def get_test_policy(
         self,
-    ) -> Callable[[Params, ControlPolicyInputState, Array], Array]:
+    ) -> Callable[[Params, PolicyInputState, Array], Array]:
         """Return pure ``(params, state, rng_key) -> action`` inference."""
         ...
 
@@ -33,7 +33,7 @@ class TestingModel(ABC):
         ...
 
     @abstractmethod
-    def get_control_policy_output_spec(self) -> ControlPolicyOutputSpec:
+    def get_control_policy_output_spec(self) -> PolicyOutputSpec:
         """Static interpretation of the policy's flat control output."""
         ...
 
@@ -53,15 +53,15 @@ class PPOTrainedModel(ABC):
     # --- Input spec ownership (mirrors Rust PPOTrainedModel trait) ---
 
     @abstractmethod
-    def get_control_input_spec(self) -> ControlPolicyInputSpec:
+    def get_control_input_spec(self) -> PolicyInputSpec:
         pass
 
     @abstractmethod
-    def get_value_input_spec(self) -> ControlPolicyInputSpec:
+    def get_value_input_spec(self) -> PolicyInputSpec:
         pass
 
     @abstractmethod
-    def get_reward_input_spec(self) -> ControlPolicyInputSpec:
+    def get_reward_input_spec(self) -> PolicyInputSpec:
         pass
 
     # --- Reward (pre/post structured state, matching the Rust/C ABI contract) ---
@@ -69,15 +69,15 @@ class PPOTrainedModel(ABC):
     @abstractmethod
     def get_reward(
         self,
-        state_pre: ControlPolicyInputState,
-        state_post: ControlPolicyInputState,
+        state_pre: PolicyInputState,
+        state_post: PolicyInputState,
     ) -> float:
         pass
 
     @abstractmethod
     def get_pure_reward_fn(
         self,
-    ) -> Callable[[ControlPolicyInputState, ControlPolicyInputState], float]:
+    ) -> Callable[[PolicyInputState, PolicyInputState], float]:
         pass
 
     # --- Policy / value inference ---
@@ -90,7 +90,7 @@ class PPOTrainedModel(ABC):
     @abstractmethod
     def get_policy_output(
         self,
-        policy_input: ControlPolicyInputState,
+        policy_input: PolicyInputState,
     ) -> dict[str, Array]:
         """Return an eager policy sample using the model-owned RNG state."""
         pass
@@ -98,7 +98,7 @@ class PPOTrainedModel(ABC):
     @abstractmethod
     def get_policy_fn(
         self,
-    ) -> Callable[[Params, ControlPolicyInputState, Array], dict[str, Array]]:
+    ) -> Callable[[Params, PolicyInputState, Array], dict[str, Array]]:
         """Return pure ``(params, state, rng_key) -> sampled policy output``."""
         pass
     
@@ -109,7 +109,7 @@ class PPOTrainedModel(ABC):
     @abstractmethod
     def get_policy_output_log_prob(
         self,
-        policy_input: ControlPolicyInputState,
+        policy_input: PolicyInputState,
         policy_output: dict[str, Array],
     ) -> Array:
         pass
@@ -117,17 +117,17 @@ class PPOTrainedModel(ABC):
     @abstractmethod
     def get_policy_output_log_prob_fn(
         self,
-    ) -> Callable[[Params, ControlPolicyInputState, dict[str, Array]], Array]:
+    ) -> Callable[[Params, PolicyInputState, dict[str, Array]], Array]:
         pass
 
     @abstractmethod
-    def get_value_output(self, value_input: ControlPolicyInputState) -> float:
+    def get_value_output(self, value_input: PolicyInputState) -> float:
         pass
 
     @abstractmethod
     def get_value_fn(
         self,
-    ) -> Callable[[Params, ControlPolicyInputState], Array]:
+    ) -> Callable[[Params, PolicyInputState], Array]:
         pass
 
     @abstractmethod
@@ -147,5 +147,5 @@ class PPOTrainedModel(ABC):
         pass
 
     @abstractmethod
-    def get_control_policy_output_spec(self) -> ControlPolicyOutputSpec:
+    def get_control_policy_output_spec(self) -> PolicyOutputSpec:
         pass

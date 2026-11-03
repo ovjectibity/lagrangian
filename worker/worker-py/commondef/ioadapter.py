@@ -9,13 +9,13 @@ import jax.numpy as jnp
 import numpy as np
 
 from commondef.training import (
-    ControlPolicyInputSpecTypes,
-    ControlPolicyOutputSpecTypes,
+    PolicyInputSpecTypes,
+    PolicyOutputSpecTypes,
     InputStateTypes,
 )
 
 
-# Runtime state mirrors ControlPolicyInputSpec exactly. The arrays extracted
+# Runtime state mirrors PolicyInputSpec exactly. The arrays extracted
 # from the simulator replace the spec's state-item leaves. Body names and
 # tagged-union discriminants remain static PyTree metadata so JAX can compile
 # one stable tree shape for a given input specification.
@@ -75,12 +75,12 @@ class StandardInputData:
     meta_fields=("type",),
 )
 @dataclass(frozen=True)
-class ControlPolicyInputStateStandardInputSpec:
-    type: Literal[ControlPolicyInputSpecTypes.STANDARD_INPUT_SPEC]
+class PolicyInputStateStandardInputSpec:
+    type: Literal[PolicyInputSpecTypes.STANDARD_INPUT_SPEC]
     content: StandardInputData
 
 
-ControlPolicyInputState = ControlPolicyInputStateStandardInputSpec
+PolicyInputState = PolicyInputStateStandardInputSpec
 
 
 # Runtime mirrors for control-policy output specs. These keep command metadata
@@ -126,8 +126,8 @@ class EEFOutputData:
     meta_fields=("type",),
 )
 @dataclass(frozen=True)
-class ControlPolicyOutputStateProprioceptiveOutputSpec:
-    type: Literal[ControlPolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC]
+class PolicyOutputStateProprioceptiveOutputSpec:
+    type: Literal[PolicyOutputSpecTypes.PROPRIOCEPTIVE_OUTPUT_SPEC]
     content: ProprioceptiveOutputData
 
 
@@ -137,12 +137,12 @@ class ControlPolicyOutputStateProprioceptiveOutputSpec:
     meta_fields=("type",),
 )
 @dataclass(frozen=True)
-class ControlPolicyOutputStateEEFOutputSpec:
-    type: Literal[ControlPolicyOutputSpecTypes.EEF_OUTPUT_SPEC]
+class PolicyOutputStateEEFOutputSpec:
+    type: Literal[PolicyOutputSpecTypes.EEF_OUTPUT_SPEC]
     content: EEFOutputData
 
 
-ControlPolicyOutputState = (
-    ControlPolicyOutputStateProprioceptiveOutputSpec
-    | ControlPolicyOutputStateEEFOutputSpec
+PolicyOutputState = (
+    PolicyOutputStateProprioceptiveOutputSpec
+    | PolicyOutputStateEEFOutputSpec
 )

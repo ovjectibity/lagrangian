@@ -119,7 +119,7 @@ pub struct EEFOutputSpec {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
-pub enum ControlPolicyOutputSpec {
+pub enum PolicyOutputSpec {
     ProprioceptiveOutputSpec(ProprioceptiveOutputSpec),
     EEFOutputSpec(EEFOutputSpec)
 }
@@ -127,7 +127,7 @@ pub enum ControlPolicyOutputSpec {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
-pub enum ControlPolicyInputSpec {
+pub enum PolicyInputSpec {
     StandardInputSpec(StandardInputSpec)
 }
 
@@ -181,14 +181,14 @@ pub enum MLModel {
 #[typeshare]
 pub struct ControlModel {
     pub model: MLModel,
-    pub input_spec: ControlPolicyInputSpec,
-    pub output_spec: ControlPolicyOutputSpec,
+    pub input_spec: PolicyInputSpec,
+    pub output_spec: PolicyOutputSpec,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct ValueModel {
-    pub input_spec: ControlPolicyInputSpec,
+    pub input_spec: PolicyInputSpec,
     pub model: MLModel
 }
 
@@ -249,7 +249,7 @@ pub enum RewardLanguage {
 pub struct RewardSystem {
     pub language: RewardLanguage,
     pub reward_function_code: String,
-    pub input_spec: ControlPolicyInputSpec
+    pub input_spec: PolicyInputSpec
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]

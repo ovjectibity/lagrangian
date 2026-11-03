@@ -12,11 +12,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from commondef.training import (
-    ControlPolicyOutputSpec,
-    ControlPolicyOutputSpecEEFOutputSpec,
-    ControlPolicyOutputSpecProprioceptiveOutputSpec,
-    ControlPolicyInputSpec,
-    ControlPolicyInputSpecTypes,
+    PolicyOutputSpec,
+    PolicyOutputSpecEEFOutputSpec,
+    PolicyOutputSpecProprioceptiveOutputSpec,
+    PolicyInputSpec,
+    PolicyInputSpecTypes,
     InputStateItemControllableTypes,
     InputStateItemSensors,
     InputStateTypes,
@@ -25,8 +25,8 @@ from commondef.training import (
     OutputStateItemTypes,
 )
 from commondef.ioadapter import (
-    ControlPolicyInputState,
-    ControlPolicyInputStateStandardInputSpec,
+    PolicyInputState,
+    PolicyInputStateStandardInputSpec,
     InputStateControllableData,
     InputStateDataInputStateControllable,
     InputStateDataInputStateSensors,
@@ -193,18 +193,18 @@ class Simulator(ABC):
 
     @staticmethod
     def _get_model_state(
-        input_spec: ControlPolicyInputSpec,
+        input_spec: PolicyInputSpec,
         data: Any,
         model: Any,
         contact_sensor_addresses: jnp.ndarray | np.ndarray | None,
         contact_body_pairs: jnp.ndarray | np.ndarray | None,
         array_module: Any,
         name_to_id: Any,
-    ) -> ControlPolicyInputState:
+    ) -> PolicyInputState:
         """Extract spec-ordered state arrays without rendering or changing Data."""
 
-        if input_spec.type != ControlPolicyInputSpecTypes.STANDARD_INPUT_SPEC:
-            raise ValueError(f"Unsupported ControlPolicyInputSpec: {input_spec.type}")
+        if input_spec.type != PolicyInputSpecTypes.STANDARD_INPUT_SPEC:
+            raise ValueError(f"Unsupported PolicyInputSpec: {input_spec.type}")
 
         content = input_spec.content
 
@@ -346,7 +346,7 @@ class Simulator(ABC):
             else:
                 raise ValueError(f"Unsupported input state: {state.type}")
 
-        return ControlPolicyInputStateStandardInputSpec(
+        return PolicyInputStateStandardInputSpec(
             type=input_spec.type,
             content=StandardInputData(
                 base_body_name=content.base_body_name,
@@ -376,12 +376,12 @@ class Simulator(ABC):
     @staticmethod
     @abstractmethod
     def get_model_state_pure(
-        input_spec: ControlPolicyInputSpec,
+        input_spec: PolicyInputSpec,
         data: Any,
         model: Any,
         contact_sensor_addresses: jnp.ndarray | np.ndarray | None = None,
         contact_body_pairs: jnp.ndarray | np.ndarray | None = None,
-    ) -> ControlPolicyInputState:
+    ) -> PolicyInputState:
         """Extract input-spec-shaped state without rendering."""
         pass
 
@@ -447,7 +447,7 @@ class Simulator(ABC):
         model: Any,
         data: Any,
         control_input: jnp.ndarray | np.ndarray,
-        control_policy_output_spec: ControlPolicyOutputSpec,
+        control_policy_output_spec: PolicyOutputSpec,
     ) -> tuple[jnp.ndarray | np.ndarray, jnp.ndarray | np.ndarray]:
         """Map a static output spec and flat policy output to controls."""
         pass
@@ -676,7 +676,7 @@ class MjxSimulator(Simulator):
         model: Any,
         data: Any,
         control_input: jnp.ndarray,
-        control_policy_output_spec: ControlPolicyOutputSpec,
+        control_policy_output_spec: PolicyOutputSpec,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Map one static output spec and its flat policy output to controls.
 
@@ -703,7 +703,7 @@ class MjxSimulator(Simulator):
 
         if isinstance(
             control_policy_output_spec,
-            ControlPolicyOutputSpecProprioceptiveOutputSpec,
+            PolicyOutputSpecProprioceptiveOutputSpec,
         ):
             output_spec = control_policy_output_spec.content
             state = output_spec.state
@@ -747,7 +747,7 @@ class MjxSimulator(Simulator):
 
         if isinstance(
             control_policy_output_spec,
-            ControlPolicyOutputSpecEEFOutputSpec,
+            PolicyOutputSpecEEFOutputSpec,
         ):
             output_spec = control_policy_output_spec.content
             eef_state = output_spec.eef_state
@@ -809,12 +809,12 @@ class MjxSimulator(Simulator):
 
     @staticmethod
     def get_model_state_pure(
-        input_spec: ControlPolicyInputSpec,
+        input_spec: PolicyInputSpec,
         data: Any,
         model: Any,
         contact_sensor_addresses: jnp.ndarray | None = None,
         contact_body_pairs: jnp.ndarray | None = None,
-    ) -> ControlPolicyInputState:
+    ) -> PolicyInputState:
         """Extract ordered MJX state leaves."""
         return Simulator._get_model_state(
             input_spec,
@@ -946,12 +946,12 @@ class MujocoSimulator(Simulator):
 
     @staticmethod
     def get_model_state_pure(
-        input_spec: ControlPolicyInputSpec,
+        input_spec: PolicyInputSpec,
         data: Any,
         model: Any,
         contact_sensor_addresses: np.ndarray | None = None,
         contact_body_pairs: np.ndarray | None = None,
-    ) -> ControlPolicyInputState:
+    ) -> PolicyInputState:
         """Extract ordered MuJoCo state leaves."""
         return Simulator._get_model_state(
             input_spec,
@@ -1005,7 +1005,7 @@ class MujocoSimulator(Simulator):
         model: Any,
         data: Any,
         control_input: np.ndarray,
-        control_policy_output_spec: ControlPolicyOutputSpec,
+        control_policy_output_spec: PolicyOutputSpec,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Map one output spec and flat policy output to CPU MuJoCo controls.
 
@@ -1031,7 +1031,7 @@ class MujocoSimulator(Simulator):
 
         if isinstance(
             control_policy_output_spec,
-            ControlPolicyOutputSpecProprioceptiveOutputSpec,
+            PolicyOutputSpecProprioceptiveOutputSpec,
         ):
             output_spec = control_policy_output_spec.content
             state = output_spec.state
@@ -1060,7 +1060,7 @@ class MujocoSimulator(Simulator):
 
         if isinstance(
             control_policy_output_spec,
-            ControlPolicyOutputSpecEEFOutputSpec,
+            PolicyOutputSpecEEFOutputSpec,
         ):
             output_spec = control_policy_output_spec.content
             eef_state = output_spec.eef_state

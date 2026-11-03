@@ -134,10 +134,10 @@
           "$ref": "#/definitions/MLModel"
         },
         "input_spec": {
-          "$ref": "#/definitions/ControlPolicyInputSpec"
+          "$ref": "#/definitions/PolicyInputSpec"
         },
         "output_spec": {
-          "$ref": "#/definitions/ControlPolicyOutputSpec"
+          "$ref": "#/definitions/PolicyOutputSpec"
         }
       },
       "required": [
@@ -298,7 +298,7 @@
         "model_type"
       ]
     },
-    "ControlPolicyInputSpec": {
+    "PolicyInputSpec": {
       "oneOf": [
         {
           "type": "object",
@@ -489,7 +489,7 @@
         "ContactPairs"
       ]
     },
-    "ControlPolicyOutputSpec": {
+    "PolicyOutputSpec": {
       "oneOf": [
         {
           "type": "object",

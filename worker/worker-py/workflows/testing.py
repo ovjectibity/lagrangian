@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from commondef import testing_updates_pb2 as pb
-from commondef.ioadapter import ControlPolicyInputState
+from commondef.ioadapter import PolicyInputState
 from commondef.remoteworkermessages import (
     RemoteWorkerClientMessageStopTestingMessage,
     StopTestMessage,
@@ -26,7 +26,7 @@ from commondef.testing import (
 )
 from commondef.training import (
     ControlModel,
-    ControlPolicyInputSpecStandardInputSpec,
+    PolicyInputSpecStandardInputSpec,
     InputStateItemSensors,
     InputStateTypes,
     MLModelMLP,
@@ -323,7 +323,7 @@ class TestingWorkflow:
         control_model: ControlModel,
         rng_key: jax.Array | None = None,
     ) -> TestingModel:
-        null_spec = ControlPolicyInputSpecStandardInputSpec(
+        null_spec = PolicyInputSpecStandardInputSpec(
             content=StandardInputSpec(base_body_name=None, states=[]),
         )
         if isinstance(control_model.model, MLModelVLA):
@@ -363,9 +363,9 @@ class TestingWorkflow:
 
     def _with_camera_frames(
         self,
-        state: ControlPolicyInputState,
+        state: PolicyInputState,
         camera_frames: Array | np.ndarray,
-    ) -> ControlPolicyInputState:
+    ) -> PolicyInputState:
         """Replace every camera placeholder with the same rendered frame array.
 
         Runtime states are frozen PyTrees; replace their containers while
@@ -497,7 +497,7 @@ class TestingWorkflow:
             contact_body_pairs = simulator_state.contact_body_pairs
             has_cameras = bool(self._camera_state_indices)
 
-            def state_fn(data: Any) -> ControlPolicyInputState:
+            def state_fn(data: Any) -> PolicyInputState:
                 return simulator_class.get_model_state_pure(
                     control_spec,
                     data,
@@ -512,7 +512,7 @@ class TestingWorkflow:
                 bd, rng = carry
                 rng, step_key = jax.random.split(rng)
                 env_keys = jax.random.split(step_key, num_envs)
-                input_state: ControlPolicyInputState = jax.vmap(state_fn)(bd)
+                input_state: PolicyInputState = jax.vmap(state_fn)(bd)
                 if has_cameras:
                     camera_frames, bd = simulator_class.get_model_render(
                         bd, mjx_model, render_ctx
@@ -680,7 +680,7 @@ class TestingWorkflow:
                         env_index,
                         timestep,
                     )
-                    input_state: ControlPolicyInputState = (
+                    input_state: PolicyInputState = (
                         simulator_class.get_model_state_pure(
                             control_spec,
                             data,

@@ -154,7 +154,7 @@
           "type": "string"
         },
         "input_spec": {
-          "$ref": "#/definitions/ControlPolicyInputSpec"
+          "$ref": "#/definitions/PolicyInputSpec"
         }
       },
       "required": [
@@ -170,7 +170,7 @@
         "Python"
       ]
     },
-    "ControlPolicyInputSpec": {
+    "PolicyInputSpec": {
       "oneOf": [
         {
           "type": "object",
@@ -368,10 +368,10 @@
           "$ref": "#/definitions/MLModel"
         },
         "input_spec": {
-          "$ref": "#/definitions/ControlPolicyInputSpec"
+          "$ref": "#/definitions/PolicyInputSpec"
         },
         "output_spec": {
-          "$ref": "#/definitions/ControlPolicyOutputSpec"
+          "$ref": "#/definitions/PolicyOutputSpec"
         }
       },
       "required": [
@@ -532,7 +532,7 @@
         "model_type"
       ]
     },
-    "ControlPolicyOutputSpec": {
+    "PolicyOutputSpec": {
       "oneOf": [
         {
           "type": "object",
@@ -683,7 +683,7 @@
       "type": "object",
       "properties": {
         "input_spec": {
-          "$ref": "#/definitions/ControlPolicyInputSpec"
+          "$ref": "#/definitions/PolicyInputSpec"
         },
         "model": {
           "$ref": "#/definitions/MLModel"
