@@ -1,6 +1,7 @@
 /**
  * Local (AllOnServer) training test with a Rust reward function.
- * Mirrors tests/test_training_local_trossen_arm.py using the TypeScript SDK.
+ * Mirrors test_training_local_ffn_trossen_arm.py via the SDK.
+ * AllOnServer also requires the Rust backend IO migration.
  *
  * Usage:
  *   MODEL_PATH=assets/trossen_vx300s/vx300s.xml node tests/test_training_local_trossen_arm.mjs
@@ -17,6 +18,34 @@ import { LagrangianClient } from "../sdk/dist/index.js";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:8000/api";
 const MODEL_PATH = process.env.MODEL_PATH ?? "";
+
+// The full scene has nq=29 and nv=26: 55 observation values.
+const INPUT_SPEC = {
+  type: "StandardInputSpec",
+  content: {
+    base_body_name: null,
+    states: ["QPos", "QVel"].map((type) => ({
+      type: "InputStateControllable",
+      content: {
+        rebase_body_tree: null,
+        excluded_body_trees: [],
+        state_item: { type },
+      },
+    })),
+  },
+};
+
+const OUTPUT_SPEC = {
+  type: "ProprioceptiveOutputSpec",
+  content: {
+    base_body_name: "base_link",
+    state: {
+      is_delta: false,
+      rebase_body: "base_link",
+      state_item: { type: "QPos" },
+    },
+  },
+};
 
 if (!MODEL_PATH) {
   console.error("MODEL_PATH env var is required");
@@ -97,49 +126,59 @@ function buildTrainingGraph(modelId) {
             language: "Rust",
             reward_function_code: RUST_REWARD,
             input_spec: {
-              all_cameras: false,
-              qpos_state: false,
-              qvel_state: false,
-              xpos_state: true,
-              xquat_state: false,
-              contact_pairs: true,
+              type: "StandardInputSpec",
+              content: {
+                base_body_name: null,
+                states: [
+                  {
+                    type: "InputStateControllable",
+                    content: {
+                      rebase_body_tree: null,
+                      excluded_body_trees: [],
+                      state_item: {
+                        type: "XPose",
+                        content: {
+                          frame_spec: "WorldFrame",
+                          orientation_spec: "Quaternion",
+                        },
+                      },
+                    },
+                  },
+                  {
+                    type: "InputStateSensors",
+                    content: "ContactPairs",
+                  },
+                ],
+              },
             },
           },
           control_model: {
-            type: "MLP",
-            content: {
-              model_type: { type: "New" },
-              num_hidden_layers: 2,
-              hidden_layer_dim: 64,
-              output_dim: 14,
-              input_dim: 55,
-              input_spec: {
-                all_cameras: false,
-                qpos_state: true,
-                qvel_state: true,
-                xpos_state: false,
-                xquat_state: false,
-                contact_pairs: false,
+            model: {
+              type: "MLP",
+              content: {
+                model_type: { type: "New" },
+                num_hidden_layers: 2,
+                hidden_layer_dim: 64,
+                // Eight robot qpos means and eight log-std values.
+                output_dim: 16,
+                input_dim: 55,
               },
             },
+            input_spec: INPUT_SPEC,
+            output_spec: OUTPUT_SPEC,
           },
           value_model: {
-            type: "MLP",
-            content: {
-              model_type: { type: "New" },
-              num_hidden_layers: 2,
-              hidden_layer_dim: 64,
-              output_dim: 1,
-              input_dim: 55,
-              input_spec: {
-                all_cameras: false,
-                qpos_state: true,
-                qvel_state: true,
-                xpos_state: false,
-                xquat_state: false,
-                contact_pairs: false,
+            model: {
+              type: "MLP",
+              content: {
+                model_type: { type: "New" },
+                num_hidden_layers: 2,
+                hidden_layer_dim: 64,
+                output_dim: 1,
+                input_dim: 55,
               },
             },
+            input_spec: INPUT_SPEC,
           },
           simulation_model: modelId,
           control_output_mode: { type: "ActionMean" },

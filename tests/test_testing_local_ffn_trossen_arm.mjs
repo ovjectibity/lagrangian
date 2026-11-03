@@ -4,10 +4,14 @@
  * Runs two back-to-back test cases:
  *   1. Local testing | Vanilla MLP (random weights)
  *   2. Local testing | MLP from checkpoint
+ * AllOnServer also requires the Rust backend IO migration.
  *
  * Usage:
- *   MODEL_PATH=assets/trossen_vx300s/vx300s.xml node tests/test_testing_local_mlp_trossen_arm.mjs
- *   BASE_URL=http://localhost:8000/api MODEL_PATH=... CHECKPOINT_ID=<id> node tests/test_testing_local_mlp_trossen_arm.mjs
+ *   MODEL_PATH=assets/trossen_vx300s/vx300s.xml \
+ *     node tests/test_testing_local_ffn_trossen_arm.mjs
+ *   BASE_URL=http://localhost:8000/api MODEL_PATH=... \
+ *     CHECKPOINT_ID=<id> \
+ *     node tests/test_testing_local_ffn_trossen_arm.mjs
  *
  * Requires: node >= 18, sdk built (cd sdk && npm run build)
  * Set CHECKPOINT_ID to use a specific checkpoint; otherwise the latest MLP checkpoint is fetched.
@@ -24,9 +28,38 @@ const MODEL_PATH    = process.env.MODEL_PATH     ?? "";
 const CHECKPOINT_ID = process.env.CHECKPOINT_ID  ?? "";
 
 const MLP_INPUT_DIM  = 55;
-const MLP_OUTPUT_DIM = 14;
+// Eight robot qpos targets: six arm joints and two fingers.
+// The Gaussian head produces a mean and log-std for each target.
+const MLP_OUTPUT_DIM = 16;
 const NUM_TIMESTEPS  = 50;
 const MAX_FRAMES     = 5;
+
+const INPUT_SPEC = {
+  type: "StandardInputSpec",
+  content: {
+    base_body_name: null,
+    states: ["QPos", "QVel"].map((type) => ({
+      type: "InputStateControllable",
+      content: {
+        rebase_body_tree: null,
+        excluded_body_trees: [],
+        state_item: { type },
+      },
+    })),
+  },
+};
+
+const OUTPUT_SPEC = {
+  type: "ProprioceptiveOutputSpec",
+  content: {
+    base_body_name: "base_link",
+    state: {
+      is_delta: false,
+      rebase_body: "base_link",
+      state_item: { type: "QPos" },
+    },
+  },
+};
 
 if (!MODEL_PATH) {
   console.error("MODEL_PATH env var is required");
@@ -58,8 +91,16 @@ async function fetchMlpCheckpoint(client) {
     return ckpt;
   }
   const all = await client.checkpoints.list();
-  const mlp = all.filter((c) => c.control_model_params);
-  if (!mlp.length) throw new Error("No MLP checkpoints found — run a training job first or set CHECKPOINT_ID");
+  const mlp = all.filter((checkpoint) => (
+    checkpoint.control_model_params?.input_dim === MLP_INPUT_DIM
+    && checkpoint.control_model_params?.output_dim === MLP_OUTPUT_DIM
+  ));
+  if (!mlp.length) {
+    throw new Error(
+      "No compatible MLP checkpoints found; train a model "
+      + "with 55 inputs and 16 outputs or set CHECKPOINT_ID",
+    );
+  }
   const ckpt = mlp[mlp.length - 1];
   console.log(`  checkpoint_id=${ckpt.id}  run=${ckpt.training_run_id}`);
   return ckpt;
@@ -93,14 +134,19 @@ async function runTest(client, testGraph, label) {
   const frames = [];
   for await (const frame of client.simulations.streamUpdates(testId)) {
     frames.push(frame);
-    const update = frame.simulation_state[0][0];
+    const update = frame.simulation_state[0][0][0];
     console.log(`    frame[${frames.length - 1}]: xpos[:3]=${update.xpos.slice(0, 3)}`);
     if (frames.length >= MAX_FRAMES) break;
   }
 
   if (!frames.length)                                  throw new Error(`[${label}] no frames received`);
-  if (!frames[0].simulation_state[0][0].xpos.length)   throw new Error(`[${label}] empty xpos`);
-  if (!frames[0].simulation_state[0][0].xquat.length)  throw new Error(`[${label}] empty xquat`);
+  const firstUpdate = frames[0].simulation_state[0][0][0];
+  if (!firstUpdate.xpos.length) {
+    throw new Error(`[${label}] empty xpos`);
+  }
+  if (!firstUpdate.xquat.length) {
+    throw new Error(`[${label}] empty xquat`);
+  }
   console.log(`  ${label}: OK (${frames.length} frames)`);
 
   await client.simulations.stop(testId);
@@ -110,22 +156,18 @@ async function runTest(client, testGraph, label) {
 
 async function testVanillaMlp(client, modelId) {
   const controlModel = {
-    type: "MLP",
-    content: {
-      model_type: { type: "New" },
-      num_hidden_layers: 2,
-      hidden_layer_dim: 64,
-      output_dim: MLP_OUTPUT_DIM,
-      input_dim: MLP_INPUT_DIM,
-      input_spec: {
-        all_cameras: false,
-        qpos_state: true,
-        qvel_state: true,
-        xpos_state: false,
-        xquat_state: false,
-        contact_pairs: false,
+    model: {
+      type: "MLP",
+      content: {
+        model_type: { type: "New" },
+        num_hidden_layers: 2,
+        hidden_layer_dim: 64,
+        output_dim: MLP_OUTPUT_DIM,
+        input_dim: MLP_INPUT_DIM,
       },
     },
+    input_spec: INPUT_SPEC,
+    output_spec: OUTPUT_SPEC,
   };
   await runTest(client, buildTestGraph(modelId, controlModel), "vanilla-mlp");
 }
@@ -138,23 +180,28 @@ async function testCheckpointMlp(client, modelId) {
     output_dim: MLP_OUTPUT_DIM,
     input_dim: MLP_INPUT_DIM,
   };
+  if (
+    params.input_dim !== MLP_INPUT_DIM
+    || params.output_dim !== MLP_OUTPUT_DIM
+  ) {
+    throw new Error(
+      "Checkpoint dimensions do not match the updated IO specs; "
+      + "use a checkpoint trained with 55 inputs and 16 outputs",
+    );
+  }
   const controlModel = {
-    type: "MLP",
-    content: {
-      ...params,
-      model_type: {
-        type: "Checkpoint",
-        content: { type: "Checkpoint", content: ckpt.id },
-      },
-      input_spec: {
-        all_cameras: false,
-        qpos_state: true,
-        qvel_state: true,
-        xpos_state: false,
-        xquat_state: false,
-        contact_pairs: false,
+    model: {
+      type: "MLP",
+      content: {
+        ...params,
+        model_type: {
+          type: "Checkpoint",
+          content: { type: "Checkpoint", content: ckpt.id },
+        },
       },
     },
+    input_spec: INPUT_SPEC,
+    output_spec: OUTPUT_SPEC,
   };
   await runTest(client, buildTestGraph(modelId, controlModel), "checkpoint-mlp");
 }

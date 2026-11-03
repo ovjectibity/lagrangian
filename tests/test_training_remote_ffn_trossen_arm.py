@@ -3,8 +3,10 @@ Remote (MLGPUSimulationGPU) training test with a Python reward function.
 Requires a live GPU worker running and reachable by the server.
 
 Usage:
-    MODEL_PATH=assets/trossen_vx300s/vx300s.xml python tests/test_training_remote.py
-    BASE_URL=http://localhost:8000/api MODEL_PATH=... python tests/test_training_remote.py
+    MODEL_PATH=assets/trossen_vx300s/vx300s.xml \
+        python tests/test_training_remote_ffn_trossen_arm.py
+    BASE_URL=http://localhost:8000/api MODEL_PATH=... \
+        python tests/test_training_remote_ffn_trossen_arm.py
 """
 import io
 import os
@@ -17,10 +19,41 @@ from websockets.sync.client import connect
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000/api")
 MODEL_PATH = os.environ.get("MODEL_PATH", "")
 
+# Full-scene qpos/qvel observations have 29 + 26 = 55 values.
+INPUT_SPEC = {
+    "type": "StandardInputSpec",
+    "content": {
+        "base_body_name": None,
+        "states": [
+            {
+                "type": "InputStateControllable",
+                "content": {
+                    "rebase_body_tree": None,
+                    "excluded_body_trees": [],
+                    "state_item": {"type": state_type},
+                },
+            }
+            for state_type in ("QPos", "QVel")
+        ],
+    },
+}
+
+OUTPUT_SPEC = {
+    "type": "ProprioceptiveOutputSpec",
+    "content": {
+        "base_body_name": "base_link",
+        "state": {
+            "is_delta": False,
+            "rebase_body": "base_link",
+            "state_item": {"type": "QPos"},
+        },
+    },
+}
+
 PYTHON_REWARD = '''
 import jax.numpy as jnp
 
-def reward(parts_pre, parts_post):
+def reward(state_pre, state_post):
     target_cube = 3
     gripper = 10
     left_box = 1
@@ -29,11 +62,12 @@ def reward(parts_pre, parts_post):
     left_box_start = (0.35, 0.22)
     right_box_start = (0.35, -0.22)
 
-    curr_xpos = parts_post["xpos"]
-    prev_xpos = parts_pre["xpos"]
+    # State slot 0 is world-frame XPose: xyz followed by quaternion.
+    curr_xpos = state_post.content.states[0].content.state_item.reshape(-1, 7)[:, :3]
+    prev_xpos = state_pre.content.states[0].content.state_item.reshape(-1, 7)[:, :3]
 
     def get_pos(xpos, i):
-        return xpos[i * 3], xpos[i * 3 + 1], xpos[i * 3 + 2]
+        return xpos[i, 0], xpos[i, 1], xpos[i, 2]
 
     nx, ny, nz = get_pos(curr_xpos, target_cube)
     px, py, _ = get_pos(prev_xpos, target_cube)
@@ -123,49 +157,53 @@ def build_training_graph(model_id: str) -> dict:
                         "language": "Python",
                         "reward_function_code": PYTHON_REWARD,
                         "input_spec": {
-                            "all_cameras": False,
-                            "qpos_state": False,
-                            "qvel_state": False,
-                            "xpos_state": True,
-                            "xquat_state": False,
-                            "contact_pairs": False,
+                            "type": "StandardInputSpec",
+                            "content": {
+                                "base_body_name": None,
+                                "states": [{
+                                    "type": "InputStateControllable",
+                                    "content": {
+                                        "rebase_body_tree": None,
+                                        "excluded_body_trees": [],
+                                        "state_item": {
+                                            "type": "XPose",
+                                            "content": {
+                                                "frame_spec": "WorldFrame",
+                                                "orientation_spec": "Quaternion",
+                                            },
+                                        },
+                                    },
+                                }],
+                            },
                         },
                     },
                     "control_model": {
-                        "type": "MLP",
-                        "content": {
-                            "model_type": {"type": "New"},
-                            "num_hidden_layers": 2,
-                            "hidden_layer_dim": 64,
-                            "output_dim": 14,
-                            "input_dim": 55,
-                            "input_spec": {
-                                "all_cameras": False,
-                                "qpos_state": True,
-                                "qvel_state": True,
-                                "xpos_state": False,
-                                "xquat_state": False,
-                                "contact_pairs": False,
+                        "model": {
+                            "type": "MLP",
+                            "content": {
+                                "model_type": {"type": "New"},
+                                "num_hidden_layers": 2,
+                                "hidden_layer_dim": 64,
+                                # Eight qpos means and eight log-std values.
+                                "output_dim": 16,
+                                "input_dim": 55,
                             },
                         },
+                        "input_spec": INPUT_SPEC,
+                        "output_spec": OUTPUT_SPEC,
                     },
                     "value_model": {
-                        "type": "MLP",
-                        "content": {
-                            "model_type": {"type": "New"},
-                            "num_hidden_layers": 2,
-                            "hidden_layer_dim": 64,
-                            "output_dim": 1,
-                            "input_dim": 55,
-                            "input_spec": {
-                                "all_cameras": False,
-                                "qpos_state": True,
-                                "qvel_state": True,
-                                "xpos_state": False,
-                                "xquat_state": False,
-                                "contact_pairs": False,
+                        "model": {
+                            "type": "MLP",
+                            "content": {
+                                "model_type": {"type": "New"},
+                                "num_hidden_layers": 2,
+                                "hidden_layer_dim": 64,
+                                "output_dim": 1,
+                                "input_dim": 55,
                             },
                         },
+                        "input_spec": INPUT_SPEC,
                     },
                     "simulation_model": model_id,
                     "control_output_mode": {"type": "ActionMean"},

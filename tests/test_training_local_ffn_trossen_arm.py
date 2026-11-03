@@ -1,9 +1,12 @@
 """
 Local (AllOnServer) training test with a Rust reward function.
+AllOnServer also requires the Rust backend IO migration.
 
 Usage:
-    MODEL_PATH=assets/trossen_vx300s/vx300s.xml python tests/test_training_trossen_arm.py
-    BASE_URL=http://localhost:8000/api MODEL_PATH=... python tests/test_training_trossen_arm.py
+    MODEL_PATH=assets/trossen_vx300s/vx300s.xml \
+        python tests/test_training_local_ffn_trossen_arm.py
+    BASE_URL=http://localhost:8000/api MODEL_PATH=... \
+        python tests/test_training_local_ffn_trossen_arm.py
 """
 import io
 import os
@@ -15,6 +18,37 @@ from websockets.sync.client import connect
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000/api")
 MODEL_PATH = os.environ.get("MODEL_PATH", "")
+
+# Full-scene qpos/qvel observations have 29 + 26 = 55 values.
+INPUT_SPEC = {
+    "type": "StandardInputSpec",
+    "content": {
+        "base_body_name": None,
+        "states": [
+            {
+                "type": "InputStateControllable",
+                "content": {
+                    "rebase_body_tree": None,
+                    "excluded_body_trees": [],
+                    "state_item": {"type": state_type},
+                },
+            }
+            for state_type in ("QPos", "QVel")
+        ],
+    },
+}
+
+OUTPUT_SPEC = {
+    "type": "ProprioceptiveOutputSpec",
+    "content": {
+        "base_body_name": "base_link",
+        "state": {
+            "is_delta": False,
+            "rebase_body": "base_link",
+            "state_item": {"type": "QPos"},
+        },
+    },
+}
 
 RUST_REWARD = '''
 use std::collections::HashMap;
@@ -133,49 +167,59 @@ def build_training_graph(model_id: str) -> dict:
                         "language": "Rust",
                         "reward_function_code": RUST_REWARD,
                         "input_spec": {
-                            "all_cameras": False,
-                            "qpos_state": False,
-                            "qvel_state": False,
-                            "xpos_state": True,
-                            "xquat_state": False,
-                            "contact_pairs": True,
+                            "type": "StandardInputSpec",
+                            "content": {
+                                "base_body_name": None,
+                                "states": [
+                                    {
+                                        "type": "InputStateControllable",
+                                        "content": {
+                                            "rebase_body_tree": None,
+                                            "excluded_body_trees": [],
+                                            "state_item": {
+                                                "type": "XPose",
+                                                "content": {
+                                                    "frame_spec": "WorldFrame",
+                                                    "orientation_spec": "Quaternion",
+                                                },
+                                            },
+                                        },
+                                    },
+                                    {
+                                        "type": "InputStateSensors",
+                                        "content": "ContactPairs",
+                                    },
+                                ],
+                            },
                         },
                     },
                     "control_model": {
-                        "type": "MLP",
-                        "content": {
-                            "model_type": {"type": "New"},
-                            "num_hidden_layers": 2,
-                            "hidden_layer_dim": 64,
-                            "output_dim": 14,
-                            "input_dim": 55,
-                            "input_spec": {
-                                "all_cameras": False,
-                                "qpos_state": True,
-                                "qvel_state": True,
-                                "xpos_state": False,
-                                "xquat_state": False,
-                                "contact_pairs": False,
+                        "model": {
+                            "type": "MLP",
+                            "content": {
+                                "model_type": {"type": "New"},
+                                "num_hidden_layers": 2,
+                                "hidden_layer_dim": 64,
+                                # Eight qpos means and eight log-std values.
+                                "output_dim": 16,
+                                "input_dim": 55,
                             },
                         },
+                        "input_spec": INPUT_SPEC,
+                        "output_spec": OUTPUT_SPEC,
                     },
                     "value_model": {
-                        "type": "MLP",
-                        "content": {
-                            "model_type": {"type": "New"},
-                            "num_hidden_layers": 2,
-                            "hidden_layer_dim": 64,
-                            "output_dim": 1,
-                            "input_dim": 55,
-                            "input_spec": {
-                                "all_cameras": False,
-                                "qpos_state": True,
-                                "qvel_state": True,
-                                "xpos_state": False,
-                                "xquat_state": False,
-                                "contact_pairs": False,
+                        "model": {
+                            "type": "MLP",
+                            "content": {
+                                "model_type": {"type": "New"},
+                                "num_hidden_layers": 2,
+                                "hidden_layer_dim": 64,
+                                "output_dim": 1,
+                                "input_dim": 55,
                             },
                         },
+                        "input_spec": INPUT_SPEC,
                     },
                     "simulation_model": model_id,
                     "control_output_mode": {"type": "ActionMean"},

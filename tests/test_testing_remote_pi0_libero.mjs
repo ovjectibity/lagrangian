@@ -23,6 +23,10 @@ const TASK_INDICES = (process.env.TASK_INDICES ?? "0")
 const NUM_ENVS = Number.parseInt(process.env.NUM_ENVS ?? "1", 10);
 const NUM_TIMESTEPS = Number.parseInt(process.env.NUM_TIMESTEPS ?? "30", 10);
 const MAX_UPDATES = Number.parseInt(process.env.MAX_UPDATES ?? "100", 10);
+const ROBOT_BASE_BODY = process.env.ROBOT_BASE_BODY ?? "robot0_base";
+const EEF_BODY = process.env.EEF_BODY ?? "gripper0_right_eef";
+const GRIPPER_BODY = process.env.GRIPPER_BODY
+  ?? "gripper0_right_right_gripper";
 
 if (
   !TASK_INDICES.length
@@ -47,21 +51,53 @@ function buildTestGraph() {
             },
           },
           control_model: {
-            type: "VLA",
-            content: {
-              model_type: {
-                type: "Checkpoint",
-                content: { type: "Pretrained", content: "Pi0" },
+            model: {
+              type: "VLA",
+              content: {
+                model_type: {
+                  type: "Checkpoint",
+                  content: { type: "Pretrained", content: "Pi0" },
+                },
               },
-              input_spec: {
-                all_cameras: true,
-                qpos_state: true,
-                qvel_state: false,
-                xpos_state: false,
-                xquat_state: false,
-                contact_pairs: false,
+            },
+            input_spec: {
+              type: "StandardInputSpec",
+              content: {
+                base_body_name: ROBOT_BASE_BODY,
+                states: [
+                  {
+                    type: "InputStateControllable",
+                    content: {
+                      rebase_body_tree: null,
+                      excluded_body_trees: [],
+                      state_item: { type: "QPos" },
+                    },
+                  },
+                  { type: "InputStateSensors", content: "Cameras" },
+                ],
               },
-              output: "TargetPositions",
+            },
+            output_spec: {
+              type: "EEFOutputSpec",
+              content: {
+                base_body_name: ROBOT_BASE_BODY,
+                eef_state: {
+                  is_delta: true,
+                  rebase_body: EEF_BODY,
+                  state_item: {
+                    type: "XPose",
+                    content: {
+                      frame_spec: "WorldFrame",
+                      orientation_spec: "AxisAngle",
+                    },
+                  },
+                },
+                gripper: {
+                  is_delta: true,
+                  rebase_body: GRIPPER_BODY,
+                  state_item: { type: "QPos" },
+                },
+              },
             },
           },
         },
