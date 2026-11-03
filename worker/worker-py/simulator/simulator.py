@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections import defaultdict
 import copy
 import logging
-import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -45,6 +43,8 @@ from simulator.ioadapter import (
     get_mujoco_actuator_control_input_from_partial_qvel,
     get_mujoco_actuator_control_input_from_partial_tau,
     get_mujoco_partial_dof_jacobian,
+    _mujoco_robot_actuator_indices,
+    _robot_actuator_indices,
 )
 
 try:
@@ -452,6 +452,17 @@ class Simulator(ABC):
         """Map a static output spec and flat policy output to controls."""
         pass
 
+    @staticmethod
+    @abstractmethod
+    def get_full_control_input(
+        model: Any,
+        data: Any,
+        robot_controls: jnp.ndarray | np.ndarray,
+        robot_base_name: str,
+    ) -> jnp.ndarray | np.ndarray:
+        """Place robot controls into a full ``data.ctrl``-shaped vector."""
+        pass
+
 class MjxSimulator(Simulator):
     @staticmethod
     def init(
@@ -620,19 +631,39 @@ class MjxSimulator(Simulator):
 
     @staticmethod
     def nq(data: Any) -> int:
-        return int(data.qpos.shape[0])
+        return int(data.qpos.shape[-1])
 
     @staticmethod
     def nu(data: Any) -> int:
-        return int(data.ctrl.shape[0])
+        return int(data.ctrl.shape[-1])
 
     @staticmethod
     def nv(data: Any) -> int:
-        return int(data.qvel.shape[0])
+        return int(data.qvel.shape[-1])
 
     @staticmethod
     def nbody(data: Any) -> int:
-        return int(data.xpos.shape[0])
+        return int(data.xpos.shape[-2])
+
+    @staticmethod
+    def get_full_control_input(
+        model: Any,
+        data: Any,
+        robot_controls: jnp.ndarray,
+        robot_base_name: str,
+    ) -> jnp.ndarray:
+        """Return full controls, retaining current values for other actuators."""
+        actuator_ids = _robot_actuator_indices(model, robot_base_name)
+        control_addresses = (
+            np.asarray(model.actuator_ctrladr)[actuator_ids]
+            if hasattr(model, "actuator_ctrladr")
+            else actuator_ids
+        )
+        if robot_controls.shape[-1] != control_addresses.size:
+            raise ValueError(
+                "robot_controls must have one value per selected robot actuator"
+            )
+        return data.ctrl.at[..., jnp.asarray(control_addresses)].set(robot_controls)
 
     @staticmethod
     def forward_dyn_pure(data: Any, model: Any, controls: jnp.ndarray) -> Any:
@@ -650,14 +681,25 @@ class MjxSimulator(Simulator):
         """Map one static output spec and its flat policy output to controls.
 
         The output spec must be static for JAX transformations because it
-        contains body names, state kinds, and command layout.  Controls are
-        returned in robot-actuator order with a JIT-safe validity flag.
+        contains body names, state kinds, and command layout. Controls have
+        ``data.ctrl`` shape; non-robot actuator values are retained. The
+        validity flag remains JIT-safe.
         """
         if control_input.ndim != 1:
             raise ValueError("control_input must be one-dimensional")
         # Temporary fixed gains until they are made part of the output spec.
         kp = 25.0
         kd = 10.0
+
+        def full_result(
+            robot_controls: jnp.ndarray, valid: jnp.ndarray
+        ) -> tuple[jnp.ndarray, jnp.ndarray]:
+            return (
+                MjxSimulator.get_full_control_input(
+                    model, data, robot_controls, robot_base_name
+                ),
+                valid,
+            )
 
         if isinstance(
             control_policy_output_spec,
@@ -670,34 +712,37 @@ class MjxSimulator(Simulator):
                 raise ValueError("XPose is unsupported for proprioceptive output")
 
             if state_type == OutputStateItemTypes.Q_POS:
-                return get_actuator_control_input_from_partial_qpos(
+                robot_base_name = output_spec.base_body_name
+                return full_result(*get_actuator_control_input_from_partial_qpos(
                     model,
                     data,
                     control_input,
                     state.is_delta,
                     kd,
                     kp,
-                    output_spec.base_body_name,
+                    robot_base_name,
                     state.rebase_body,
-                )
+                ))
             if state_type == OutputStateItemTypes.Q_VEL:
-                return get_actuator_control_input_from_partial_qvel(
+                robot_base_name = output_spec.base_body_name
+                return full_result(*get_actuator_control_input_from_partial_qvel(
                     model,
                     data,
                     control_input,
                     state.is_delta,
                     kd,
-                    output_spec.base_body_name,
+                    robot_base_name,
                     state.rebase_body,
-                )
+                ))
             if state_type == OutputStateItemTypes.GENERALISED_FORCES:
-                return get_actuator_control_input_from_partial_tau(
+                robot_base_name = output_spec.base_body_name
+                return full_result(*get_actuator_control_input_from_partial_tau(
                     model,
                     data,
                     control_input,
-                    output_spec.base_body_name,
+                    robot_base_name,
                     state.rebase_body,
-                )
+                ))
             raise ValueError(f"Unsupported proprioceptive state item: {state_type}")
 
         if isinstance(
@@ -734,7 +779,7 @@ class MjxSimulator(Simulator):
                     "EEF control_input must have shape "
                     f"{expected_control_shape}, got {control_input.shape}"
                 )
-            return get_actuator_control_input_from_eef_gripper_pos_commands(
+            return full_result(*get_actuator_control_input_from_eef_gripper_pos_commands(
                 model,
                 data,
                 robot_base_name,
@@ -744,7 +789,7 @@ class MjxSimulator(Simulator):
                 control_input[6:],
                 kd,
                 kp,
-            )
+            ))
 
         raise ValueError(
             "Unsupported control policy output spec: "
@@ -857,6 +902,28 @@ class MujocoSimulator(Simulator):
         return int(data.xpos.shape[0])
 
     @staticmethod
+    def get_full_control_input(
+        model: Any,
+        data: Any,
+        robot_controls: np.ndarray,
+        robot_base_name: str,
+    ) -> np.ndarray:
+        """Return full controls, retaining current values for other actuators."""
+        actuator_ids = _mujoco_robot_actuator_indices(model, robot_base_name)
+        control_addresses = (
+            np.asarray(model.actuator_ctrladr)[actuator_ids]
+            if hasattr(model, "actuator_ctrladr")
+            else actuator_ids
+        )
+        if robot_controls.shape[-1] != control_addresses.size:
+            raise ValueError(
+                "robot_controls must have one value per selected robot actuator"
+            )
+        full_controls = data.ctrl.copy()
+        full_controls[..., control_addresses] = robot_controls
+        return full_controls
+
+    @staticmethod
     def forward_dyn_pure(data: Any, model: Any, controls: np.ndarray) -> Any:
         """Return a stepped copy of MuJoCo data without mutating ``data``."""
         data_next = copy.copy(data)
@@ -943,14 +1010,24 @@ class MujocoSimulator(Simulator):
         """Map one output spec and flat policy output to CPU MuJoCo controls.
 
         This mirrors ``MjxSimulator`` while using only the NumPy/MuJoCo
-        helpers.  The returned controls are ordered by selected robot
-        actuators, not by the full model's ``data.ctrl`` vector.
+        helpers. Controls have ``data.ctrl`` shape; existing non-robot values
+        are retained.
         """
         if control_input.ndim != 1:
             raise ValueError("control_input must be one-dimensional")
         # Temporary fixed gains until they are made part of the output spec.
         kp = 25.0
         kd = 10.0
+
+        def full_result(
+            robot_controls: np.ndarray, valid: np.ndarray
+        ) -> tuple[np.ndarray, np.ndarray]:
+            return (
+                MujocoSimulator.get_full_control_input(
+                    model, data, robot_controls, robot_base_name
+                ),
+                valid,
+            )
 
         if isinstance(
             control_policy_output_spec,
@@ -962,20 +1039,23 @@ class MujocoSimulator(Simulator):
             if state_type == OutputStateItemTypes.X_POSE:
                 raise ValueError("XPose is unsupported for proprioceptive output")
             if state_type == OutputStateItemTypes.Q_POS:
-                return get_mujoco_actuator_control_input_from_partial_qpos(
+                robot_base_name = output_spec.base_body_name
+                return full_result(*get_mujoco_actuator_control_input_from_partial_qpos(
                     model, data, control_input, state.is_delta, kd, kp,
-                    output_spec.base_body_name, state.rebase_body,
-                )
+                    robot_base_name, state.rebase_body,
+                ))
             if state_type == OutputStateItemTypes.Q_VEL:
-                return get_mujoco_actuator_control_input_from_partial_qvel(
+                robot_base_name = output_spec.base_body_name
+                return full_result(*get_mujoco_actuator_control_input_from_partial_qvel(
                     model, data, control_input, state.is_delta, kd,
-                    output_spec.base_body_name, state.rebase_body,
-                )
+                    robot_base_name, state.rebase_body,
+                ))
             if state_type == OutputStateItemTypes.GENERALISED_FORCES:
-                return get_mujoco_actuator_control_input_from_partial_tau(
+                robot_base_name = output_spec.base_body_name
+                return full_result(*get_mujoco_actuator_control_input_from_partial_tau(
                     model, data, control_input, output_spec.base_body_name,
                     state.rebase_body,
-                )
+                ))
             raise ValueError(f"Unsupported proprioceptive state item: {state_type}")
 
         if isinstance(
@@ -1007,7 +1087,7 @@ class MujocoSimulator(Simulator):
                     f"EEF control_input must have shape {expected_shape}, "
                     f"got {control_input.shape}"
                 )
-            return get_mujoco_actuator_control_input_from_eef_gripper_pos_commands(
+            return full_result(*get_mujoco_actuator_control_input_from_eef_gripper_pos_commands(
                 model,
                 data,
                 robot_base_name,
@@ -1017,7 +1097,7 @@ class MujocoSimulator(Simulator):
                 control_input[6:],
                 kd,
                 kp,
-            )
+            ))
 
         raise ValueError(
             "Unsupported control policy output spec: "
