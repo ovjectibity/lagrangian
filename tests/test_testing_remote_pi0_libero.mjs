@@ -25,8 +25,9 @@ const NUM_TIMESTEPS = Number.parseInt(process.env.NUM_TIMESTEPS ?? "30", 10);
 const MAX_UPDATES = Number.parseInt(process.env.MAX_UPDATES ?? "100", 10);
 const ROBOT_BASE_BODY = process.env.ROBOT_BASE_BODY ?? "robot0_base";
 const EEF_BODY = process.env.EEF_BODY ?? "gripper0_right_eef";
+// Command the driven finger; the equality couples the opposing jaw.
 const GRIPPER_BODY = process.env.GRIPPER_BODY
-  ?? "gripper0_right_right_gripper";
+  ?? "gripper0_right_leftfinger";
 
 if (
   !TASK_INDICES.length
