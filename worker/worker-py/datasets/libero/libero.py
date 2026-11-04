@@ -130,7 +130,10 @@ def get_task_mjcfs(
     robot: str = None,
     robot_controller_config: dict = None,
 ) -> list[str]:
-    """Return the complete MJCF model for each requested LIBERO task."""
+    """Return task MJCFs, coupling Panda's jaws with one gripper actuator.
+
+    The coupling retains both finger joints and their qpos/DOF entries.
+    """
     if dataset not in SUPPORTED_DATASETS:
         supported = ", ".join(sorted(SUPPORTED_DATASETS))
         raise ValueError(
@@ -163,7 +166,10 @@ def get_task_mjcfs(
             controller_config=robot_controller_config,
         )
         try:
-            mjcfs.append(environment.env.model.get_xml())
+            mjcf = environment.env.model.get_xml()
+            if robots == ["Panda"]:
+                mjcf = couple_panda_gripper_jaws(mjcf)
+            mjcfs.append(mjcf)
         finally:
             environment.close()
 

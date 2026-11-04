@@ -213,7 +213,15 @@ def get_generalised_inertia(
     robot_dofs = _robot_dof_indices(model, robot_base_name)
     # Selecting coordinates does not remove the gripper bodies or their mass.
     # Environment DOF accelerations are assumed fixed in this reduced model.
-    return mjx.full_m(model, data)[jnp.ix_(robot_dofs, robot_dofs)]
+    inertia = data._impl.M
+    if inertia.ndim == 1:
+        # Warp stores symmetric inertia as lower-triangular CSR even when
+        # MJX's JAX sparsity heuristic would select dense storage.
+        rows = np.repeat(np.arange(model.nv), model.M_rownnz)
+        lower = jnp.zeros((model.nv, model.nv), dtype=inertia.dtype)
+        lower = lower.at[rows, model.M_colind].set(inertia)
+        inertia = lower + jnp.tril(lower, -1).T
+    return inertia[jnp.ix_(robot_dofs, robot_dofs)]
 
 
 def get_inverse_generalised_inertia(
@@ -451,10 +459,11 @@ def get_partial_dof_jacobian(
     ``rebase_body_name``, then ``qdot_p = S @ qdot_r``.  This is a constant
     coordinate-selection Jacobian, not a Cartesian body Jacobian.
     """
-    partial_local_dofs, robot_global_dofs = _partial_dof_indices(
+    partial_local_dofs, _ = _partial_dof_indices(
         model, robot_base_name, rebase_body_name
     )
-    robot_nv = robot_global_dofs.size
+    # Columns cover the whole robot; rows select the rebased subtree.
+    robot_nv = _robot_dof_indices(model, robot_base_name).size
     return jnp.asarray(
         np.eye(robot_nv, dtype=np.float32)[partial_local_dofs], dtype=jnp.float32
     )
@@ -1104,10 +1113,11 @@ def get_mujoco_partial_dof_jacobian(
     robot_base_name: str,
     rebase_body_name: str,
 ) -> np.ndarray:
-    partial_local_dofs, robot_global_dofs = _mujoco_partial_dof_indices(
+    partial_local_dofs, _ = _mujoco_partial_dof_indices(
         model, robot_base_name, rebase_body_name
     )
-    return np.eye(robot_global_dofs.size, dtype=np.float64)[partial_local_dofs]
+    robot_nv = _mujoco_robot_dof_indices(model, robot_base_name).size
+    return np.eye(robot_nv, dtype=np.float64)[partial_local_dofs]
 
 
 def get_mujoco_eef_gripper_task_space_jacobian(
