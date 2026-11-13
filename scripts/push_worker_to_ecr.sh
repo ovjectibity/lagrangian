@@ -82,12 +82,9 @@ ECR_REGISTRY="${IMAGE_URI%%/*}"
 REPO_AND_TAG="${IMAGE_URI#*/}"
 REPO_NAME="${REPO_AND_TAG%%:*}"
 
-REGION="${REMOTE_WORKER_AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
-if [[ -z "${REGION}" ]]; then
-  REGION="$(echo "${ECR_REGISTRY}" | sed -E 's#^[0-9]+\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$#\1#')"
-fi
+REGION="$(echo "${ECR_REGISTRY}" | sed -E 's#^[0-9]+\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com(\.cn)?$#\1#')"
 if [[ -z "${REGION}" || "${REGION}" == "${ECR_REGISTRY}" ]]; then
-  echo "error: could not infer AWS region. Set REMOTE_WORKER_AWS_REGION or AWS_DEFAULT_REGION." >&2
+  echo "error: could not infer ECR region from ${ECR_REGISTRY}." >&2
 
   exit 1
 fi

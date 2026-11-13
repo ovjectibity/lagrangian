@@ -18,7 +18,9 @@ WORKER_SHARED_SECRET="9480301160"
 
 REGISTRY="${IMAGE_URI%%/*}"
 if [[ "${REGISTRY}" == *".dkr.ecr."* ]]; then
-  ECR_LOGIN="aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${REGISTRY}"
+  ECR_REGION="${REGISTRY#*.dkr.ecr.}"
+  ECR_REGION="${ECR_REGION%%.*}"
+  ECR_LOGIN="aws ecr get-login-password --region ${ECR_REGION} | docker login --username AWS --password-stdin ${REGISTRY}"
 else
   ECR_LOGIN="true"
 fi

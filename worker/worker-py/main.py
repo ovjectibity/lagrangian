@@ -11,13 +11,13 @@ if os.getenv("CUDA_DEBUG_MODE") == "1":
     print(warp.__version__)
 
     # Enable before the affected module is compiled/first launched.
-    warp.config.mode = "debug"
+    # warp.config.mode = "debug"
 
     # Attribute asynchronous CUDA errors to the launch that caused them.
     # warp.config.verify_cuda = True
 
     # Print every Warp kernel launch and its arguments.
-    warp.config.print_launches = True
+    # warp.config.print_launches = True
 
     # # # Warp compiler, codegen, module-loading, and cache diagnostics.
     # warp.config.log_level = warp.LOG_DEBUG
