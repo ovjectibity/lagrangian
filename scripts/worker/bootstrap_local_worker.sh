@@ -61,15 +61,9 @@ else
 
   REGISTRY="${IMAGE_URI%%/*}"
   if [[ "${REGISTRY}" == *".dkr.ecr."* ]]; then
-    REGION="${REMOTE_WORKER_AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
-    if [[ -z "${REGION}" ]]; then
-      REGION="$(echo "${REGISTRY}" | sed -E 's#^[0-9]+\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$#\1#')"
-    fi
-    if [[ -z "${REGION}" || "${REGION}" == "${REGISTRY}" ]]; then
-      echo "error: could not infer AWS region. Set REMOTE_WORKER_AWS_REGION or AWS_DEFAULT_REGION." >&2
-      exit 1
-    fi
-    aws ecr get-login-password --region "${REGION}" \
+    ECR_REGION="${REGISTRY#*.dkr.ecr.}"
+    ECR_REGION="${ECR_REGION%%.*}"
+    aws ecr get-login-password --region "${ECR_REGION}" \
       | docker login --username AWS --password-stdin "${REGISTRY}"
   fi
 

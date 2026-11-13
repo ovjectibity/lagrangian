@@ -158,7 +158,10 @@ HF_TOKEN="${HF_TOKEN:-}"
 
 REGISTRY="\${IMAGE_URI%%/*}"
 if [[ "\${REGISTRY}" == *".dkr.ecr."* ]]; then
-  ECR_LOGIN="aws ecr get-login-password --region \${AWS_REGION} | docker login --username AWS --password-stdin \${REGISTRY}"
+  # The image registry can be in a different region from the instance.
+  ECR_REGION="\${REGISTRY#*.dkr.ecr.}"
+  ECR_REGION="\${ECR_REGION%%.*}"
+  ECR_LOGIN="aws ecr get-login-password --region \${ECR_REGION} | docker login --username AWS --password-stdin \${REGISTRY}"
 else
   ECR_LOGIN="true"
 fi
