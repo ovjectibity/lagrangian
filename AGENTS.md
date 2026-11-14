@@ -1,6 +1,6 @@
 ## General instructions: 
-1. The app code is structured in two main directories: app & client
-2. The app holds the backend & the client is the frontend. 
+1. The app code is structured in two main directories: app, client & worker
+2. The app holds the backend, client is the frontend, worker has workers to be run on non-app server instances for various user workloads. 
 
 ## Instructions on writing code
 1. Please be conservative in the changes that you are doing. In most cases, I will be telling you exactly what I want you to do.
@@ -9,12 +9,6 @@
 4. I couldn't emphasize this enough. Please ask ask ask before assuming anything. Question every assumption of yours. This will ensure that the code remains free of slop/fluff and it will ensure that every new addition to the code is well thought of (even by me when you ask me questions).
 5. When generating Rust code refer to the Rust styling guide available in docs/rust_guidelines.md file.
 6. When generating Typescript code refer to the Typescript styling guide available in docs/typescript_guidelines.md file.
-
-## Shared type definitions between the Rust backend and the Typescript frontend
-1. Use typeshare to generate Typescript definitions from Rust struct definitions using the following command in the project root directory: 
-```bash 
-`typeshare app/src/ --lang=typescript --output-file=client/src/common/types.ts` 
-```
 
 ## Structured feature implementation
 1. Before writing any code for a structured feature, write the high-level spec to `docs/specs/{feature}.md` and the implementation plan to `docs/specs/{feature}-impl.md`.

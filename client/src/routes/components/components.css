@@ -1,0 +1,138 @@
+.component-showcase {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: 880px;
+  min-height: 100vh;
+  padding: 64px 24px;
+}
+
+.component-showcase__header {
+  margin-bottom: 32px;
+}
+
+.component-showcase__header h1,
+.component-showcase-card h2,
+.component-showcase__header p {
+  margin: 0;
+}
+
+.component-showcase__header h1 {
+  font: 600 22px / 1.2 Inter, system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.component-showcase__header > p:not(.component-showcase__eyebrow) {
+  color: var(--lg-text-secondary);
+  font: 400 13px / 1.5 Inter, system-ui, sans-serif;
+  margin-top: 8px;
+}
+
+.component-showcase__eyebrow {
+  color: var(--lg-text-section);
+  font: 500 12px / 1.2 Inter, system-ui, sans-serif;
+  margin-bottom: 8px;
+}
+
+.button-showcase-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.button-showcase-card {
+  align-items: flex-start;
+  background: var(--lg-panel);
+  border: 1px solid var(--lg-divider);
+  border-radius: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 172px;
+  padding: 20px;
+}
+
+.button-showcase-card h2 {
+  font: 600 14px / 1.2 Inter, system-ui, sans-serif;
+}
+
+.button-showcase-card p {
+  color: var(--lg-text-secondary);
+  font: 400 12px / 1.5 Inter, system-ui, sans-serif;
+  margin: 6px 0 0;
+}
+
+.button-showcase-card__state {
+  color: var(--lg-text-muted) !important;
+  font-size: 11px !important;
+  margin-top: auto !important;
+}
+
+.component-showcase__section {
+  margin-top: 56px;
+}
+
+.component-showcase__section-header {
+  margin-bottom: 20px;
+}
+
+.component-showcase__section-header h2,
+.component-showcase__section-header p {
+  margin: 0;
+}
+
+.component-showcase__section-header h2 {
+  font: 600 18px / 1.2 Inter, system-ui, sans-serif;
+}
+
+.component-showcase__section-header > p:not(.component-showcase__eyebrow) {
+  color: var(--lg-text-secondary);
+  font: 400 13px / 1.5 Inter, system-ui, sans-serif;
+  margin-top: 8px;
+}
+
+.selection-showcase-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.selection-showcase-card {
+  align-items: flex-start;
+  background: var(--lg-panel);
+  border: 1px solid var(--lg-divider);
+  border-radius: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 150px;
+  padding: 20px;
+}
+
+.selection-showcase-card h3,
+.selection-showcase-card p {
+  margin: 0;
+}
+
+.selection-showcase-card h3 {
+  font: 600 14px / 1.2 Inter, system-ui, sans-serif;
+}
+
+.selection-showcase-card p {
+  color: var(--lg-text-secondary);
+  font: 400 12px / 1.5 Inter, system-ui, sans-serif;
+  margin-top: 6px;
+}
+
+@media (max-width: 640px) {
+  .component-showcase {
+    padding: 32px 16px;
+  }
+
+  .button-showcase-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .selection-showcase-grid {
+    grid-template-columns: 1fr;
+  }
+}
