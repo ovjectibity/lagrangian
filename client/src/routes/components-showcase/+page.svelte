@@ -350,7 +350,7 @@
     <div class="component-showcase__section-header">
       <p class="component-showcase__eyebrow">Atomic components</p>
       <h2 id="icon-buttons-heading">Icon buttons</h2>
-      <p>Type-2 buttons. Click to toggle their selected state.</p>
+      <p>Type-1 buttons. Click to toggle their selected state.</p>
     </div>
     <ul class="icon-showcase-grid">
       {#each iconExamples as item}
@@ -361,7 +361,7 @@
             class="icon-showcase-button"
             onclick={() => toggleIcon(item.label)}
             title={item.label}
-            variant="type-2"
+            variant="type-1"
           >
             <span aria-hidden="true" class="icon-showcase-glyph">
               {#if item.label === "Expand/collapse"

@@ -11,6 +11,6 @@ in progress, scheduled, completed, and failed.
 Include play/pause with toggled icon states and circular-arrow jump forward
 and jump back icons matching the prototype transport controls.
 
-Show each icon in an accessible Type-2 Button on the component showcase,
+Show each icon in an accessible Type-1 Button on the component showcase,
 with persistent toggled selection and a visible descriptive label. Include
 both expand and collapse states. Keep showcase styling in the route CSS.
