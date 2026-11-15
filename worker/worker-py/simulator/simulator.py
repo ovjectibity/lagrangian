@@ -477,6 +477,7 @@ class MjxSimulator(Simulator):
         Returns ``(mjx_data, mjx_model, mj_data, mj_model)``. When ``nworld``
         is supplied, the MJX data is batched over that many worlds. Contact
         capacities default to ``ngeom * (ngeom - 1) // 2`` when omitted.
+        A positive MJCF ``njmax`` is also passed to Warp explicitly.
         """
         if mujoco is None or mjx is None:
             raise ModuleNotFoundError(
@@ -519,6 +520,7 @@ class MjxSimulator(Simulator):
             naconmax = default_contact_capacity
         if naccdmax is None:
             naccdmax = default_contact_capacity
+        njmax = cpu_model.njmax if cpu_model.njmax > 0 else None
 
         logger.info("MjxSimulator: creating MjData")
         cpu_data = mujoco.MjData(cpu_model)
@@ -535,9 +537,10 @@ class MjxSimulator(Simulator):
         mjx_model = mjx.put_model(cpu_model, impl="warp")
         logger.info(
             "MjxSimulator: calling mjx.make_data "
-            "(naconmax=%s naccdmax=%s)",
+            "(naconmax=%s naccdmax=%s njmax=%s)",
             naconmax,
             naccdmax,
+            njmax,
         )
         if nworld is None:
             mjx_data = mjx.make_data(
@@ -545,6 +548,7 @@ class MjxSimulator(Simulator):
                 impl="warp",
                 naconmax=naconmax,
                 naccdmax=naccdmax,
+                njmax=njmax,
             )
             mjx_data = mjx.forward(mjx_model, mjx_data)
             _ = mjx.step(mjx_model, mjx_data)
@@ -555,6 +559,7 @@ class MjxSimulator(Simulator):
                     impl="warp",
                     naconmax=naconmax,
                     naccdmax=naccdmax,
+                    njmax=njmax,
                 )
             )(jnp.arange(nworld))
             mjx_data = jax.vmap(mjx.forward, in_axes=(None, 0))(

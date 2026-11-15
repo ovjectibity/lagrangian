@@ -568,6 +568,9 @@ class TestingWorkflow:
                     )
                     break
                 chunk = min(UPDATE_CHUNK_SIZE, remaining)
+                logger.info("Running chunk iteration in _run_mjx_batched "
+                            f"with remaining=%s chunk=%s",remaining, chunk)
+                logger.info("Chunk size used in _run_mjx_batched %s",chunk)
                 (
                     (batched_data, self._rng_key),
                     (camera_frames, chunk_xpos, chunk_xquat, controls_valid),
@@ -597,6 +600,11 @@ class TestingWorkflow:
                     frames_u8 = np.asarray(
                         (camera_frames * 255.0).round().astype(jnp.uint8)
                     ).transpose(1, 0, 2, 3, 4, 5)
+                logger.info("Sending chunk updates in _run_mjx_batched "
+                            f"with remaining=%s chunk=%s len(sim_state)=%s" 
+                            f"frames_u8.shape=%s",
+                            remaining, chunk,
+                            len(sim_state),frames_u8.shape)
                 tx.send_test_updates(
                     _build_stream_bytes(
                         self.id,
