@@ -2,6 +2,7 @@
   import {
     Button,
     Breadcrumb,
+    CardsView,
     CodeView,
     LineChart,
     MultiSelectDropdown,
@@ -16,6 +17,24 @@
   import "./components-showcase.css";
 
   const runtimeOptions = ["Training", "Testing"];
+  const cardThumbnail = "data:image/svg+xml," + encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 144">
+      <rect width="360" height="144" fill="#17181d"/>
+      <path d="M0 120h360M0 100h360M60 80l-40 64M120 80l-20 64
+        M180 80v64M240 80l20 64M300 80l40 64"
+        stroke="#303139" fill="none"/>
+      <ellipse cx="180" cy="123" rx="55" ry="8" fill="#101013"/>
+      <path d="M145 117h70M180 117V85l30-26-28-25"
+        stroke="#9899a5" stroke-width="13" fill="none"
+        stroke-linecap="round" stroke-linejoin="round"/>
+      <g fill="#c18465" stroke="#24242a" stroke-width="3">
+        <circle cx="180" cy="85" r="9"/>
+        <circle cx="210" cy="59" r="9"/>
+      </g>
+      <path d="m182 34-12-6m12 6-4-13" stroke="#c18465"
+        stroke-width="5" stroke-linecap="round"/>
+    </svg>
+  `);
   const codeExamples = {
     python: [
       "from dataclasses import dataclass",
@@ -258,6 +277,59 @@
         {typeFourActive ? "Selected" : "Not selected"}
       </p>
     </article>
+  </section>
+
+  <section
+    aria-labelledby="card-heading"
+    class="component-showcase__section"
+  >
+    <div class="component-showcase__section-header">
+      <p class="component-showcase__eyebrow">Composite components</p>
+      <h2 id="card-heading">Cards view</h2>
+      <p>Cards resize and wrap to fit the available width.</p>
+    </div>
+    <CardsView items={[
+      {
+        id: "TRN-1048",
+        progress: {
+          value: 68,
+          completionTime: "About 12 minutes remaining",
+        },
+        labels: ["PPO", "MuJoCo", "Walker2d-v4"],
+        status: "Running",
+        statusColor: "#6bbf97",
+        subInfo: ["Started today, 10:21 AM", "Alex S."],
+        subtitle: "Learning a stable walking policy with PPO.",
+        thumbnail: cardThumbnail,
+        thumbnailAlt: "Schematic robot arm on a simulation grid",
+        thumbnailTitle: "walker2d.xml",
+        title: "Locomotion baseline",
+      },
+      {
+        id: "TST-2041",
+        labels: ["Evaluation", "LIBERO"],
+        status: "Completed",
+        statusColor: "#8e9de7",
+        subInfo: ["Started yesterday, 9:00 AM", "Alex S."],
+        subtitle: "Evaluate the grasp policy on held-out tasks.",
+        thumbnail: cardThumbnail,
+        thumbnailAlt: "Schematic robot arm on a simulation grid",
+        thumbnailTitle: "franka_panda.xml",
+        title: "Panda policy evaluation",
+      },
+      {
+        id: "TRN-1052",
+        labels: ["SAC", "MuJoCo"],
+        status: "Queued",
+        statusColor: "#d4b36d",
+        subInfo: ["Scheduled today, 2:30 PM", "Alex S."],
+        subtitle: "Train a reaching policy with sparse rewards.",
+        thumbnail: cardThumbnail,
+        thumbnailAlt: "Schematic robot arm on a simulation grid",
+        thumbnailTitle: "reach.xml",
+        title: "Reaching experiment",
+      },
+    ]} />
   </section>
 
   <section

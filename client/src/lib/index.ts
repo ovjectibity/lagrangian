@@ -1,4 +1,8 @@
 export { default as Button } from "./atomic/button.svelte";
+export { default as Card } from "./composite/card.svelte";
+export {
+  default as CardsView,
+} from "./composite/cards-view.svelte";
 export {
   default as Properties,
 } from "./composite/properties.svelte";
