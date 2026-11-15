@@ -329,12 +329,13 @@ def get_actuator_control_input_from_generalised_forces(
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Map robot generalized forces to robot actuator controls.
 
-    Returns controls in model actuator order and a scalar validity flag. The
-    flag is false if the minimum-norm force solution misses tau, its gain is
-    zero, or its force/control exceeds an actuator limit. A false flag does not
-    rule out a different bounded solution when actuators are redundant. Static
-    actuator configurations outside the supported subset raise ValueError at
-    trace time.
+    Returns controls in model actuator order and a scalar validity flag.
+    Controls are clipped to the intersection of enabled control and force
+    limits. Saturation is valid even though the applied forces can differ from
+    tau. The flag is false if the unconstrained force solution misses tau, a
+    gain is unusable, bounds have no intersection, or calculations are non-finite.
+    Static actuator configurations outside the supported subset raise ValueError
+    at trace time.
     """
     actuator_ids_static = _robot_actuator_indices(model, robot_base_name)
     robot_dofs = _robot_dof_indices(model, robot_base_name)
@@ -426,24 +427,32 @@ def get_actuator_control_input_from_generalised_forces(
     force_limited = jnp.asarray(model.actuator_forcelimited)[actuator_ids]
     control_range = model.actuator_ctrlrange[actuator_ids]
     force_range = model.actuator_forcerange[actuator_ids]
-    controls_valid = jnp.all(
-        ~control_limited
-        | (
-            (controls >= control_range[:, 0] - 1e-6)
-            & (controls <= control_range[:, 1] + 1e-6)
-        )
+    # Convert both force endpoints: negative gains reverse their ordering.
+    force_bound_a = (force_range[:, 0] - bias) / safe_gain
+    force_bound_b = (force_range[:, 1] - bias) / safe_gain
+    lower = jnp.maximum(
+        jnp.where(control_limited, control_range[:, 0], -jnp.inf),
+        jnp.where(force_limited, jnp.minimum(force_bound_a, force_bound_b), -jnp.inf),
     )
-    limits_valid = jnp.all(
-        ~force_limited
-        | (
-            (actuator_forces >= force_range[:, 0] - 1e-6)
-            & (actuator_forces <= force_range[:, 1] + 1e-6)
-        )
+    upper = jnp.minimum(
+        jnp.where(control_limited, control_range[:, 1], jnp.inf),
+        jnp.where(force_limited, jnp.maximum(force_bound_a, force_bound_b), jnp.inf),
     )
-    finite = jnp.all(jnp.isfinite(controls)) & jnp.all(
-        jnp.isfinite(actuator_forces)
+    bounds_valid = jnp.all(lower <= upper)
+    # Check before clipping so infinite requests cannot become valid controls.
+    finite = (
+        jnp.all(jnp.isfinite(controls))
+        & jnp.all(jnp.isfinite(actuator_forces))
+        & jnp.all(jnp.isfinite(gain))
+        & jnp.all(jnp.isfinite(bias))
     )
-    valid = force_valid & gain_valid & controls_valid & limits_valid & finite
+    controls = jnp.clip(controls, lower, upper)
+    # force_valid describes the original solve; saturation is an expected loss
+    # of exact force tracking and must not invalidate the bounded controls.
+    valid = (
+        force_valid & gain_valid & bounds_valid & finite
+        & jnp.all(jnp.isfinite(controls))
+    )
     return controls, valid
 
 
@@ -1029,7 +1038,7 @@ def get_mujoco_actuator_control_input_from_generalised_forces(
     tau: np.ndarray,
     robot_base_name: str,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Map robot generalized forces to robot actuator controls with NumPy."""
+    """Map forces to controls with NumPy, clipping to control and force limits."""
     actuator_ids = _mujoco_robot_actuator_indices(model, robot_base_name)
     robot_dofs = _mujoco_robot_dof_indices(model, robot_base_name)
     moments = data.actuator_moment[actuator_ids][:, robot_dofs]
@@ -1082,28 +1091,33 @@ def get_mujoco_actuator_control_input_from_generalised_forces(
         bias_params[:, 0] + bias_params[:, 1] * length + bias_params[:, 2] * velocity,
     )
     gain_valid = np.all(np.abs(gain) > 1e-8)
-    controls = (actuator_forces - bias) / np.where(
-        np.abs(gain) > 1e-8, gain, 1.0
-    )
+    safe_gain = np.where(np.abs(gain) > 1e-8, gain, 1.0)
+    controls = (actuator_forces - bias) / safe_gain
     control_limited = np.asarray(model.actuator_ctrllimited)[actuator_ids]
     force_limited = np.asarray(model.actuator_forcelimited)[actuator_ids]
     control_range = model.actuator_ctrlrange[actuator_ids]
     force_range = model.actuator_forcerange[actuator_ids]
-    controls_valid = np.all(
-        ~control_limited
-        | ((controls >= control_range[:, 0] - 1e-6) & (controls <= control_range[:, 1] + 1e-6))
+    force_bound_a = (force_range[:, 0] - bias) / safe_gain
+    force_bound_b = (force_range[:, 1] - bias) / safe_gain
+    lower = np.maximum(
+        np.where(control_limited, control_range[:, 0], -np.inf),
+        np.where(force_limited, np.minimum(force_bound_a, force_bound_b), -np.inf),
     )
-    limits_valid = np.all(
-        ~force_limited
-        | ((actuator_forces >= force_range[:, 0] - 1e-6) & (actuator_forces <= force_range[:, 1] + 1e-6))
+    upper = np.minimum(
+        np.where(control_limited, control_range[:, 1], np.inf),
+        np.where(force_limited, np.maximum(force_bound_a, force_bound_b), np.inf),
     )
-    valid = np.asarray(
-        force_valid
-        and gain_valid
-        and controls_valid
-        and limits_valid
-        and np.all(np.isfinite(controls))
+    bounds_valid = np.all(lower <= upper)
+    finite = (
+        np.all(np.isfinite(controls))
         and np.all(np.isfinite(actuator_forces))
+        and np.all(np.isfinite(gain))
+        and np.all(np.isfinite(bias))
+    )
+    controls = np.clip(controls, lower, upper)
+    valid = np.asarray(
+        force_valid and gain_valid and bounds_valid and finite
+        and np.all(np.isfinite(controls))
     )
     return controls, valid
 

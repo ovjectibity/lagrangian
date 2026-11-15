@@ -681,6 +681,11 @@ class TestingWorkflow:
                     )
                     break
                 chunk = min(UPDATE_CHUNK_SIZE, remaining)
+                logger.info(
+                    "Running MJX chunk: workload_id=%s task_index=%s "
+                    "remaining=%s chunk=%s",
+                    self.id, task_index, remaining, chunk,
+                )
                 (
                     (batched_data, self._rng_key),
                     (camera_frames, chunk_xpos, chunk_xquat, controls_valid, rewards, entropies),
@@ -706,6 +711,14 @@ class TestingWorkflow:
                     if not np.isfinite(entropy_values).all():
                         raise ValueError("Policy entropy contains non-finite values")
                     entropy_total += float(entropy_values.sum())
+                logger.info(
+                    "Publishing MJX chunk: workload_id=%s task_index=%s "
+                    "start_timestep=%s chunk=%s num_envs=%s "
+                    "positions_shape=%s orientations_shape=%s frames_shape=%s",
+                    self.id, task_index, start_timestep, chunk, num_envs,
+                    chunk_xpos.shape, chunk_xquat.shape,
+                    camera_frames.shape if has_cameras else None,
+                )
                 self._publish_batch(
                     tx, task_index, start_timestep, list(range(num_envs)),
                     np.asarray(chunk_xpos), np.asarray(chunk_xquat),
