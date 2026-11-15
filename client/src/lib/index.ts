@@ -1,4 +1,7 @@
 export { default as Button } from "./atomic/button.svelte";
+export {
+  default as UserPopup,
+} from "./composite/user-popup.svelte";
 export { default as Card } from "./composite/card.svelte";
 export {
   default as CardsView,

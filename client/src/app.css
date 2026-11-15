@@ -21,6 +21,71 @@ body {
   margin: 0;
 }
 
+.lg-user-popup {
+  background: #000000;
+  border: 1px solid #35353d;
+  border-radius: 10px;
+  box-shadow: 0 24px 80px #0009;
+  box-sizing: border-box;
+  color: var(--lg-text);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 0;
+  width: min(440px, calc(100% - 32px));
+}
+
+.lg-user-popup::backdrop {
+  backdrop-filter: blur(3px);
+  background: #000a;
+}
+
+.lg-user-popup__header {
+  padding: 20px 20px 0;
+}
+
+.lg-user-popup__header h2 {
+  font: 600 16px / 1.4 Inter, system-ui, sans-serif;
+  margin: 0;
+}
+
+.lg-user-popup__body {
+  color: var(--lg-text-secondary);
+  font: 400 13px / 1.6 Inter, system-ui, sans-serif;
+  margin: 12px 20px 8px;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.lg-user-popup__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 20px;
+}
+
+.lg-user-popup .lg-user-popup__primary--positive {
+  background: #245b40;
+  color: #f0fff5;
+}
+
+.lg-user-popup .lg-user-popup__primary--positive:hover,
+.lg-user-popup .lg-user-popup__primary--positive:focus-visible {
+  background: #2d704f;
+  color: #ffffff;
+}
+
+.lg-user-popup .lg-user-popup__primary--negative {
+  background: #803636;
+  color: #fff3f3;
+}
+
+.lg-user-popup .lg-user-popup__primary--negative:hover,
+.lg-user-popup .lg-user-popup__primary--negative:focus-visible {
+  background: #9a4141;
+  color: #ffffff;
+}
+
 .lg-cards-view {
   container-type: inline-size;
   min-width: 0;

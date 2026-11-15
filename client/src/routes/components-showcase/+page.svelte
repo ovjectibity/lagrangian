@@ -13,6 +13,7 @@
     TabSwitcher,
     Table,
     Toast,
+    UserPopup,
   } from "#lib";
   import "./components-showcase.css";
 
@@ -164,6 +165,8 @@
   let borderedLogLevels = $state(["errors"]);
   let searchQuery = $state("");
   let toastOpen = $state(false);
+  let userPopupOpen = $state(false);
+  let negativePopupOpen = $state(false);
 
   const showToast = (): void => {
     toastOpen = false;
@@ -277,6 +280,44 @@
         {typeFourActive ? "Selected" : "Not selected"}
       </p>
     </article>
+  </section>
+
+  <section
+    aria-labelledby="user-popup-heading"
+    class="component-showcase__section"
+  >
+    <div class="component-showcase__section-header">
+      <p class="component-showcase__eyebrow">Composite components</p>
+      <h2 id="user-popup-heading">User popup</h2>
+      <p>A blocking dialog with primary and secondary actions.</p>
+    </div>
+    <Button
+      hasActiveState={false}
+      onclick={() => (userPopupOpen = true)}
+      variant="type-4"
+    >Open positive popup</Button>
+    <Button
+      hasActiveState={false}
+      onclick={() => (negativePopupOpen = true)}
+      variant="type-4"
+    >Open negative popup</Button>
+    <UserPopup
+      bind:open={negativePopupOpen}
+      body="Stop this workload? Its current execution will end."
+      onPrimary={showToast}
+      primaryIntent="negative"
+      primaryLabel="Stop workload"
+      secondaryLabel="Cancel"
+      title="Stop workload"
+    />
+    <UserPopup
+      bind:open={userPopupOpen}
+      body="Start this workload with the current configuration?"
+      onPrimary={showToast}
+      primaryLabel="Start workload"
+      secondaryLabel="Cancel"
+      title="Start workload"
+    />
   </section>
 
   <section
