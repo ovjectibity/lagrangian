@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     Button,
+    Breadcrumb,
     CodeView,
     LineChart,
     MultiSelectDropdown,
@@ -256,6 +257,22 @@
         {typeFourActive ? "Selected" : "Not selected"}
       </p>
     </article>
+  </section>
+
+  <section
+    aria-labelledby="breadcrumb-heading"
+    class="component-showcase__section"
+  >
+    <div class="component-showcase__section-header">
+      <p class="component-showcase__eyebrow">Composite components</p>
+      <h2 id="breadcrumb-heading">Breadcrumb</h2>
+      <p>Type-1 buttons form a navigation trail.</p>
+    </div>
+    <Breadcrumb items={[
+      { label: "Workspace", onclick: showToast },
+      { label: "Workloads", onclick: showToast },
+      { label: "TRN-1048" },
+    ]} />
   </section>
 
   <section

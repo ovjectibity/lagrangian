@@ -1,4 +1,7 @@
 export { default as Button } from "./atomic/button.svelte";
+export {
+  default as Breadcrumb,
+} from "./composite/breadcrumb.svelte";
 export { default as CodeView } from "./composite/code-view.svelte";
 export {
   default as TabSwitcher,
