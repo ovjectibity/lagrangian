@@ -1,5 +1,10 @@
 export { default as Button } from "./atomic/button.svelte";
 export {
+  default as TabSwitcher,
+} from "./composite/tab-switcher.svelte";
+export { default as LineChart } from "./composite/line-chart.svelte";
+export { default as Table } from "./composite/table.svelte";
+export {
   default as MultiSelectDropdown,
 } from "./atomic/multi-select-dropdown.svelte";
 export {

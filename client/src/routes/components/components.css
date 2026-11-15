@@ -123,6 +123,10 @@
   margin-top: 6px;
 }
 
+.component-showcase > .lg-line-chart {
+  margin-top: 20px;
+}
+
 @media (max-width: 640px) {
   .component-showcase {
     padding: 32px 16px;

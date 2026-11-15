@@ -1,10 +1,13 @@
 <script lang="ts">
   import {
     Button,
+    LineChart,
     MultiSelectDropdown,
     MultiValueSwitch,
     SearchBar,
     SingleSelectDropdown,
+    TabSwitcher,
+    Table,
     Toast,
   } from "#lib";
   import "./components.css";
@@ -12,6 +15,20 @@
   const runtimeOptions = ["Training", "Testing"];
   const granularityOptions = ["Daily", "Weekly", "Monthly"];
   const metricOptions = ["Reward", "Loss", "Entropy", "KL"];
+  const workloadViewOptions = ["All", "Training", "Testing"];
+  const chartWindowOptions = ["7 days", "30 days", "90 days"];
+  const chartXAxis = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const chartSeries = [
+    {
+      name: "Episode reward",
+      values: [0.18, 0.24, 0.31, 0.38, 0.47, 0.52, 0.61],
+    },
+    {
+      color: "#8e9de7",
+      name: "Success rate",
+      values: [0.11, 0.17, 0.23, 0.29, 0.36, 0.42, 0.51],
+    },
+  ];
   const modelOptions = [
     { label: "MuJoCo", value: "mujoco" },
     { label: "MJX", value: "mjx" },
@@ -22,6 +39,75 @@
     { label: "Warnings", value: "warnings" },
     { label: "Errors", value: "errors" },
   ];
+  const workloadColumns = [
+    { label: "Workload" },
+    { label: "Environment" },
+    { label: "Status" },
+    { align: "right" as const, label: "Updated" },
+  ];
+  const workloadRows = [
+    {
+      cells: [
+        { text: "TRN-1048" },
+        { text: "Walker2d-v4" },
+        {
+          button: {
+            hasActiveState: false,
+            label: "Running",
+            variant: "type-3",
+          },
+          text: "Live",
+        },
+        { text: "2 minutes ago" },
+      ],
+      controls: [
+        {
+          hasActiveState: false,
+          icon: "view",
+          label: "View",
+          variant: "type-1",
+        },
+        {
+          hasActiveState: false,
+          icon: "stop",
+          label: "Stop",
+          variant: "type-4",
+        },
+      ],
+    },
+    {
+      cells: [
+        { text: "TRN-1039" },
+        { text: "Humanoid-v5" },
+        { text: "Queued" },
+        { text: "18 minutes ago" },
+      ],
+      controls: [
+        {
+          hasActiveState: false,
+          icon: "view",
+          label: "View",
+          variant: "type-1",
+        },
+      ],
+    },
+    {
+      cells: [
+        { text: "EVAL-291" },
+        { text: "Ant-v5" },
+        { text: "Complete" },
+        { text: "Yesterday" },
+      ],
+      controls: [
+        {
+          hasActiveState: false,
+          icon: "view",
+          label: "View",
+          variant: "type-1",
+        },
+      ],
+    },
+  ] as const;
 
   let typeOneActive = $state(false);
   let typeTwoActive = $state(false);
@@ -30,6 +116,9 @@
   let workloadType = $state("Training");
   let granularity = $state("Daily");
   let metric = $state("Reward");
+  let workloadView = $state("All");
+  let chartWindow = $state("7 days");
+  let chartMetric = $state("reward");
   let model = $state("mujoco");
   let textModel = $state("mjx");
   let logLevels = $state(["info", "warnings"]);
@@ -138,6 +227,60 @@
   </section>
 
   <section
+    aria-labelledby="table-heading"
+    class="component-showcase__section"
+  >
+    <div class="component-showcase__section-header">
+      <p class="component-showcase__eyebrow">Composite components</p>
+      <h2 id="table-heading">Table</h2>
+      <p>Flexible data rows with header and row-level controls.</p>
+    </div>
+
+    <Table
+      columns={workloadColumns}
+      rows={workloadRows}
+      subtitle="3 workloads"
+      title="Recent workloads"
+    >
+      {#snippet controls()}
+        <SingleSelectDropdown
+          ariaLabel="Filter workloads by simulation engine"
+          bind:value={model}
+          options={modelOptions}
+          variant="text"
+        />
+        <Button hasActiveState={false} variant="type-4">
+          New workload
+        </Button>
+      {/snippet}
+    </Table>
+  </section>
+
+  <section
+    aria-labelledby="charts-heading"
+    class="component-showcase__section"
+  >
+    <div class="component-showcase__section-header">
+      <p class="component-showcase__eyebrow">Composite components</p>
+      <h2 id="charts-heading">Line chart</h2>
+      <p>Responsive ECharts line rendering with composable controls.</p>
+    </div>
+
+    <LineChart
+      singleSelectOptions={[
+        { label: "Reward", value: "reward" },
+        { label: "Success rate", value: "success-rate" },
+      ]}
+      bind:singleSelectValue={chartMetric}
+      series={chartSeries}
+      switchOptions={chartWindowOptions}
+      bind:switchValue={chartWindow}
+      title="Training performance"
+      xAxis={chartXAxis}
+    />
+  </section>
+
+  <section
     aria-labelledby="selection-controls-heading"
     class="component-showcase__section"
   >
@@ -159,6 +302,18 @@
           ariaLabel="Workload type"
           bind:value={workloadType}
           options={runtimeOptions}
+        />
+      </article>
+
+      <article class="selection-showcase-card">
+        <div>
+          <h3>Tab switcher</h3>
+          <p>Type-2 Buttons composed into a workload-view selector.</p>
+        </div>
+        <TabSwitcher
+          ariaLabel="Workload view"
+          bind:value={workloadView}
+          options={workloadViewOptions}
         />
       </article>
 
