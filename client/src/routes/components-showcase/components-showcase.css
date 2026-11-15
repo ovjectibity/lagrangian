@@ -10,6 +10,34 @@
   max-width: 360px;
 }
 
+.icon-showcase-grid {
+  display: grid;
+  gap: 20px 12px;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.icon-showcase-grid li {
+  align-items: center;
+  color: var(--lg-text-secondary);
+  display: flex;
+  flex-direction: column;
+  font: 400 12px / 1.4 Inter, system-ui, sans-serif;
+  gap: 8px;
+  text-align: center;
+}
+
+.icon-showcase-button {
+  padding: 0;
+  width: var(--lg-control-height);
+}
+
+.icon-showcase-glyph {
+  display: inline-flex;
+}
+
 .component-showcase__header {
   margin-bottom: 32px;
 }

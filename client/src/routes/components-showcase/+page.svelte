@@ -16,6 +16,67 @@
     UserPopup,
   } from "#lib";
   import "./components-showcase.css";
+  import hyperlinkIcon from "#lib/assets/arrow-up-right.svg?raw";
+  import workloadsIcon from "#lib/assets/workloads.svg?raw";
+  import searchIcon from "#lib/assets/search.svg?raw";
+  import expandIcon from "#lib/assets/panel-expand.svg?raw";
+  import collapseIcon from "#lib/assets/panel-collapse.svg?raw";
+  import settingsIcon from "#lib/assets/settings.svg?raw";
+  import liveIcon from "#lib/assets/live-mode.svg?raw";
+  import chartsIcon from "#lib/assets/charts.svg?raw";
+  import copyIcon from "#lib/assets/copy.svg?raw";
+  import wrapIcon from "#lib/assets/wrap-text.svg?raw";
+  import accountIcon from "#lib/assets/account.svg?raw";
+  import apiIcon from "#lib/assets/api-access.svg?raw";
+  import usageIcon from "#lib/assets/credits-usage.svg?raw";
+  import deleteIcon from "#lib/assets/delete.svg?raw";
+  import logoutIcon from "#lib/assets/logout.svg?raw";
+  import newIcon from "#lib/assets/new.svg?raw";
+  import goBackIcon from "#lib/assets/go-back.svg?raw";
+  import inProgressIcon from
+    "#lib/assets/workload-in-progress.svg?raw";
+  import scheduledIcon from
+    "#lib/assets/workload-scheduled.svg?raw";
+  import completedIcon from
+    "#lib/assets/workload-completed.svg?raw";
+  import failedIcon from "#lib/assets/workload-failed.svg?raw";
+  import playIcon from "#lib/assets/play.svg?raw";
+  import pauseIcon from "#lib/assets/pause.svg?raw";
+  import jumpForwardIcon from "#lib/assets/jump-forward.svg?raw";
+  import jumpBackIcon from "#lib/assets/jump-back.svg?raw";
+
+  const iconExamples = [
+    { label: "Hyperlink", icon: hyperlinkIcon },
+    { label: "Workloads", icon: workloadsIcon },
+    { label: "Search", icon: searchIcon },
+    { label: "Expand/collapse", icon: expandIcon },
+    { label: "Settings", icon: settingsIcon },
+    { label: "Live mode", icon: liveIcon },
+    { label: "Charts", icon: chartsIcon },
+    { label: "Copy", icon: copyIcon },
+    { label: "Wrap text", icon: wrapIcon },
+    { label: "Account", icon: accountIcon },
+    { label: "API access", icon: apiIcon },
+    { label: "Credits & usage", icon: usageIcon },
+    { label: "Delete", icon: deleteIcon },
+    { label: "Logout", icon: logoutIcon },
+    { label: "New", icon: newIcon },
+    { label: "Go back", icon: goBackIcon },
+    { label: "Workload in progress", icon: inProgressIcon },
+    { label: "Workload scheduled", icon: scheduledIcon },
+    { label: "Workload completed", icon: completedIcon },
+    { label: "Workload failed", icon: failedIcon },
+    { label: "Play/pause", icon: playIcon },
+    { label: "Jump forward", icon: jumpForwardIcon },
+    { label: "Jump back", icon: jumpBackIcon },
+  ];
+  let selectedIcons = $state<string[]>([]);
+
+  const toggleIcon = (label: string): void => {
+    selectedIcons = selectedIcons.includes(label)
+      ? selectedIcons.filter((item) => item !== label)
+      : [...selectedIcons, label];
+  };
 
   const runtimeOptions = ["Training", "Testing"];
   const cardThumbnail = "data:image/svg+xml," + encodeURIComponent(`
@@ -283,6 +344,202 @@
   </section>
 
   <section
+    aria-labelledby="icon-buttons-heading"
+    class="component-showcase__section"
+  >
+    <div class="component-showcase__section-header">
+      <p class="component-showcase__eyebrow">Atomic components</p>
+      <h2 id="icon-buttons-heading">Icon buttons</h2>
+      <p>Type-2 buttons. Click to toggle their selected state.</p>
+    </div>
+    <ul class="icon-showcase-grid">
+      {#each iconExamples as item}
+        <li>
+          <Button
+            active={selectedIcons.includes(item.label)}
+            aria-label={item.label}
+            class="icon-showcase-button"
+            onclick={() => toggleIcon(item.label)}
+            title={item.label}
+            variant="type-2"
+          >
+            <span aria-hidden="true" class="icon-showcase-glyph">
+              {#if item.label === "Expand/collapse"
+                && selectedIcons.includes(item.label)}
+                {@html collapseIcon}
+              {:else if item.label === "Play/pause"
+                && selectedIcons.includes(item.label)}
+                {@html pauseIcon}
+              {:else}
+                {@html item.icon}
+              {/if}
+            </span>
+          </Button>
+          <span>{item.label}</span>
+        </li>
+      {/each}
+    </ul>
+  </section>
+
+  <section
+    aria-labelledby="selection-controls-heading"
+    class="component-showcase__section"
+  >
+    <div class="component-showcase__section-header">
+      <p class="component-showcase__eyebrow">Atomic components</p>
+      <h2 id="selection-controls-heading">Selection controls</h2>
+      <p>
+        Use the controls to inspect their selected, open, and keyboard states.
+      </p>
+    </div>
+
+    <div class="selection-showcase-grid">
+      <article class="selection-showcase-card">
+        <div>
+          <h3>Multi-value switch</h3>
+          <p>Two values</p>
+        </div>
+        <MultiValueSwitch
+          ariaLabel="Workload type"
+          bind:value={workloadType}
+          options={runtimeOptions}
+        />
+      </article>
+
+      <article class="selection-showcase-card">
+        <div>
+          <h3>Multi-value switch</h3>
+          <p>Three values</p>
+        </div>
+        <MultiValueSwitch
+          ariaLabel="Usage granularity"
+          bind:value={granularity}
+          options={granularityOptions}
+        />
+      </article>
+
+      <article class="selection-showcase-card">
+        <div>
+          <h3>Multi-value switch</h3>
+          <p>Four values</p>
+        </div>
+        <MultiValueSwitch
+          ariaLabel="Metric"
+          bind:value={metric}
+          options={metricOptions}
+        />
+      </article>
+
+      <article class="selection-showcase-card">
+        <div>
+          <h3>Single-select dropdown</h3>
+          <p>Bordered trigger: choose one simulation engine.</p>
+        </div>
+        <SingleSelectDropdown
+          ariaLabel="Simulation engine"
+          bind:value={model}
+          options={modelOptions}
+        />
+      </article>
+
+      <article class="selection-showcase-card">
+        <div>
+          <h3>Single-select dropdown</h3>
+          <p>Text trigger: choose one simulation engine.</p>
+        </div>
+        <SingleSelectDropdown
+          ariaLabel="Simulation engine text selector"
+          bind:value={textModel}
+          options={modelOptions}
+          variant="text"
+        />
+      </article>
+
+      <article class="selection-showcase-card">
+        <div>
+          <h3>Multi-select dropdown</h3>
+          <p>Bordered trigger: choose one or more log levels.</p>
+        </div>
+        <MultiSelectDropdown
+          ariaLabel="Bordered log levels"
+          bind:values={borderedLogLevels}
+          options={logLevelOptions}
+          placeholder="All log levels"
+        />
+      </article>
+
+      <article class="selection-showcase-card">
+        <div>
+          <h3>Multi-select dropdown</h3>
+          <p>Text trigger: choose one or more log levels.</p>
+        </div>
+        <MultiSelectDropdown
+          ariaLabel="Log levels"
+          bind:values={logLevels}
+          options={logLevelOptions}
+          placeholder="All log levels"
+          variant="text"
+        />
+      </article>
+    </div>
+  </section>
+
+  <section
+    aria-labelledby="feedback-controls-heading"
+    class="component-showcase__section"
+  >
+    <div class="component-showcase__section-header">
+      <p class="component-showcase__eyebrow">Atomic components</p>
+      <h2 id="feedback-controls-heading">Search and feedback</h2>
+      <p>Type a query or trigger a transient confirmation message.</p>
+    </div>
+
+    <div class="selection-showcase-grid">
+      <article class="selection-showcase-card">
+        <div>
+          <h3>Search bar</h3>
+          <p>Searches are owned by the consuming view.</p>
+        </div>
+        <SearchBar
+          ariaLabel="Search workloads"
+          bind:value={searchQuery}
+          placeholder="Search workloads..."
+        />
+      </article>
+
+      <article class="selection-showcase-card">
+        <div>
+          <h3>Toast</h3>
+          <p>Dismisses automatically after 2.5 seconds.</p>
+        </div>
+        <Button
+          hasActiveState={false}
+          onclick={showToast}
+          variant="type-4"
+        >
+          Show toast
+        </Button>
+      </article>
+    </div>
+  </section>
+
+  <section
+    aria-labelledby="tab-switcher-heading"
+    class="component-showcase__section"
+  >
+    <div class="component-showcase__section-header">
+      <p class="component-showcase__eyebrow">Composite components</p>
+      <h2 id="tab-switcher-heading">Tab switcher</h2>
+      <p>Type-2 buttons composed into a workload-view selector.</p>
+    </div>
+    <TabSwitcher
+      ariaLabel="Workload view"
+      bind:value={workloadView}
+      options={workloadViewOptions}
+    />
+  </section>
+
+  <section
     aria-labelledby="user-popup-heading"
     class="component-showcase__section"
   >
@@ -497,160 +754,6 @@
       title="Training performance"
       xAxis={chartXAxis}
     />
-  </section>
-
-  <section
-    aria-labelledby="selection-controls-heading"
-    class="component-showcase__section"
-  >
-    <div class="component-showcase__section-header">
-      <p class="component-showcase__eyebrow">Atomic components</p>
-      <h2 id="selection-controls-heading">Selection controls</h2>
-      <p>
-        Use the controls to inspect their selected, open, and keyboard states.
-      </p>
-    </div>
-
-    <div class="selection-showcase-grid">
-      <article class="selection-showcase-card">
-        <div>
-          <h3>Multi-value switch</h3>
-          <p>Two values</p>
-        </div>
-        <MultiValueSwitch
-          ariaLabel="Workload type"
-          bind:value={workloadType}
-          options={runtimeOptions}
-        />
-      </article>
-
-      <article class="selection-showcase-card">
-        <div>
-          <h3>Tab switcher</h3>
-          <p>Type-2 Buttons composed into a workload-view selector.</p>
-        </div>
-        <TabSwitcher
-          ariaLabel="Workload view"
-          bind:value={workloadView}
-          options={workloadViewOptions}
-        />
-      </article>
-
-      <article class="selection-showcase-card">
-        <div>
-          <h3>Multi-value switch</h3>
-          <p>Three values</p>
-        </div>
-        <MultiValueSwitch
-          ariaLabel="Usage granularity"
-          bind:value={granularity}
-          options={granularityOptions}
-        />
-      </article>
-
-      <article class="selection-showcase-card">
-        <div>
-          <h3>Multi-value switch</h3>
-          <p>Four values</p>
-        </div>
-        <MultiValueSwitch
-          ariaLabel="Metric"
-          bind:value={metric}
-          options={metricOptions}
-        />
-      </article>
-
-      <article class="selection-showcase-card">
-        <div>
-          <h3>Single-select dropdown</h3>
-          <p>Bordered trigger: choose one simulation engine.</p>
-        </div>
-        <SingleSelectDropdown
-          ariaLabel="Simulation engine"
-          bind:value={model}
-          options={modelOptions}
-        />
-      </article>
-
-      <article class="selection-showcase-card">
-        <div>
-          <h3>Single-select dropdown</h3>
-          <p>Text trigger: choose one simulation engine.</p>
-        </div>
-        <SingleSelectDropdown
-          ariaLabel="Simulation engine text selector"
-          bind:value={textModel}
-          options={modelOptions}
-          variant="text"
-        />
-      </article>
-
-      <article class="selection-showcase-card">
-        <div>
-          <h3>Multi-select dropdown</h3>
-          <p>Bordered trigger: choose one or more log levels.</p>
-        </div>
-        <MultiSelectDropdown
-          ariaLabel="Bordered log levels"
-          bind:values={borderedLogLevels}
-          options={logLevelOptions}
-          placeholder="All log levels"
-        />
-      </article>
-
-      <article class="selection-showcase-card">
-        <div>
-          <h3>Multi-select dropdown</h3>
-          <p>Text trigger: choose one or more log levels.</p>
-        </div>
-        <MultiSelectDropdown
-          ariaLabel="Log levels"
-          bind:values={logLevels}
-          options={logLevelOptions}
-          placeholder="All log levels"
-          variant="text"
-        />
-      </article>
-    </div>
-  </section>
-
-  <section
-    aria-labelledby="feedback-controls-heading"
-    class="component-showcase__section"
-  >
-    <div class="component-showcase__section-header">
-      <p class="component-showcase__eyebrow">Atomic components</p>
-      <h2 id="feedback-controls-heading">Search and feedback</h2>
-      <p>Type a query or trigger a transient confirmation message.</p>
-    </div>
-
-    <div class="selection-showcase-grid">
-      <article class="selection-showcase-card">
-        <div>
-          <h3>Search bar</h3>
-          <p>Searches are owned by the consuming view.</p>
-        </div>
-        <SearchBar
-          ariaLabel="Search workloads"
-          bind:value={searchQuery}
-          placeholder="Search workloads..."
-        />
-      </article>
-
-      <article class="selection-showcase-card">
-        <div>
-          <h3>Toast</h3>
-          <p>Dismisses automatically after 2.5 seconds.</p>
-        </div>
-        <Button
-          hasActiveState={false}
-          onclick={showToast}
-          variant="type-4"
-        >
-          Show toast
-        </Button>
-      </article>
-    </div>
   </section>
 </main>
 
