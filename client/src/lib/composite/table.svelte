@@ -5,42 +5,42 @@
   let {
     columns,
     controls,
+    rowControls = [],
     rows,
     subtitle,
     title,
   }: {
     columns: ReadonlyArray<{
       align?: "left" | "right";
+      // Text space before the column button, in pixels.
+      contentWidth?: number;
       label: string;
-    }>;
-    controls?: Snippet;
-    rows: ReadonlyArray<{
-      cells: ReadonlyArray<{
-        button?: {
+      button?: {
           active?: boolean;
           hasActiveState?: boolean;
+          icon?: Snippet;
           label: string;
-          onclick?: (event: MouseEvent) => void;
+          onclick?: (rowIndex: number, event: MouseEvent) => void;
           variant?: "type-1" | "type-2" | "type-3" | "type-4";
-        };
-        text?: string;
-      }>;
-      controls?: ReadonlyArray<{
+      };
+    }>;
+    controls?: Snippet;
+    // Shared definitions ensure controls apply uniformly to all rows.
+    rowControls?: ReadonlyArray<{
         active?: boolean;
         hasActiveState?: boolean;
         icon: "play" | "stop" | "view";
         label: string;
-        onclick?: (event: MouseEvent) => void;
+        onclick?: (rowIndex: number, event: MouseEvent) => void;
         variant?: "type-1" | "type-2" | "type-3" | "type-4";
-      }>;
+    }>;
+    rows: ReadonlyArray<{
+      cells: ReadonlyArray<{ text?: string }>;
     }>;
     subtitle?: string;
     title: string;
   } = $props();
 
-  const hasRowControls = $derived(
-    rows.some((row) => (row.controls?.length ?? 0) > 0),
-  );
 </script>
 
 <section aria-label={title} class="lg-table">
@@ -62,6 +62,11 @@
 
   <div class="lg-table__scroll">
     <table>
+      <colgroup>
+        {#each columns as _}
+          <col />
+        {/each}
+      </colgroup>
       <thead>
         <tr>
           {#each columns as column}
@@ -69,53 +74,75 @@
               {column.label}
             </th>
           {/each}
-          {#if hasRowControls}
-            <th aria-label="Row actions"></th>
-          {/if}
         </tr>
       </thead>
       <tbody>
-        {#each rows as row}
+        {#each rows as row, rowIndex}
           <tr>
-            {#each row.cells as cell, index}
+            {#each columns as column, index}
               <td
                 class:lg-table__cell--right={
                   columns[index]?.align === "right"
                 }
               >
-                <div class="lg-table__cell-content">
-                  {#if cell.text}
-                    <span>{cell.text}</span>
+                <div
+                  class="lg-table__cell-content"
+                  style:--lg-table-content-width={
+                    `${column.contentWidth ?? 64}px`
+                  }
+                  class:lg-table__cell-content--with-button={
+                    !!column.button
+                  }
+                >
+                  {#if row.cells[index]?.text}
+                    <span
+                      class="lg-table__cell-text"
+                      title={row.cells[index].text}
+                    >{row.cells[index].text}</span>
                   {/if}
-                  {#if cell.button}
+                  {#if column.button}
                     <Button
-                      active={cell.button.active}
-                      hasActiveState={cell.button.hasActiveState}
-                      onclick={cell.button.onclick}
-                      variant={cell.button.variant}
+                      active={column.button.active}
+                      aria-label={column.button.label}
+                      class="lg-table__column-button"
+                      hasActiveState={column.button.hasActiveState}
+                      onclick={(event) =>
+                        column.button?.onclick?.(rowIndex, event)}
+                      title={column.button.label}
+                      variant={column.button.variant}
                     >
-                      {cell.button.label}
+                      {#if column.button.icon}
+                        {@render column.button.icon()}
+                      {:else}
+                        {column.button.label}
+                      {/if}
                     </Button>
                   {/if}
-                </div>
-              </td>
-            {/each}
-            {#if hasRowControls}
-              <td class="lg-table__row-controls">
+            {#if index === columns.length - 1 && rowControls.length}
+                <div class="lg-table__row-actions">
                 <!--
                   Keep row controls icon-only so actions do not disrupt
                   column alignment. Use `label` for accessible text.
                 -->
-                {#each row.controls ?? [] as control}
+                {#each rowControls as control}
                   <Button
                     active={control.active}
                     aria-label={control.label}
                     hasActiveState={control.hasActiveState}
-                    onclick={control.onclick}
+                    onclick={(event) =>
+                      control.onclick?.(rowIndex, event)}
                     title={control.label}
                     variant={control.variant}
                   >
-                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <svg
+                      aria-hidden="true"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.75"
+                      viewBox="0 0 24 24"
+                    >
                       {#if control.icon === "view"}
                         <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
                         <circle cx="12" cy="12" r="2.5" />
@@ -127,8 +154,11 @@
                     </svg>
                   </Button>
                 {/each}
-              </td>
+                </div>
             {/if}
+                </div>
+              </td>
+            {/each}
           </tr>
         {/each}
       </tbody>

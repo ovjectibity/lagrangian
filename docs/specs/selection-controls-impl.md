@@ -6,6 +6,6 @@
    including bordered and text-only dropdown trigger variants.
 3. Add shared control and popup styles to `client/src/app.css`.
 4. Export the controls from `src/lib/index.ts`.
-5. Extend the isolated `/components` showcase and its route-local stylesheet
+5. Extend the isolated `/components-showcase` showcase and its route-local stylesheet
    with interactive examples.
 6. Run `npm run check` and `npm run build` from `client`.

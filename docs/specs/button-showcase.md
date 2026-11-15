@@ -2,7 +2,7 @@
 
 ## Goal
 
-Provide a dedicated `/components` page for visually and interactively checking
+Provide a dedicated `/components-showcase` page for visually and interactively checking
 the four atomic Button variants before they are used in application screens.
 
 ## Behavior
@@ -14,7 +14,7 @@ the four atomic Button variants before they are used in application screens.
 - Reuse the Button component; do not duplicate its styling or behavior.
 - Keep the page responsive and keyboard-accessible.
 - Keep showcase-only layout and presentation styles in
-  `src/routes/components/components.css`, separate from shared application CSS.
+  `src/routes/components-showcase/components-showcase.css`, separate from shared application CSS.
 
 ## Non-goals
 

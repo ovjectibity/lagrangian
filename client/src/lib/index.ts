@@ -1,4 +1,5 @@
 export { default as Button } from "./atomic/button.svelte";
+export { default as CodeView } from "./composite/code-view.svelte";
 export {
   default as TabSwitcher,
 } from "./composite/tab-switcher.svelte";

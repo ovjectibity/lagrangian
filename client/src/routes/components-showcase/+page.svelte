@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     Button,
+    CodeView,
     LineChart,
     MultiSelectDropdown,
     MultiValueSwitch,
@@ -10,9 +11,40 @@
     Table,
     Toast,
   } from "#lib";
-  import "./components.css";
+  import "./components-showcase.css";
 
   const runtimeOptions = ["Training", "Testing"];
+  const codeExamples = {
+    python: [
+      "from dataclasses import dataclass",
+      "",
+      "@dataclass",
+      "class TrainingConfig:",
+      "    environment: str = \"Walker2d-v4\"",
+      "    learning_rate: float = 0.0003",
+      "    total_steps: int = 1_000_000",
+      "",
+      "config = TrainingConfig()",
+      "print(f\"Training {config.environment}\")",
+      "# A longer line to try the built-in wrap control:",
+      "description = \"Train a walking policy with reproducible seeds, evaluation checkpoints, and periodic metric reporting.\"",
+    ].join("\n"),
+    yaml: [
+      "workload:",
+      "  name: walker-training",
+      "  environment: Walker2d-v4",
+      "  learning_rate: 0.0003",
+      "  total_steps: 1000000",
+      "  checkpoints:",
+      "    enabled: true",
+      "    interval: 10000",
+    ].join("\n"),
+  };
+  let codeLanguage = $state("python");
+  const codeLanguageOptions = [
+    { label: "Python", value: "python" },
+    { label: "YAML", value: "yaml" },
+  ];
   const granularityOptions = ["Daily", "Weekly", "Monthly"];
   const metricOptions = ["Reward", "Loss", "Entropy", "KL"];
   const workloadViewOptions = ["All", "Training", "Testing"];
@@ -42,53 +74,33 @@
   const workloadColumns = [
     { label: "Workload" },
     { label: "Environment" },
-    { label: "Status" },
-    { align: "right" as const, label: "Updated" },
+    {
+      label: "Status",
+      contentWidth: 64,
+      button: {
+        hasActiveState: false,
+        icon: runningIcon,
+        label: "Run workload",
+        variant: "type-3" as const,
+      },
+    },
+    { label: "Updated" },
   ];
   const workloadRows = [
     {
       cells: [
         { text: "TRN-1048" },
         { text: "Walker2d-v4" },
-        {
-          button: {
-            hasActiveState: false,
-            label: "Running",
-            variant: "type-3",
-          },
-          text: "Live",
-        },
+        { text: "Live" },
         { text: "2 minutes ago" },
-      ],
-      controls: [
-        {
-          hasActiveState: false,
-          icon: "view",
-          label: "View",
-          variant: "type-1",
-        },
-        {
-          hasActiveState: false,
-          icon: "stop",
-          label: "Stop",
-          variant: "type-4",
-        },
       ],
     },
     {
       cells: [
         { text: "TRN-1039" },
         { text: "Humanoid-v5" },
-        { text: "Queued" },
+        { text: "Queued — waiting for an available worker" },
         { text: "18 minutes ago" },
-      ],
-      controls: [
-        {
-          hasActiveState: false,
-          icon: "view",
-          label: "View",
-          variant: "type-1",
-        },
       ],
     },
     {
@@ -98,14 +110,20 @@
         { text: "Complete" },
         { text: "Yesterday" },
       ],
-      controls: [
-        {
-          hasActiveState: false,
-          icon: "view",
-          label: "View",
-          variant: "type-1",
-        },
-      ],
+    },
+  ] as const;
+  const workloadRowControls = [
+    {
+      hasActiveState: false,
+      icon: "view",
+      label: "View",
+      variant: "type-1",
+    },
+    {
+      hasActiveState: false,
+      icon: "stop",
+      label: "Stop",
+      variant: "type-4",
     },
   ] as const;
 
@@ -142,6 +160,20 @@
     name="description"
   />
 </svelte:head>
+
+{#snippet runningIcon()}
+  <svg
+    aria-hidden="true"
+    fill="none"
+    stroke="currentColor"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="1.75"
+    viewBox="0 0 24 24"
+  >
+    <path d="m8 5 11 7-11 7Z" />
+  </svg>
+{/snippet}
 
 <main class="component-showcase">
   <header class="component-showcase__header">
@@ -227,6 +259,33 @@
   </section>
 
   <section
+    aria-labelledby="code-view-heading"
+    class="component-showcase__section"
+  >
+    <div class="component-showcase__section-header">
+      <p class="component-showcase__eyebrow">Composite components</p>
+      <h2 id="code-view-heading">Code view</h2>
+      <p>Highlighted code with copy and word-wrap controls.</p>
+    </div>
+    <CodeView
+      code={codeLanguage === "yaml"
+        ? codeExamples.yaml : codeExamples.python}
+      language={codeLanguage}
+      subtitle="Read only"
+      title="Training configuration"
+    >
+      {#snippet controls()}
+        <SingleSelectDropdown
+          ariaLabel="Code language"
+          bind:value={codeLanguage}
+          options={codeLanguageOptions}
+          variant="text"
+        />
+      {/snippet}
+    </CodeView>
+  </section>
+
+  <section
     aria-labelledby="table-heading"
     class="component-showcase__section"
   >
@@ -238,6 +297,7 @@
 
     <Table
       columns={workloadColumns}
+      rowControls={workloadRowControls}
       rows={workloadRows}
       subtitle="3 workloads"
       title="Recent workloads"
