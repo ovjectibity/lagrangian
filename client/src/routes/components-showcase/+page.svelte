@@ -6,6 +6,7 @@
     LineChart,
     MultiSelectDropdown,
     MultiValueSwitch,
+    Properties,
     SearchBar,
     SingleSelectDropdown,
     TabSwitcher,
@@ -257,6 +258,34 @@
         {typeFourActive ? "Selected" : "Not selected"}
       </p>
     </article>
+  </section>
+
+  <section
+    aria-labelledby="properties-heading"
+    class="component-showcase__section"
+  >
+    <div class="component-showcase__section-header">
+      <p class="component-showcase__eyebrow">Composite components</p>
+      <h2 id="properties-heading">Properties</h2>
+      <p>Property values with optional links.</p>
+    </div>
+    <div class="properties-showcase">
+      <Properties items={[
+        { label: "Status", value: "In progress" },
+        { label: "Workload ID", value: "TST-2041" },
+        { label: "Type", value: "Testing" },
+        { label: "Created by", value: "Alex S." },
+        { label: "Started", value: "Today, 10:21 AM" },
+        { label: "Compute", value: "1 × NVIDIA L40S" },
+        { label: "Model", value: "franka_panda.xml" },
+        { label: "Policy", value: "panda_v4.ckpt" },
+        {
+          label: "Documentation",
+          value: "MuJoCo documentation",
+          href: "https://mujoco.readthedocs.io/",
+        },
+      ]} />
+    </div>
   </section>
 
   <section

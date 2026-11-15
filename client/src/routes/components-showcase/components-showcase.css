@@ -6,6 +6,10 @@
   padding: 64px 24px;
 }
 
+.properties-showcase {
+  max-width: 360px;
+}
+
 .component-showcase__header {
   margin-bottom: 32px;
 }
