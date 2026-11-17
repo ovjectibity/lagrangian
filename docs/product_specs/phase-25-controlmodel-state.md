@@ -57,7 +57,7 @@ checkpoint's norm buffers, we normalise `min(state_dim, norm_dim)` dimensions. T
   `pretrained/pi0.py`, `pretrained/pi0_jax/model.py`, `requirements.txt`
 - Rust local simulator: `app/src/plugin/mod.rs`, `app/src/plugin/mj_simulator.rs`,
   `app/src/workflows/testing.rs`, `app/src/plugin/ppo_trainer.rs`, `app/src/commondef/training.rs`
-- Type generation: `scripts/gen_types.sh`
+- Type generation: `scripts/typegen/gen_types.sh`
 - Test script: `tests/test_testing_remote_pi0_trossen_arm.mjs`
 
 ## Implementation
@@ -157,7 +157,7 @@ No changes to `ppo_trainer.py` scan body.
 
 ### 6. Type regeneration + test script
 
-Run `bash scripts/gen_types.sh` to propagate `qdof_state`.
+Run `bash scripts/typegen/gen_types.sh` to propagate `qdof_state`.
 
 In `tests/test_testing_remote_pi0_trossen_arm.mjs`: set `qdof_state: true`, `qpos_state: false`,
 `qvel_state: false`.
@@ -207,9 +207,9 @@ assemble a flat tensor in model-specific key order using `Tensor::cat()`.
 
 ## Verification
 
-1. `bash scripts/gen_types.sh` — no errors, `qdof_state` in generated types
+1. `bash scripts/typegen/gen_types.sh` — no errors, `qdof_state` in generated types
 2. `cargo build --manifest-path app/Cargo.toml` — no errors
-3. Rebuild + push Docker image: `bash scripts/push_worker_to_ecr.sh`
-4. Redeploy: `bash scripts/setup_remote_instance.sh --only-bootstrap <ip>`
+3. Rebuild + push Docker image: `bash scripts/worker/push_worker_to_ecr.sh`
+4. Redeploy: `bash scripts/worker/setup_remote_instance.sh --only-bootstrap <ip>`
 5. Run `node tests/test_testing_remote_pi0_trossen_arm.mjs` with `MODEL_PATH=assets/trossen_vx300s/vx300s.xml`
 6. Worker logs: state dim = 7 (vx300s actuated joints), no shape error, frames stream back

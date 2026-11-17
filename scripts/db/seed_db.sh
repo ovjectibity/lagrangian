@@ -5,7 +5,7 @@
 # that the app server assumes on every run.
 # Safe to run multiple times — skips rows that exist.
 #
-# See instructions/specs/db-env.md for env vars.
+# See docs/db-env.md for env vars.
 
 set -euo pipefail
 

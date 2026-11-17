@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-lagrangian = { path = "../../app" }
+lagrangian = { path = "../../../app" }
 schemars = { version = "1.2.1", features = ["derive", "chrono04"] }
 serde_json = "1.0"

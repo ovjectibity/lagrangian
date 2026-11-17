@@ -6,11 +6,11 @@
 # to docs/user/api_spec/spec.json, then shuts the
 # app down.
 #
-# Run from the project root: ./scripts/gen_api_spec.sh
+# Run from the project root: ./scripts/typegen/gen_api_spec.sh
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # ── libtorch (required by tch-rs in the app) ─────────
 

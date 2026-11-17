@@ -8,7 +8,7 @@ description: Rules for shared types across components (Rust, TypeScript, Python)
 
 ## Type generation
 
-Always run `scripts/gen_types.sh` from the project root to regenerate derived type files. Never edit these generated files manually:
+Always run `scripts/typegen/gen_types.sh` from the project root to regenerate derived type files. Never edit these generated files manually:
 
 - `client/src/common/types.ts`
 - `sdk/src/types.ts`
@@ -16,5 +16,5 @@ Always run `scripts/gen_types.sh` from the project root to regenerate derived ty
 - `worker/trainer/trainer-py/commondef/training.py` — re-export shim only; delegates entirely to `remoteworkermessages.py`
 
 ```bash
-./scripts/gen_types.sh
+./scripts/typegen/gen_types.sh
 ```

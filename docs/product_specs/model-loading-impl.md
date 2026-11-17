@@ -4,7 +4,7 @@
 
 | File | Change |
 |---|---|
-| `scripts/init_db.sh` | Add `name` column to `model_references` CREATE TABLE; add `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for existing DBs |
+| `scripts/db/init_db.sh` | Add `name` column to `model_references` CREATE TABLE; add `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for existing DBs |
 | `app/Cargo.toml` | Add `zip = "2"` (no existing dependency covers ZIP extraction) |
 | `app/src/commondef/experiments.rs` | Add `name: String` field to `ModelReference` |
 | `app/src/db/db_orm.rs` | Add `name` param to `create_model_reference`; add `get_all_model_references` |
@@ -21,7 +21,7 @@
 
 ---
 
-## Step 1 — Update `scripts/init_db.sh`
+## Step 1 — Update `scripts/db/init_db.sh`
 
 Add `name TEXT NOT NULL DEFAULT ''` to the `model_references` CREATE TABLE block:
 
@@ -43,7 +43,7 @@ ALTER TABLE model_references
     name TEXT NOT NULL DEFAULT '';
 ```
 
-No changes needed to `scripts/seed_db.sh`.
+No changes needed to `scripts/db/seed_db.sh`.
 
 ---
 

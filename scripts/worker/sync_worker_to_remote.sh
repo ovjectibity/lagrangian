@@ -14,7 +14,7 @@ fi
 REMOTE_IP="$1"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 AWS_ENV_FILE="${REPO_ROOT}/.envrc"
 
 if [[ -f "${AWS_ENV_FILE}" ]]; then

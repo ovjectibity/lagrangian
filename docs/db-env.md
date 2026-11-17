@@ -1,6 +1,6 @@
 # DB Environment Variables
 
-All variables have defaults set in `scripts/init_db.sh` so the script
+All variables have defaults set in `scripts/db/init_db.sh` so the script
 runs with no configuration on a standard local setup. Override any of
 them in your shell or `.env` file before running the script.
 

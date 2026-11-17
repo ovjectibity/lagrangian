@@ -8,7 +8,7 @@
 #   all MongoDB collections but leaves the schema intact
 #   and servers running.
 #
-# See instructions/specs/db-env.md for env vars.
+# See docs/db-env.md for env vars.
 
 set -euo pipefail
 

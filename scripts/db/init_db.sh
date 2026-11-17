@@ -5,7 +5,7 @@
 # the MongoDB database + collections, then
 # starts both servers (if not already running).
 #
-# Required env vars — see instructions/specs/db-env.md
+# Required env vars — see docs/db-env.md
 
 set -euo pipefail
 

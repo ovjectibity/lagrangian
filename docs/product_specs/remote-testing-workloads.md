@@ -94,7 +94,7 @@ pub struct StartTestMessage {
 
 ## Part C — MongoDB Schema Generation for All Collections
 
-**File:** `scripts/gen_mongo_schema/src/main.rs`
+**File:** `scripts/db/gen_mongo_schema/src/main.rs`
 
 Currently generates schema only for `TrainingGraphRecord`. Extend to emit all 4 schemas.
 Change `main()` to output to files (not stdout) since we now have multiple schemas:
@@ -117,12 +117,12 @@ fn generate<T: JsonSchema>(path: &str) {
 
 Add imports for `LogStream`, `MetricsStream`, `TestParamsRecord` from `lagrangian::commondef::record`.
 
-**File:** `scripts/gen_types.sh`
+**File:** `scripts/typegen/gen_types.sh`
 
 Replace the single `cargo run` schema line with:
 ```bash
 mkdir -p schemas
-cargo run --manifest-path scripts/gen_mongo_schema/Cargo.toml -q
+cargo run --manifest-path scripts/db/gen_mongo_schema/Cargo.toml -q
 echo "Generated schemas: training_graph.json, log_stream.json, metrics_stream.json, test_params.json"
 ```
 (No longer needs `> schemas/training_graph.json` redirect since main.rs writes files directly.)
@@ -290,7 +290,7 @@ match test_graph.test_job_controller.compute_instance {
 
 ## Part G — Database Layer
 
-### `scripts/init_db.sh`
+### `scripts/db/init_db.sh`
 
 Add after `checkpoint_references` table:
 ```sql
@@ -439,7 +439,7 @@ Note: `training.py` also imports stale names (`TrainingRemoteWorkerClientMessage
 
 ---
 
-## Part I — `scripts/gen_types.sh` Updates
+## Part I — `scripts/typegen/gen_types.sh` Updates
 
 1. **Python testing types** — add typeshare run for `testing.rs`:
    ```bash
@@ -455,7 +455,7 @@ Note: `training.py` also imports stale names (`TrainingRemoteWorkerClientMessage
 
 3. **MongoDB schema** — after the schema binary changes in Part C, the script line becomes:
    ```bash
-   cargo run --manifest-path scripts/gen_mongo_schema/Cargo.toml -q
+   cargo run --manifest-path scripts/db/gen_mongo_schema/Cargo.toml -q
    ```
    (Writes 4 files directly; no stdout redirect needed.)
 

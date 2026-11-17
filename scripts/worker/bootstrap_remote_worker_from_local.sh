@@ -1,12 +1,18 @@
+#!/usr/bin/env bash
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+KEY_FILE="${REPO_ROOT}/.keys/lagrangian-remote-worker.pem"
 INSTANCE_IP="$1"
 
-ssh -i .keys/lagrangian-remote-worker.pem ec2-user@$INSTANCE_IP
+ssh -i "${KEY_FILE}" ec2-user@$INSTANCE_IP
 
-scp -i .keys/lagrangian-remote-worker.pem \
-  scripts/bootstrap_remote_worker.sh \
-  ec2-user@$INSTANCE_IP:/tmp/bootstrap_remote_worker.sh
+scp -i "${KEY_FILE}" \
+  "${SCRIPT_DIR}/bootstrap_remote_worker.sh" \
+  "${SCRIPT_DIR}/download_pi0_model.sh" \
+  ec2-user@$INSTANCE_IP:/tmp/
 
-ssh -i .keys/lagrangian-remote-worker.pem ec2-user@$INSTANCE_IP '
+ssh -i "${KEY_FILE}" ec2-user@$INSTANCE_IP '
 sudo docker rm -f lagrangian-remote-worker || true
 set -euo pipefail
 

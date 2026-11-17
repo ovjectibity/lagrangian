@@ -73,7 +73,7 @@ sdk/
 
 ## Type Strategy
 
-All shared types come from the Rust backend via `typeshare`. The command is run via `scripts/gen_types.sh`, which outputs to two locations:
+All shared types come from the Rust backend via `typeshare`. The command is run via `scripts/typegen/gen_types.sh`, which outputs to two locations:
 
 - `client/src/common/types.ts` — for the Svelte frontend (existing)
 - `sdk/src/types.ts` — for the SDK (new canonical location for the package)

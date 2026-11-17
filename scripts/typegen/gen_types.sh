@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generate TypeScript and Python types from Rust source via typeshare.
-# Run from the project root: ./scripts/gen_types.sh
+# Run from the project root: ./scripts/typegen/gen_types.sh
 #
 # TypeScript targets use only client-facing commondef files; internal worker
 # message types (remoteworkermessages.rs, workermessages.rs) are excluded
@@ -12,7 +12,7 @@
 #   - testing.py ← testing.rs + training.rs (needed for TestGraph types)
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # libtorch is required by gen_mongo_schema (via the lagrangian app crate / tch-rs).
 # Source .envrc if present so LIBTORCH etc. are set, then fall back to a default.
@@ -46,6 +46,7 @@ for f in "${TS_INCLUDE_FILES[@]}"; do
 done
 
 for target in "${TS_TARGETS[@]}"; do
+  mkdir -p "$(dirname "$target")"
   typeshare "$tmpdir" --lang=typescript --output-file="$target"
   echo "Generated: $target"
 done
@@ -127,7 +128,7 @@ echo "Generated: worker/worker-py/commondef/remoteworkermessages.py"
 # --- MongoDB JSON Schemas ---
 mkdir -p "$REPO_ROOT/schemas"
 
-GEN_SCHEMA="cargo run --manifest-path $REPO_ROOT/scripts/gen_mongo_schema/Cargo.toml -q --"
+GEN_SCHEMA="cargo run --manifest-path $REPO_ROOT/scripts/db/gen_mongo_schema/Cargo.toml -q --"
 
 $GEN_SCHEMA training_graph > "$REPO_ROOT/schemas/training_graph.json"
 echo "Generated: schemas/training_graph.json"

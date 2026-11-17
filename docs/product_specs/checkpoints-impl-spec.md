@@ -46,7 +46,7 @@ Add `use crate::commondef::training::MLPModel;` import. Also add `#[typeshare]` 
 
 ## Step 2 — Backend: extend DB schema + ORM
 
-**File:** `scripts/init_db.sh`
+**File:** `scripts/db/init_db.sh`
 
 Add columns to `checkpoint_references` CREATE TABLE:
 ```sql
@@ -351,7 +351,7 @@ A scrollable list of checkpoint cards. Each card shows: Checkpoint ID, Experimen
 
 | File | Change |
 |------|--------|
-| `scripts/init_db.sh` | Add `control_model_params`, `value_model_params` TEXT cols |
+| `scripts/db/init_db.sh` | Add `control_model_params`, `value_model_params` TEXT cols |
 | `app/src/commondef/experiments.rs` | `Option<MLPModel>` fields on `CheckpointReference`; private `CheckpointReferenceRow` + `From` impl |
 | `app/src/db/db_orm.rs` | Update `create_checkpoint_ref` + `get_checkpoint_ref`; add `get_checkpoint_refs_for_run`, `get_all_checkpoint_refs`, `add_checkpoint_ref_to_run` |
 | `app/src/commondef/clientmessages.rs` | 3 new server→client messages + 2 new client→server messages + structs |

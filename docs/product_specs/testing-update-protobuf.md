@@ -69,7 +69,7 @@ See the `.proto` for the authoritative definition. Shapes:
 
 - Python: `python -m grpc_tools.protoc` (via `grpcio-tools`) →
   `worker/worker-py/commondef/testing_pb2.py`, imported as
-  `from commondef import testing_pb2`. Driven by `scripts/gen_proto.sh`.
+  `from commondef import testing_pb2`. Driven by `scripts/typegen/gen_proto.sh`.
 - SDK: `protobufjs-cli` (`pbjs` + `pbts`, pure JS — no `protoc`) →
   `sdk/src/proto/testing.js` + `.d.ts`. Driven by the `gen:proto` npm script,
   run before `tsup` in `build`.
