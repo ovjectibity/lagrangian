@@ -11,7 +11,7 @@ use utoipa::ToSchema;
 use zip::ZipArchive;
 
 use crate::api::route_doc;
-use crate::commondef::model::WorldBody;
+use crate::commondef::records::model::WorldBody;
 use crate::commondef::record::ModelReference;
 use crate::simulator::mj_simulator::MjSimulator;
 use crate::simulator::Simulator as _;

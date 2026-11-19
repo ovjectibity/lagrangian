@@ -16,10 +16,12 @@ use rocket::tokio::sync::{broadcast, Mutex as AsyncMutex};
 use rocket::tokio::task::JoinHandle;
 use utoipa::OpenApi;
 
+use crate::commondef::records::workload_graph;
+
 fn has_contact_pairs(
-    input: &crate::commondef::training::PolicyInputSpec,
+    input: &workload_graph::PolicyInputSpec,
 ) -> bool {
-    use crate::commondef::training::{
+    use crate::commondef::records::workload_graph::{
         InputState, InputStateItemSensors, PolicyInputSpec,
     };
 
@@ -37,7 +39,7 @@ fn has_contact_pairs(
 #[cfg(test)]
 mod policy_input_tests {
     use super::has_contact_pairs;
-    use crate::commondef::training::{
+    use crate::commondef::records::workload_graph::{
         InputState, InputStateItemSensors, PolicyInputSpec,
         StandardInputSpec,
     };
@@ -103,10 +105,10 @@ mod policy_input_tests {
         testing::StartTestBody,
         testing::TestStartedResponse,
         testing::TestStoppedResponse,
-        crate::commondef::model::WorldBody,
-        crate::commondef::model::Body,
-        crate::commondef::model::Geom,
-        crate::commondef::model::GeomType,
+        crate::commondef::records::model::WorldBody,
+        crate::commondef::records::model::Body,
+        crate::commondef::records::model::Geom,
+        crate::commondef::records::model::GeomType,
         crate::commondef::record
             ::TrainingExperiment,
         crate::commondef::record
@@ -117,53 +119,47 @@ mod policy_input_tests {
             ::CheckpointReference,
         crate::commondef::training::MLPModel,
         crate::commondef::training::VLAModel,
-        crate::commondef::training::ControlModel,
-        crate::commondef::training::ValueModel,
-        crate::commondef::training::MLModel,
-        crate::commondef::training::PolicyInputSpec,
-        crate::commondef::training::PolicyOutputSpec,
-        crate::commondef::training::StandardInputSpec,
-        crate::commondef::training::ProprioceptiveOutputSpec,
-        crate::commondef::training::EEFOutputSpec,
-        crate::commondef::training::InputState,
-        crate::commondef::training::InputStateControllable,
-        crate::commondef::training::InputStateItemControllable,
-        crate::commondef::training::InputStateItemSensors,
-        crate::commondef::training::OutputState,
-        crate::commondef::training::OutputStateItem,
-        crate::commondef::training::XPoseSpec,
-        crate::commondef::training::IOStateXFrame,
-        crate::commondef::training::IOStateXOrientationType,
-        crate::commondef::training::ModelType,
-        crate::commondef::training::CheckpointType,
-        crate::commondef::training::Pretrained,
-        crate::commondef::training::RewardSystem,
-        crate::commondef::training::RewardLanguage,
-        crate::commondef::training::TrainingGraph,
-        crate::commondef::training
-            ::TrainingJobController,
-        crate::commondef::training::TrainingMethod,
-        crate::commondef::training
-            ::PPOTrainingMethod,
-        crate::commondef::training
-            ::TrainingAccelerationMode,
-        crate::commondef::training::ComputeInstance,
-        crate::commondef::training
-            ::CheckpointFrequency,
-        crate::commondef::training
-            ::ControlOutputMode,
-        crate::commondef::training
-            ::FlowMatchingAction,
-        crate::commondef::training::FlowNoiseConfig,
-        crate::commondef::testing::TestGraph,
-        crate::commondef::testing::TestJobController,
-        crate::commondef::testing::TestMethod,
-        crate::commondef::testing::CustomTestMethod,
-        crate::commondef::testing::CustomTestMethodTestParams,
-        crate::commondef::testing::DatasetMethod,
-        crate::commondef::testing::Dataset,
-        crate::commondef::testing::LiberoDatasetParams,
-        crate::commondef::testing::LiberoDatasetType,
+        workload_graph::ControlModel,
+        workload_graph::ValueModel,
+        workload_graph::MLModel,
+        workload_graph::PolicyInputSpec,
+        workload_graph::PolicyOutputSpec,
+        workload_graph::StandardInputSpec,
+        workload_graph::ProprioceptiveOutputSpec,
+        workload_graph::EEFOutputSpec,
+        workload_graph::InputState,
+        workload_graph::InputStateControllable,
+        workload_graph::InputStateItemControllable,
+        workload_graph::InputStateItemSensors,
+        workload_graph::OutputState,
+        workload_graph::OutputStateItem,
+        workload_graph::XPoseSpec,
+        workload_graph::IOStateXFrame,
+        workload_graph::IOStateXOrientationType,
+        workload_graph::ModelType,
+        workload_graph::CheckpointType,
+        workload_graph::Pretrained,
+        workload_graph::RewardSystem,
+        workload_graph::RewardLanguage,
+        workload_graph::TrainingGraph,
+        workload_graph::TrainingJobController,
+        workload_graph::TrainingMethod,
+        workload_graph::PPOTrainingMethod,
+        workload_graph::TrainingAccelerationMode,
+        workload_graph::ComputeInstance,
+        workload_graph::CheckpointFrequency,
+        workload_graph::ControlOutputMode,
+        workload_graph::FlowMatchingAction,
+        workload_graph::FlowNoiseConfig,
+        workload_graph::TestGraph,
+        workload_graph::TestJobController,
+        workload_graph::TestMethod,
+        workload_graph::CustomTestMethod,
+        workload_graph::CustomTestMethodTestParams,
+        workload_graph::DatasetMethod,
+        workload_graph::Dataset,
+        workload_graph::LiberoDatasetParams,
+        workload_graph::LiberoDatasetType,
         crate::commondef::testing::StopTestMessage,
         crate::commondef::testing::TestUpdateMessage,
         crate::commondef::testing::CameraFrames,

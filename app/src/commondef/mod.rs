@@ -1,7 +1,3 @@
-pub mod clientmessages;
-pub mod model;
-pub mod remoteworkermessages;
-pub mod testing;
-pub mod training;
-pub mod record;
-pub mod users;
+pub mod remoteworker;
+pub mod records;
+pub mod api;

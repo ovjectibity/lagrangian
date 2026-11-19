@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 
-use crate::commondef::model::{Body, Geom, GeomType, WorldBody};
+use crate::commondef::records::model::{
+    Body, Geom, GeomType, WorldBody,
+};
 
 pub mod mj_simulator;
 pub mod mujoco;

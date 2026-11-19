@@ -1,3 +1,4 @@
+use crate::commondef::records::model::WorldBody;
 use crate::simulator::mujoco;
 use crate::simulator::Simulator;
 use crate::simulator;
@@ -34,7 +35,7 @@ impl Drop for MjSimulator {
 }
 
 impl Simulator for MjSimulator {
-    fn get_world_body(&self) -> Option<crate::commondef::model::WorldBody> {
+    fn get_world_body(&self) -> Option<WorldBody> {
         unsafe { simulator::create_model(self.model, self.data) }
     }
 }

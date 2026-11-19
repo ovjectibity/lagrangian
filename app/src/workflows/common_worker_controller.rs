@@ -24,12 +24,24 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
 
-use crate::commondef::remoteworkermessages::{
-    RemoteWorkerClientMessage, RemoteWorkerServerMessage, WorkerTrainingUpdatesMessage,
+use crate::commondef::remoteworker::remoteworkermessages::{
+    RemoteWorkerClientMessage,
+    RemoteWorkerServerMessage,
 };
-use crate::commondef::testing::{StartTestMessage, StopTestMessage, TestGraph};
+use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
+use crate::commondef::testing::{
+    StartTestMessage,
+    StopTestMessage,
+};
 use crate::commondef::training::{
-    Checkpoint, StartTrainingMessage, StopTrainingMessage, TrainingGraph, TrainingJobController,
+    Checkpoint,
+    StartTrainingMessage,
+    StopTrainingMessage,
+};
+use crate::commondef::records::workload_graph::{
+    TestGraph, TestMethod,
+    TrainingGraph,
+    TrainingJobController,
     TrainingMethod,
 };
 
@@ -300,7 +312,7 @@ impl CommonWorkerController {
         };
 
         let mut simulation_models = std::collections::HashMap::new();
-        if let (crate::commondef::testing::TestMethod::Custom(method), Some(zip_b64)) = (
+        if let (TestMethod::Custom(method), Some(zip_b64)) = (
             &test_graph.test_job_controller.test_method,
             model_zip_base64,
         ) {

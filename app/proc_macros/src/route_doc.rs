@@ -232,7 +232,6 @@ fn error_desc(code: u16) -> &'static str {
 /// #[get("/models")]
 /// pub async fn list_models() -> ...
 /// ```
-#[proc_macro_attribute]
 pub fn route_doc(
     args: TokenStream,
     item: TokenStream,

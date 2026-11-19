@@ -1,11 +1,102 @@
-use std::collections::HashMap;
-
 use schemars::JsonSchema;
 use serde;
 use typeshare::typeshare;
 use utoipa::ToSchema;
 
-use crate::commondef::record::CheckpointReference;
+/// Execution graph for a training or testing workload.
+#[derive(
+    Debug, Clone, serde::Serialize, serde::Deserialize,
+    JsonSchema, ToSchema,
+)]
+#[typeshare]
+pub enum WorkloadGraph {
+    TestGraph(TestGraph),
+    TrainingGraph(TrainingGraph)
+}
+
+// ---------------------TESTING WORKLOAD TYPES--------------------------------------
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct CustomTestMethodTestParams {
+    pub num_timesteps: i32,
+    pub num_parallel_envs: u32
+    //TODO: Add reward function for eval
+}
+
+// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+// #[typeshare]
+// pub enum DatasetTaskSequencing {
+//     ParallelTasksParallelEnvs,
+//     SequentialTasksParallelEnvs,
+//     FullySequential
+// }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub enum LiberoDatasetType {
+    Libero10, 
+    Libero90,
+    LiberoGoal,
+    LiberoObject,
+    LiberoSpatial
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct LiberoDatasetParams {
+    // pub tasks: Option<Vec<i32>>,
+    pub tasks_index: Vec<i32>,
+    pub libero_dataset_type: LiberoDatasetType,
+    // pub tasks_sequencing: DatasetTaskSequencing,
+    pub num_envs_per_task: i32,
+    pub num_timesteps: i32
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum Dataset {
+    Libero(LiberoDatasetParams)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct DatasetMethod {
+    pub dataset: Dataset,
+    pub control_model: ControlModel
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct CustomTestMethod {
+    pub test_params: CustomTestMethodTestParams,
+    pub control_model: ControlModel,
+    pub simulation_model_id: String
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[serde(tag = "type", content = "content")]
+#[typeshare]
+pub enum TestMethod {
+    Custom(CustomTestMethod),
+    Dataset(DatasetMethod)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct TestJobController {
+    pub test_method: TestMethod, 
+    pub compute_instance: ComputeInstance,
+    pub acceleration_mode: TrainingAccelerationMode,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[typeshare]
+pub struct TestGraph {
+    pub test_job_controller: TestJobController,
+}
+
+// ---------------------TRAINING WORKLOAD TYPES--------------------------------------
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
@@ -142,7 +233,7 @@ pub enum Pretrained {
 #[typeshare]
 pub enum CheckpointType {
     Pretrained(Pretrained),
-    Checkpoint(String)
+    CheckpointID(String)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
@@ -155,14 +246,7 @@ pub enum ModelType {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
-pub struct VLAModel {
-    pub model_type: ModelType,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
-#[typeshare]
-pub struct MLPModel {
-    pub model_type: ModelType,
+pub struct MLPModelSpec {
     pub num_hidden_layers: i32,
     pub hidden_layer_dim: i32,
     pub output_dim: i32,
@@ -173,13 +257,14 @@ pub struct MLPModel {
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum MLModel {
-    MLP(MLPModel),
-    VLA(VLAModel)
+    MLP(MLPModelSpec),
+    VLA
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct ControlModel {
+    pub model_type: ModelType,
     pub model: MLModel,
     pub input_spec: PolicyInputSpec,
     pub output_spec: PolicyOutputSpec,
@@ -188,6 +273,7 @@ pub struct ControlModel {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct ValueModel {
+    pub model_type: ModelType,
     pub input_spec: PolicyInputSpec,
     pub model: MLModel
 }
@@ -209,7 +295,8 @@ pub enum FlowMatchingAction {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
 #[typeshare]
 pub struct FlowNoiseConfig {
-    pub noise_model: MLPModel,
+    pub noise_model: MLPModelSpec,
+    pub model_type: ModelType
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
@@ -233,7 +320,7 @@ pub struct PPOTrainingMethod {
     pub reward_function: RewardSystem,
     pub control_model: ControlModel,
     pub value_model: ValueModel,
-    pub simulation_model: String,
+    pub simulation_model_id: String,
     pub control_output_mode: ControlOutputMode,
 }
 
@@ -250,25 +337,6 @@ pub struct RewardSystem {
     pub language: RewardLanguage,
     pub reward_function_code: String,
     pub input_spec: PolicyInputSpec
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
-#[serde(tag = "type", content = "content")]
-#[typeshare]
-pub enum TrainingMetrics {
-    MeanReward(MetricsData),
-    MeanPolicyLoss(MetricsData),
-    ValueLoss(MetricsData),
-    MeanEntropy(MetricsData),
-    PolicyGradientNorm(MetricsData),
-    ValueGradientNorm(MetricsData),
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
-#[typeshare]
-pub struct MetricsData {
-    pub x_axis: Vec<f64>,
-    pub y_axis: Vec<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
@@ -308,63 +376,4 @@ pub enum CheckpointFrequency {
     PostEpoch(i32),
     PostUpdate(i32),
     LastOnly
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
-#[serde(tag = "type", content = "content")]
-#[typeshare]
-pub enum TrainingRunState {
-    PPOTrainingRunState(PPOTrainingRunState),
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
-#[typeshare]
-pub struct PPOTrainingRunState {
-    pub epoch_index: i32,
-    pub update_index: i32,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
-#[typeshare]
-pub struct StopTrainingMessage {
-    pub id: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
-#[typeshare]
-pub struct TrainingUpdatesMessage {
-    pub id: String,
-    pub updates: Vec<TrainingUpdate>
-}
-
-#[derive(
-    Debug, Clone,
-    serde::Serialize, serde::Deserialize,
-    ToSchema,
-)]
-#[typeshare]
-pub struct TrainingUpdate {
-    pub training_run_state: TrainingRunState,
-    pub logs: Vec<String>,
-    pub metrics: Vec<TrainingMetrics>,
-    pub checkpoints: Vec<CheckpointReference>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct StartTrainingMessage {
-    pub id: String,
-    pub training_graph: TrainingGraph,
-    pub checkpoints: Vec<Checkpoint>,
-    pub simulation_models: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[typeshare]
-pub struct Checkpoint {
-    pub id: Option<String>,
-    pub model_zip_base64: Option<String>,
-    pub model_zip_path: Option<String>,
-    pub control_model_mlp: Option<MLPModel>,
-    pub value_model_mlp: Option<MLPModel>,
 }

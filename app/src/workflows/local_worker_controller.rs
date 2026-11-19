@@ -6,8 +6,10 @@ use std::env;
 use std::time::Duration;
 
 use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
-use crate::commondef::testing::TestGraph;
-use crate::commondef::training::{Checkpoint, TrainingJobController};
+use crate::commondef::records::workload_graph::{
+    TestGraph, TrainingJobController,
+};
+use crate::commondef::training::Checkpoint;
 use crate::workflows::common_worker_controller::{
     CommonWorkerController, CommonWorkerControllerConfig, Result,
 };

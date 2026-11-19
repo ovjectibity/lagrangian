@@ -10,5 +10,5 @@
 5. When generating Rust code refer to the Rust styling guide available in docs/rust_guidelines.md file.
 6. When generating Typescript code refer to the Typescript styling guide available in docs/typescript_guidelines.md file.
 
-## Structured feature implementation
+## [Deprecated; don't do this anymore] Structured feature implementation
 1. Before writing any code for a structured feature, write the high-level spec to `docs/specs/{feature}.md` and the implementation plan to `docs/specs/{feature}-impl.md`.

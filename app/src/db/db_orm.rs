@@ -6,12 +6,15 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
 use crate::commondef::record::{
-    CheckpointReference, ModelReference,
-    Project, TrainingExperiment,
-    TrainingExperimentRun, TrainingRunStatus,
-    TestRun, TestRunStatus,
+    CheckpointReference,
+    ModelReference,
+    TrainingExperiment,
+    TrainingExperimentRun,
+    TrainingRunStatus,
+    TestRun,
+    TestRunStatus,
 };
-use crate::commondef::users::User;
+use crate::commondef::records::product::{Project, User};
 
 /// Holds a Postgres connection pool and
 /// provides CRUD operations.

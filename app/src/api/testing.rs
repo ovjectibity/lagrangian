@@ -10,8 +10,12 @@ use uuid::Uuid;
 
 use crate::api::{route_doc, ApiState};
 use crate::commondef::record::{TestGraphRecord, TestRunStatus};
-use crate::commondef::testing::{StopTestMessage, TestGraph, TestMethod};
-use crate::commondef::training::TrainingAccelerationMode;
+use crate::commondef::testing::StopTestMessage;
+use crate::commondef::records::workload_graph::{
+    TestGraph,
+    TestMethod,
+    TrainingAccelerationMode,
+};
 use crate::workflows::local_worker_controller::LocalWorkerController;
 
 /// Internal task→relay message for the testing mpsc (API-local). Test updates

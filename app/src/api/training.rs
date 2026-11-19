@@ -13,17 +13,20 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 
 use crate::api::{route_doc, ApiState};
-use crate::commondef::clientmessages as cm;
-use crate::commondef::record::TrainingRunStatus;
-
-use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
-use crate::commondef::training::{
-    Checkpoint, CheckpointType, MLModel, ModelType,
-    RewardLanguage,
-    StopTrainingMessage, TrainingGraph,
-    TrainingJobController, TrainingMethod, TrainingUpdate,
-    TrainingUpdatesMessage,
+use crate::commondef::records::workload_graph::{
+    TrainingAccelerationMode,
 };
+// use crate::commondef::clientmessages as cm;
+// use crate::commondef::record::TrainingRunStatus;
+
+// use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
+// use crate::commondef::training::{
+//     Checkpoint, CheckpointType, MLModel, ModelType,
+//     RewardLanguage,
+//     StopTrainingMessage, TrainingGraph,
+//     TrainingJobController, TrainingMethod, TrainingUpdate,
+//     TrainingUpdatesMessage,
+// };
 use crate::workflows::local_worker_controller::LocalWorkerController;
 
 /// Internal task→relay message for the training mpsc (API-local; carries the
@@ -220,7 +223,7 @@ pub async fn start_training(
 
     let is_local = matches!(
         controller.acceleration_mode,
-        crate::commondef::training::TrainingAccelerationMode::AllOnServer,
+        TrainingAccelerationMode::AllOnServer,
     );
 
     // Mark run Ongoing
@@ -514,7 +517,7 @@ async fn build_ctrl_val_json(
 /// Builds the checkpoint payloads to seed a training job from any pretrained
 /// control/value checkpoints referenced by the controller.
 async fn build_worker_checkpoints(controller: &TrainingJobController) -> Vec<Checkpoint> {
-    use crate::commondef::training::{
+    use crate::commondef::records::workload_graph::{
         CheckpointType as CT, MLModel as ML,
         ModelType as MT, TrainingMethod as TM,
     };
