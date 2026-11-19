@@ -23,8 +23,6 @@ jax_profile
 jax_profile/*
 tests/data/*
 tests/data
-sdk/node_modules
-sdk/dist
 app/proc_macros/target
 tests/__pycache__
 **/__pycache__/

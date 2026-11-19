@@ -1,5 +1,8 @@
 # TypeScript SDK — Spec
 
+> Historical specification. The SDK has been removed from the
+> repository; its implementation and generation steps below are inactive.
+
 ## Overview
 
 The Lagrangian TypeScript SDK (`lagrangian-sdk`) is a standalone npm package that provides a fully-typed client for the Lagrangian REST + SSE API. It enables programmatic access to every platform capability: model management, training experiment lifecycle, real-time event streaming, checkpoint retrieval, and simulation control.
