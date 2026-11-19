@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use typeshare::typeshare;
@@ -12,7 +11,6 @@ use utoipa::ToSchema;
     Serialize,
     Deserialize,
     FromRow,
-    JsonSchema,
     ToSchema,
 )]
 #[typeshare]
@@ -33,7 +31,6 @@ pub struct Project {
     PartialEq,
     Eq,
     sqlx::Type,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -50,7 +47,6 @@ pub enum UserRole {
     Serialize,
     Deserialize,
     FromRow,
-    JsonSchema,
     ToSchema,
 )]
 #[typeshare]
@@ -73,7 +69,6 @@ pub struct User {
     PartialEq,
     Eq,
     sqlx::Type,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -92,7 +87,6 @@ pub enum AccessKeyStatus {
     Serialize,
     Deserialize,
     FromRow,
-    JsonSchema,
     ToSchema,
 )]
 #[typeshare]
@@ -114,7 +108,6 @@ pub struct AccessKey {
     PartialEq,
     Eq,
     sqlx::Type,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -133,7 +126,6 @@ pub enum LoginType {
     Serialize,
     Deserialize,
     FromRow,
-    JsonSchema,
     ToSchema,
 )]
 #[typeshare]

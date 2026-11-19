@@ -1,4 +1,3 @@
-use schemars::JsonSchema;
 use serde;
 use typeshare::typeshare;
 use utoipa::ToSchema;
@@ -6,7 +5,7 @@ use utoipa::ToSchema;
 /// Execution graph for a training or testing workload.
 #[derive(
     Debug, Clone, serde::Serialize, serde::Deserialize,
-    JsonSchema, ToSchema,
+    ToSchema,
 )]
 #[typeshare]
 pub enum WorkloadGraph {
@@ -15,7 +14,7 @@ pub enum WorkloadGraph {
 }
 
 // ---------------------TESTING WORKLOAD TYPES--------------------------------------
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct CustomTestMethodTestParams {
     pub num_timesteps: i32,
@@ -23,7 +22,7 @@ pub struct CustomTestMethodTestParams {
     //TODO: Add reward function for eval
 }
 
-// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 // #[typeshare]
 // pub enum DatasetTaskSequencing {
 //     ParallelTasksParallelEnvs,
@@ -31,7 +30,7 @@ pub struct CustomTestMethodTestParams {
 //     FullySequential
 // }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub enum LiberoDatasetType {
     Libero10, 
@@ -41,7 +40,7 @@ pub enum LiberoDatasetType {
     LiberoSpatial
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct LiberoDatasetParams {
     // pub tasks: Option<Vec<i32>>,
@@ -52,21 +51,21 @@ pub struct LiberoDatasetParams {
     pub num_timesteps: i32
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum Dataset {
     Libero(LiberoDatasetParams)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct DatasetMethod {
     pub dataset: Dataset,
     pub control_model: ControlModel
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct CustomTestMethod {
     pub test_params: CustomTestMethodTestParams,
@@ -74,7 +73,7 @@ pub struct CustomTestMethod {
     pub simulation_model_id: String
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum TestMethod {
@@ -82,7 +81,7 @@ pub enum TestMethod {
     Dataset(DatasetMethod)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct TestJobController {
     pub test_method: TestMethod, 
@@ -90,7 +89,7 @@ pub struct TestJobController {
     pub acceleration_mode: TrainingAccelerationMode,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct TestGraph {
     pub test_job_controller: TestJobController,
@@ -98,27 +97,27 @@ pub struct TestGraph {
 
 // ---------------------TRAINING WORKLOAD TYPES--------------------------------------
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub enum IOStateXOrientationType {
     Quaternion,
     AxisAngle
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub enum IOStateXFrame { 
     WorldFrame
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct XPoseSpec {
     pub frame_spec: IOStateXFrame,
     pub orientation_spec: IOStateXOrientationType, 
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum OutputStateItem {
@@ -130,7 +129,7 @@ pub enum OutputStateItem {
     XPose(XPoseSpec)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum InputStateItemControllable {
@@ -140,14 +139,14 @@ pub enum InputStateItemControllable {
     XPose(XPoseSpec)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub enum InputStateItemSensors {
     Cameras,
     ContactPairs
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct OutputState {
     pub is_delta: bool, 
@@ -155,7 +154,7 @@ pub struct OutputState {
     pub state_item: OutputStateItem
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct InputStateControllable { 
     //This is to be interpreted as rebase
@@ -170,7 +169,7 @@ pub struct InputStateControllable {
     pub state_item: InputStateItemControllable
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum InputState { 
@@ -179,7 +178,7 @@ pub enum InputState {
 
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct StandardInputSpec {
     //When null the entire model's state is returned otherwise only the 
@@ -188,7 +187,7 @@ pub struct StandardInputSpec {
     pub states: Vec<InputState>
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct ProprioceptiveOutputSpec {
     //When null the entire model's state is returned otherwise only the 
@@ -197,7 +196,7 @@ pub struct ProprioceptiveOutputSpec {
     pub state: OutputState
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct EEFOutputSpec {
     //When null the entire model's state is returned otherwise only the 
@@ -207,7 +206,7 @@ pub struct EEFOutputSpec {
     pub gripper: OutputState
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum PolicyOutputSpec {
@@ -215,20 +214,20 @@ pub enum PolicyOutputSpec {
     EEFOutputSpec(EEFOutputSpec)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum PolicyInputSpec {
     StandardInputSpec(StandardInputSpec)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub enum Pretrained {
     Pi0
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum CheckpointType {
@@ -236,7 +235,7 @@ pub enum CheckpointType {
     CheckpointID(String)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ModelType {
@@ -244,7 +243,7 @@ pub enum ModelType {
     New
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct MLPModelSpec {
     pub num_hidden_layers: i32,
@@ -253,7 +252,7 @@ pub struct MLPModelSpec {
     pub input_dim: i32,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum MLModel {
@@ -261,7 +260,7 @@ pub enum MLModel {
     VLA
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct ControlModel {
     pub model_type: ModelType,
@@ -270,7 +269,7 @@ pub struct ControlModel {
     pub output_spec: PolicyOutputSpec,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct ValueModel {
     pub model_type: ModelType,
@@ -278,28 +277,28 @@ pub struct ValueModel {
     pub model: MLModel
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum TrainingMethod {
     PPO(PPOTrainingMethod),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum FlowMatchingAction {
     FlowNoise(FlowNoiseConfig),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct FlowNoiseConfig {
     pub noise_model: MLPModelSpec,
     pub model_type: ModelType
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum ControlOutputMode {
@@ -307,7 +306,7 @@ pub enum ControlOutputMode {
     FlowMatchingAction(FlowMatchingAction),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct PPOTrainingMethod {
     pub num_trajs: i32,
@@ -324,14 +323,14 @@ pub struct PPOTrainingMethod {
     pub control_output_mode: ControlOutputMode,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub enum RewardLanguage {
     Rust,
     Python,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct RewardSystem {
     pub language: RewardLanguage,
@@ -339,7 +338,7 @@ pub struct RewardSystem {
     pub input_spec: PolicyInputSpec
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub enum TrainingAccelerationMode {
     MLGPUSimulationCPU,
@@ -348,13 +347,13 @@ pub enum TrainingAccelerationMode {
     AllOnServer,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub enum ComputeInstance {
     AWSG4dn,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct TrainingJobController {
     pub training_method: TrainingMethod,
@@ -363,13 +362,13 @@ pub struct TrainingJobController {
     pub checkpoint_frequency: CheckpointFrequency,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct TrainingGraph {
     pub training_job_controller: TrainingJobController,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum CheckpointFrequency {

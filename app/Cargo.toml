@@ -21,6 +21,5 @@ chrono = { version = "0.4", features = ["serde"] }
 mongodb = "3.2"
 uuid = { version = "1", features = ["v4"] }
 zip = "2"
-schemars = { version = "1.2.1", features = ["derive", "chrono04"] }
 utoipa = { version = "4", features = ["chrono", "uuid"] }
 app_proc_macros = { path = "proc_macros" }

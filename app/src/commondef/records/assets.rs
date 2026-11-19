@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use typeshare::typeshare;
 use utoipa::ToSchema;
@@ -17,7 +16,6 @@ use crate::commondef::records::workload_graph::MLModel;
     PartialEq,
     Eq,
     sqlx::Type,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -38,7 +36,6 @@ pub enum SimulationModelType {
     PartialEq,
     Eq,
     sqlx::Type,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -51,7 +48,7 @@ pub enum SimulationModelFileType {
 /// Reference to a stored simulation model.
 #[variant_source]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema,
+    Debug, Clone, Serialize, Deserialize, ToSchema,
 )]
 #[typeshare]
 pub struct SimulationModelRef {
@@ -66,7 +63,7 @@ pub struct SimulationModelRef {
 }
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema,
+    Debug, Clone, Serialize, Deserialize, ToSchema,
     sqlx::Type,
 )]
 #[serde(rename_all = "snake_case")]
@@ -81,7 +78,7 @@ pub enum CheckpointModelType {
 /// Reference to a stored checkpoint and its training state.
 #[variant_source]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema,
+    Debug, Clone, Serialize, Deserialize, ToSchema,
 )]
 #[typeshare]
 pub struct CheckpointRef {
@@ -102,7 +99,7 @@ pub struct CheckpointRef {
 /// Reference to a camera frame captured at a workload state.
 #[variant_source]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema,
+    Debug, Clone, Serialize, Deserialize, ToSchema,
 )]
 #[typeshare]
 pub struct TrajectoryCameraFrameRef {

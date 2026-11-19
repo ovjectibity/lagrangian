@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use typeshare::typeshare;
 use utoipa::ToSchema;
@@ -17,7 +16,6 @@ use crate::commondef::records::{model::WorldBody, workload_graph::WorkloadGraph}
     PartialEq,
     Eq,
     sqlx::Type,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -37,7 +35,6 @@ pub enum WorkloadType {
     PartialEq,
     Eq,
     sqlx::Type,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -56,7 +53,6 @@ pub enum LaunchOrigin {
     PartialEq,
     Eq,
     sqlx::Type,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -73,7 +69,7 @@ pub enum WorkloadStatus {
 /// Workload assembled from Postgres metadata and a MongoDB graph.
 #[variant_source]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema,
+    Debug, Clone, Serialize, Deserialize, ToSchema,
 )]
 #[typeshare]
 pub struct Workload {
@@ -102,7 +98,6 @@ pub struct Workload {
     PartialEq,
     Eq,
     sqlx::Type,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -121,7 +116,6 @@ pub enum AggregationFunction {
     PartialEq,
     Eq,
     sqlx::Type,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -142,7 +136,7 @@ pub enum WorkloadMethod {
 /// The last remaining dimension is the x-axis; preceding remaining
 /// dimensions identify separate series.
 #[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema,
+    Debug, Clone, Serialize, Deserialize, ToSchema,
 )]
 #[typeshare]
 pub struct UserMetricsLut {
@@ -160,7 +154,7 @@ pub struct UserMetricsLut {
 /// Dimension positions define the indices used by metric and
 /// asset records. The declared count must equal the names' length.
 #[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema,
+    Debug, Clone, Serialize, Deserialize, ToSchema,
 )]
 #[typeshare]
 pub struct WorkloadStructureLut {
@@ -179,7 +173,6 @@ pub struct WorkloadStructureLut {
     Deserialize,
     PartialEq,
     Eq,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -200,7 +193,6 @@ pub enum LogType {
     Deserialize,
     PartialEq,
     Eq,
-    JsonSchema,
     ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
@@ -213,7 +205,7 @@ pub enum LogStream {
 /// A document in the logs collection.
 #[variant_source]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema,
+    Debug, Clone, Serialize, Deserialize, ToSchema,
 )]
 #[typeshare]
 pub struct WorkloadLogs {
@@ -235,7 +227,7 @@ pub struct WorkloadLogs {
 /// The x-values and y-values arrays must have equal lengths.
 #[variant_source]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema,
+    Debug, Clone, Serialize, Deserialize, ToSchema,
 )]
 #[typeshare]
 pub struct WorkloadUserMetrics {
@@ -250,7 +242,7 @@ pub struct WorkloadUserMetrics {
 /// Simulation model state captured at a workload coordinate.
 #[variant_source]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema,
+    Debug, Clone, Serialize, Deserialize, ToSchema,
 )]
 #[typeshare]
 pub struct WorkloadSimulationModelTrajectoryState {

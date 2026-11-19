@@ -1,11 +1,9 @@
-use schemars::JsonSchema;
 use serde;
 use typeshare::typeshare;
 use utoipa::ToSchema;
 
 #[derive(
     Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema,
-    JsonSchema,
 )]
 #[typeshare]
 pub enum GeomType {
@@ -19,7 +17,6 @@ pub enum GeomType {
 
 #[derive(
     Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema,
-    JsonSchema,
 )]
 #[typeshare]
 pub struct Geom {
@@ -33,7 +30,7 @@ pub struct Geom {
     pub group: Option<i32>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct Body {
     pub name: Option<String>,
@@ -45,7 +42,7 @@ pub struct Body {
     pub geoms: Option<Vec<Geom>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[typeshare]
 pub struct WorldBody {
     pub bodies: Vec<Body>,

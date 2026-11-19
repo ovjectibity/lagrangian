@@ -34,13 +34,13 @@ document.
 Add after the existing `TestParams` struct:
 
 ```rust
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct TestGraph {
     pub test_job_controller: TestJobController,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct TestJobController {
     pub test_params: TestParams,
@@ -53,8 +53,6 @@ Add imports at the top of `testing.rs`:
 ```rust
 use crate::commondef::training::{ComputeInstance, TrainingAccelerationMode};
 ```
-
-`TestParams` already has `#[derive(JsonSchema)]` — verify this stays.
 
 **Update `StartTestMessage`** (already in `testing.rs`):
 ```rust
@@ -82,50 +80,15 @@ pub struct StartTestMessage {
    pub graph: TestGraph,
    ```
 
-2. Add `#[derive(JsonSchema)]` to the following structs (currently missing):
-   - `LogStream`
-   - `MetricsStream`
-   - `TestParamsRecord`
-   - (`TrainingGraphRecord` already has it)
-
-3. Add import: `use crate::commondef::testing::TestGraph;`
+2. Add import: `use crate::commondef::testing::TestGraph;`
 
 ---
 
-## Part C — MongoDB Schema Generation for All Collections
+## Part C — MongoDB Collection Validation
 
-**File:** `scripts/db/gen_mongo_schema/src/main.rs`
-
-Currently generates schema only for `TrainingGraphRecord`. Extend to emit all 4 schemas.
-Change `main()` to output to files (not stdout) since we now have multiple schemas:
-
-```rust
-fn main() {
-    generate::<TrainingGraphRecord>("schemas/training_graph.json");
-    generate::<LogStream>("schemas/log_stream.json");
-    generate::<MetricsStream>("schemas/metrics_stream.json");
-    generate::<TestParamsRecord>("schemas/test_params.json");
-}
-
-fn generate<T: JsonSchema>(path: &str) {
-    let schema = schemars::schema_for!(T);
-    let mut value: Value = serde_json::to_value(&schema).expect("serialize");
-    rewrite_defs(&mut value);
-    std::fs::write(path, serde_json::to_string_pretty(&value).expect("pretty")).expect("write");
-}
-```
-
-Add imports for `LogStream`, `MetricsStream`, `TestParamsRecord` from `lagrangian::commondef::record`.
-
-**File:** `scripts/typegen/gen_types.sh`
-
-Replace the single `cargo run` schema line with:
-```bash
-mkdir -p schemas
-cargo run --manifest-path scripts/db/gen_mongo_schema/Cargo.toml -q
-echo "Generated schemas: training_graph.json, log_stream.json, metrics_stream.json, test_params.json"
-```
-(No longer needs `> schemas/training_graph.json` redirect since main.rs writes files directly.)
+MongoDB collection validators and indexes are maintained directly in
+`scripts/db/init_db.sh`. The schema generation binary and generated
+JSON files have been retired; no Rust schema derives are required.
 
 ---
 
@@ -453,11 +416,8 @@ Note: `training.py` also imports stale names (`TrainingRemoteWorkerClientMessage
 2. **Verify path** — all Python output paths should reference `worker/worker-py/` (not the
    old `trainer-py` path). Audit the entire script.
 
-3. **MongoDB schema** — after the schema binary changes in Part C, the script line becomes:
-   ```bash
-   cargo run --manifest-path scripts/db/gen_mongo_schema/Cargo.toml -q
-   ```
-   (Writes 4 files directly; no stdout redirect needed.)
+3. **MongoDB validation** — maintain collection validators directly in
+   `scripts/db/init_db.sh`; type generation does not generate DB schemas.
 
 ---
 
@@ -492,12 +452,12 @@ test). The simulation model should reference an already-saved model from `/model
 ## Implementation Order
 
 1. Part A — `testing.rs` new structs + `StartTestMessage` update
-2. Part B — `record.rs` `TestParamsRecord.graph` + `JsonSchema` derives
+2. Part B — `record.rs` `TestParamsRecord.graph`
 3. Part D — rename `training_controller.rs` → `remote_worker_controller.rs`, rename structs
 4. Part E — `TestingWorkflow` change to accept `TestGraph`
 5. Part F — API route renames + routing logic + DB writes
 6. Part G — DB layer (`init_db.sh`, `db/mod.rs`)
-7. Part C — Schema gen binary + `gen_types.sh`
+7. Part C — Static MongoDB collection validation in `init_db.sh`
 8. Compile: `cargo build --manifest-path app/Cargo.toml --lib`
 9. Part H — Python worker testing handlers
 10. Part I — `gen_types.sh` Python types update

@@ -25,7 +25,6 @@ tests/data/*
 tests/data
 sdk/node_modules
 sdk/dist
-scripts/db/gen_mongo_schema/target
 app/proc_macros/target
 tests/__pycache__
 **/__pycache__/

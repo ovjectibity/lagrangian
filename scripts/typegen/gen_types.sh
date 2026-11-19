@@ -14,16 +14,6 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-# libtorch is required by gen_mongo_schema (via the lagrangian app crate / tch-rs).
-# Source .envrc if present so LIBTORCH etc. are set, then fall back to a default.
-if [[ -f "$REPO_ROOT/.envrc" ]]; then
-  set -a
-  source "$REPO_ROOT/.envrc"
-  set +a
-fi
-export LIBTORCH="${LIBTORCH:-/Users/avi/Documents/projects/libtorch}"
-export LIBTORCH_BYPASS_VERSION_CHECK="${LIBTORCH_BYPASS_VERSION_CHECK:-1}"
-
 TS_INCLUDE_FILES=(
   "$REPO_ROOT/app/src/commondef/clientmessages.rs"
   "$REPO_ROOT/app/src/commondef/model.rs"
@@ -124,23 +114,6 @@ with open('$REPO_ROOT/worker/worker-py/commondef/remoteworkermessages.py', 'w') 
     f.write(content)
 "
 echo "Generated: worker/worker-py/commondef/remoteworkermessages.py"
-
-# --- MongoDB JSON Schemas ---
-mkdir -p "$REPO_ROOT/schemas"
-
-GEN_SCHEMA="cargo run --manifest-path $REPO_ROOT/scripts/db/gen_mongo_schema/Cargo.toml -q --"
-
-$GEN_SCHEMA training_graph > "$REPO_ROOT/schemas/training_graph.json"
-echo "Generated: schemas/training_graph.json"
-
-$GEN_SCHEMA log_stream > "$REPO_ROOT/schemas/log_stream.json"
-echo "Generated: schemas/log_stream.json"
-
-$GEN_SCHEMA metrics_stream > "$REPO_ROOT/schemas/metrics_stream.json"
-echo "Generated: schemas/metrics_stream.json"
-
-$GEN_SCHEMA test_graph > "$REPO_ROOT/schemas/test_graph.json"
-echo "Generated: schemas/test_graph.json"
 
 echo "Done."
 echo "Reminder: worker/worker-py/commondef/ioadapter.py is a hand-maintained JAX PyTree mirror of PolicyInputSpec. After changing those shared types, use an AI coding tool to review and update its runtime classes."
