@@ -1,5 +1,4 @@
-use std::time::SystemTime;
-
+use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use typeshare::typeshare;
@@ -57,8 +56,8 @@ pub enum SimulationModelFileType {
 #[typeshare]
 pub struct SimulationModelRef {
     pub simulation_model_id: String,
-    pub created_at: SystemTime,
-    pub updated_at: SystemTime,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     pub name: String,
     pub uri_path: String,
     pub model_type: SimulationModelType,
@@ -87,8 +86,8 @@ pub enum CheckpointModelType {
 #[typeshare]
 pub struct CheckpointRef {
     pub checkpoint_id: String,
-    pub created_at: SystemTime,
-    pub updated_at: SystemTime,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     pub name: String,
     pub uri_path: String,
     pub workload_id: Option<String>,

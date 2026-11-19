@@ -1,5 +1,4 @@
-use std::time::SystemTime;
-
+use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use typeshare::typeshare;
@@ -82,12 +81,12 @@ pub struct Workload {
     pub workload_type: WorkloadType,
     pub project_id: String,
     pub user_id: String,
-    pub created_at: SystemTime,
-    pub updated_at: SystemTime,
-    pub launched_at: Option<SystemTime>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub launched_at: Option<DateTime<Utc>>,
     pub launch_origin: LaunchOrigin,
-    pub scheduled_at: Option<SystemTime>,
-    pub completed_at: Option<SystemTime>,
+    pub scheduled_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
     pub status: WorkloadStatus,
     pub workload_graph_id: String,
     pub workload_graph: WorkloadGraph,
@@ -219,8 +218,8 @@ pub enum LogStream {
 #[typeshare]
 pub struct WorkloadLogs {
     pub workload_id: String,
-    pub created_at: SystemTime,
-    pub log_timestamp: SystemTime,
+    pub created_at: DateTime<Utc>,
+    pub log_timestamp: DateTime<Utc>,
     pub log_id: String,
     pub log_line_text: String,
     pub user_facing: bool,
@@ -241,7 +240,7 @@ pub struct WorkloadLogs {
 #[typeshare]
 pub struct WorkloadUserMetrics {
     pub metrics_entry_id: String,
-    pub created_at: SystemTime,
+    pub created_at: DateTime<Utc>,
     pub workload_id: String,
     pub metric_id: i32,
     pub workload_structure_state_values: Vec<Vec<u32>>,
@@ -255,7 +254,7 @@ pub struct WorkloadUserMetrics {
 )]
 #[typeshare]
 pub struct WorkloadSimulationModelTrajectoryState {
-    pub created_at: SystemTime,
+    pub created_at: DateTime<Utc>,
     pub sim_model_state_entry_id: String,
     pub workload_id: String,
     pub workload_structure_id: i32,

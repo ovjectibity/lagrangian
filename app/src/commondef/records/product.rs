@@ -1,5 +1,4 @@
-use std::time::SystemTime;
-
+use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -20,10 +19,8 @@ use utoipa::ToSchema;
 pub struct Project {
     pub project_id: String,
     pub user_id: String,
-    #[sqlx(try_from = "chrono::DateTime<chrono::Utc>")]
-    pub created_at: SystemTime,
-    #[sqlx(try_from = "chrono::DateTime<chrono::Utc>")]
-    pub updated_at: SystemTime,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     pub name: String,
 }
 
@@ -60,10 +57,8 @@ pub enum UserRole {
 pub struct User {
     pub user_id: String,
     pub group_id: String,
-    #[sqlx(try_from = "chrono::DateTime<chrono::Utc>")]
-    pub created_at: SystemTime,
-    #[sqlx(try_from = "chrono::DateTime<chrono::Utc>")]
-    pub updated_at: SystemTime,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     pub name: String,
     pub email: String,
     pub role: UserRole,
@@ -90,7 +85,7 @@ pub enum AccessKeyStatus {
     Deleted,
 }
 
-/// Access-key metadata in the account schema.
+/// Access-key record in the product schema.
 #[derive(
     Debug,
     Clone,
@@ -102,10 +97,11 @@ pub enum AccessKeyStatus {
 )]
 #[typeshare]
 pub struct AccessKey {
+    pub access_key_id: String,
+    pub access_key_value: String,
     pub user_id: String,
     pub name: String,
-    #[sqlx(try_from = "chrono::DateTime<chrono::Utc>")]
-    pub created_at: SystemTime,
+    pub created_at: DateTime<Utc>,
     pub status: AccessKeyStatus,
 }
 
@@ -144,9 +140,7 @@ pub enum LoginType {
 pub struct Group {
     pub group_id: String,
     pub name: String,
-    #[sqlx(try_from = "chrono::DateTime<chrono::Utc>")]
-    pub created_at: SystemTime,
-    #[sqlx(try_from = "chrono::DateTime<chrono::Utc>")]
-    pub updated_at: SystemTime,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     pub login_type: LoginType,
 }
