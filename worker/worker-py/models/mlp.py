@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from commondef.ioadapter import PolicyInputState
-from commondef.training import (
+from commondef.records.workload_graph import (
     PolicyInputSpec,
     PolicyOutputSpec,
     InputStateItemSensors,

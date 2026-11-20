@@ -1,11 +1,108 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import Any, Callable
-from commondef.training import PolicyInputSpec, PolicyOutputSpec
+from pathlib import Path
+from commondef.records.assets import CheckpointModelType, CheckpointRef
+from commondef.records.workload_graph import (
+    PolicyInputSpec, PolicyOutputSpec, ModelType, ModelTypeNew,
+    CheckpointTypePretrained, CheckpointTypeCheckpointID, Pretrained,
+    MLModel, MLModelVLA,
+)
 from commondef.ioadapter import PolicyInputState
 import jax
+import jax.numpy as jnp
+import numpy as np
+import orbax.checkpoint as ocp
 
 Array = jax.Array
 Params = Any
+
+
+def load_checkpoint(
+    model: Any,
+    request: ModelType,
+    model_spec: MLModel,
+    model_type: CheckpointModelType,
+    checkpoints: dict[str, tuple[CheckpointRef, Path]],
+    *,
+    restore_optimizer: bool = False,
+) -> dict[str, Any] | None:
+    """Restore requested per-model weights, optionally including Adam state.
+
+    Training requests optimizer state; inference only loads the weights.
+    Pretrained Pi-0 continues to use PI0_CHECKPOINT_DIR. A requested checkpoint
+    failure is fatal rather than silently falling back to initialized weights.
+    """
+    if isinstance(request, ModelTypeNew):
+        return None
+    reference = request.content
+    if isinstance(reference, CheckpointTypePretrained):
+        if (
+            reference.content != Pretrained.PI0
+            or not isinstance(model_spec, MLModelVLA)
+            or model_type != CheckpointModelType.POLICY
+        ):
+            raise ValueError("Pretrained Pi-0 is only supported for VLA policy models")
+        return None
+    if not isinstance(reference, CheckpointTypeCheckpointID):
+        raise ValueError("Unsupported checkpoint request")
+    checkpoint_id = reference.content
+    try:
+        if checkpoint_id not in checkpoints:
+            raise ValueError("Checkpoint reference was not supplied")
+        ref, directory = checkpoints[checkpoint_id]
+        if ref.checkpoint_id != checkpoint_id or ref.model_type != model_type:
+            raise ValueError("Checkpoint ID or model role does not match the requested model")
+        if ref.model_spec.model_dump(mode="json") != model_spec.model_dump(mode="json"):
+            raise ValueError("Checkpoint model specification does not match the requested model")
+
+        if model_type == CheckpointModelType.VALUE:
+            target = model.get_value_store_mut()
+        elif model_type == CheckpointModelType.FLOWNOISE:
+            target = model.get_policy_store_mut()["noise"]
+        elif isinstance(model_spec, MLModelVLA):
+            target = model.get_policy_store_mut()["pi0"]
+        else:
+            target = model.get_policy_store_mut()
+
+        if not all((directory / name).is_dir() for name in ("weights", "optimizer")):
+            raise ValueError("Checkpoint requires weights/ and optimizer/ directories")
+        optimizer = None
+        with ocp.PyTreeCheckpointer() as checkpointer:
+            weights = checkpointer.restore(
+                str(directory / "weights"), item=target,
+                restore_args=ocp.checkpoint_utils.construct_restore_args(target),
+            )
+            pairs = [(weights, target)]
+            if restore_optimizer:
+                zeros = jax.tree_util.tree_map(jnp.zeros_like, target)
+                optimizer_template = {"m": zeros, "v": zeros, "t": 0}
+                optimizer = checkpointer.restore(
+                    str(directory / "optimizer"), item=optimizer_template,
+                    restore_args=ocp.checkpoint_utils.construct_restore_args(optimizer_template),
+                )
+                pairs.append((optimizer, optimizer_template))
+        for restored, expected in pairs:
+            if jax.tree_util.tree_structure(restored) != jax.tree_util.tree_structure(expected):
+                raise ValueError("Checkpoint tree structure does not match the model")
+            for actual_leaf, expected_leaf in zip(
+                jax.tree_util.tree_leaves(restored), jax.tree_util.tree_leaves(expected),
+            ):
+                if np.shape(actual_leaf) != np.shape(expected_leaf):
+                    raise ValueError("Checkpoint tensor shape does not match the model")
+        if optimizer is not None:
+            step = np.asarray(optimizer["t"])
+            if step.dtype.kind not in "iu" or int(step) < 0:
+                raise ValueError("Checkpoint optimizer step must be a nonnegative integer")
+        target.clear()
+        target.update(weights)
+        return optimizer
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to load {model_type.value} checkpoint {checkpoint_id!r}: {exc}"
+        ) from exc
+
 
 class TestingModel(ABC):
     """Minimal interface for test-time inference, independent of PPO concepts."""

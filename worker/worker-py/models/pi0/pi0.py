@@ -22,14 +22,14 @@ import jax.numpy as jnp
 from jax import random
 
 from commondef.ioadapter import PolicyInputState
-from commondef.training import (
+from commondef.records.workload_graph import (
     PolicyInputSpec,
     PolicyOutputSpec,
     InputStateItemSensors,
     InputStateTypes,
-    VLAModel,
+    MLModelVLA,
 )
-from commondef.training import MLPModel as MLPModelSpec
+from commondef.records.workload_graph import MLPModelSpec
 from models.base import FlaxMLP
 from models.model import PPOTrainedModel, TestingModel
 from models.pi0.pi0_jax import Pi0Jax
@@ -111,7 +111,7 @@ class Pi0Model(PPOTrainedModel, TestingModel):
 
     def __init__(
         self,
-        vla_spec: VLAModel,
+        vla_spec: MLModelVLA,
         noise_mlp_spec: MLPModelSpec | None,
         control_input_spec: PolicyInputSpec,
         value_input_spec: PolicyInputSpec,

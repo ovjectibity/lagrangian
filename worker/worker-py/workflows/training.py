@@ -9,6 +9,7 @@ import math
 import os
 import zipfile
 from typing import Any, Callable
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -16,37 +17,15 @@ import numpy as np
 import orbax.checkpoint as ocp
 
 from commondef.ioadapter import PolicyInputState
-from commondef.remoteworkermessages import (
-    Checkpoint,
-    StopTrainingMessage,
-    RemoteWorkerClientMessageStopTrainingMessage,
-    RemoteWorkerClientMessageTrainingUpdatesMessage,
-    TrainingUpdate,
-    TrainingUpdatesMessage,
-)
-from commondef.training import (
-    CheckpointFrequencyTypes,
-    ControlOutputModeFlowMatchingAction,
-    InputStateItemSensors,
-    InputStateTypes,
-    MLModelMLP,
-    MLModelVLA,
-    MetricsData,
-    PPOTrainingMethod,
-    PPOTrainingRunState,
-    TrainingAccelerationMode,
-    TrainingJobController,
-    TrainingMetricsMeanEntropy,
-    TrainingMetricsMeanPolicyLoss,
-    TrainingMetricsMeanReward,
-    TrainingMetricsPolicyGradientNorm,
-    TrainingMetricsValueGradientNorm,
-    TrainingMetricsValueLoss,
-    TrainingRunStatePPOTrainingRunState,
+from commondef.records.assets import CheckpointModelType, CheckpointRef
+from commondef.records.workload_graph import (
+    CheckpointFrequencyTypes, ControlOutputModeFlowMatchingAction,
+    InputStateItemSensors, InputStateTypes, MLModelMLP, MLModelVLA,
+    PPOTrainingMethod, TrainingAccelerationMode, TrainingJobController,
 )
 from workflows.ppo_trainer import PPOTrainer
 from models.mlp import MLPModel
-from models.model import PPOTrainedModel
+from models.model import PPOTrainedModel, load_checkpoint
 from models.pi0.pi0 import Pi0Model
 from simulator.simulator import MjxSimulator, MujocoSimulator
 from simulator.state import SimulatorState
@@ -56,13 +35,8 @@ logger = logging.getLogger(__name__)
 
 class TrainingTaskSink(ABC):
     @abstractmethod
-    def send_training_updates(self, message: TrainingUpdatesMessage) -> None:
+    def send_training_updates(self, message: dict[str, Any]) -> None:
         pass
-
-    @abstractmethod
-    def send_stop_training(self, message: StopTrainingMessage) -> None:
-        pass
-
 
 class CallbackTrainingTaskSink(TrainingTaskSink):
     """
@@ -73,13 +47,9 @@ class CallbackTrainingTaskSink(TrainingTaskSink):
     def __init__(self, send_message: Callable[[dict[str, Any]], None]) -> None:
         self._send_message = send_message
 
-    def send_training_updates(self, message: TrainingUpdatesMessage) -> None:
-        wrapped = RemoteWorkerClientMessageTrainingUpdatesMessage(content=message)
-        self._send_message(wrapped.model_dump(mode="json", by_alias=True))
-
-    def send_stop_training(self, message: StopTrainingMessage) -> None:
-        wrapped = RemoteWorkerClientMessageStopTrainingMessage(content=message)
-        self._send_message(wrapped.model_dump(mode="json", by_alias=True))
+    def send_training_updates(self, message: dict[str, Any]) -> None:
+        # Outgoing workflow updates retain their existing wire format for now.
+        self._send_message({"type": "TrainingUpdatesMessage", "content": message})
 
 
 class TrainingWorkflow:
@@ -88,7 +58,7 @@ class TrainingWorkflow:
         training_id: str,
         training_controller: TrainingJobController,
         model_path: str,
-        checkpoint_paths: list[str] | None = None,
+        checkpoints: dict[str, tuple[CheckpointRef, Path]] | None = None,
         rng_key: jax.Array | None = None,
     ) -> None:
         self.id = training_id
@@ -109,15 +79,24 @@ class TrainingWorkflow:
                 reward_fn,
                 rng_key=model_rng,
             )
-            for checkpoint_path in checkpoint_paths or []:
-                try:
-                    self._load_checkpoint_into_model(self.model, checkpoint_path)
-                except Exception:
-                    logger.exception(
-                        "Checkpoint load failed: training_id=%s checkpoint_path=%s",
-                        self.id,
-                        checkpoint_path,
-                    )
+            checkpoint_refs = checkpoints or {}
+            policy_optimizer = load_checkpoint(
+                self.model, self.params.control_model.model_type,
+                self.params.control_model.model, CheckpointModelType.POLICY, checkpoint_refs, restore_optimizer=True,
+            )
+            value_optimizer = load_checkpoint(
+                self.model, self.params.value_model.model_type,
+                self.params.value_model.model, CheckpointModelType.VALUE, checkpoint_refs, restore_optimizer=True,
+            )
+            noise_optimizer = None
+            if isinstance(self.params.control_output_mode, ControlOutputModeFlowMatchingAction):
+                noise = self.params.control_output_mode.content.content
+                if not isinstance(self.params.control_model.model, MLModelVLA):
+                    raise ValueError("Flow-noise checkpoints require a VLA policy model")
+                noise_optimizer = load_checkpoint(
+                    self.model, noise.model_type, MLModelMLP(content=noise.noise_model),
+                    CheckpointModelType.FLOWNOISE, checkpoint_refs, restore_optimizer=True,
+                )
 
             mode = self.training_controller.acceleration_mode
             needs_render_context = any(
@@ -205,6 +184,15 @@ class TrainingWorkflow:
                 gamma_lambda=(self.params.gamma, self.params.lambda_),
                 rng_key=trainer_key,
             )
+            if policy_optimizer is not None:
+                if isinstance(self.params.control_model.model, MLModelVLA):
+                    self.trainer.policy_opt["pi0"] = policy_optimizer
+                else:
+                    self.trainer.policy_opt = policy_optimizer
+            if noise_optimizer is not None:
+                self.trainer.policy_opt["noise"] = noise_optimizer
+            if value_optimizer is not None:
+                self.trainer.value_opt = value_optimizer
             self._ckpt_dir = f"/tmp/checkpoints/{training_id}"
             os.makedirs(self._ckpt_dir, exist_ok=True)
             self._checkpointer = ocp.PyTreeCheckpointer()
@@ -282,7 +270,7 @@ class TrainingWorkflow:
                     "VLA control model requires "
                     "control_output_mode=FlowMatchingAction(FlowNoise)"
                 )
-            vla_spec = control_model.model.content
+            vla_spec = control_model.model
             noise_mlp_spec = params.control_output_mode.content.content.noise_model
             return Pi0Model(
                 vla_spec,
@@ -330,43 +318,22 @@ class TrainingWorkflow:
         )
 
     @staticmethod
-    def _load_checkpoint_into_model(
-        model: PPOTrainedModel,
-        checkpoint_path: str,
-    ) -> None:
-        checkpointer = ocp.PyTreeCheckpointer()
-        model.policy_store = checkpointer.restore(
-            os.path.join(checkpoint_path, "policy"),
-            item=model.get_policy_store(),
-        )
-        model.value_store = checkpointer.restore(
-            os.path.join(checkpoint_path, "value"),
-            item=model.get_value_store(),
-        )
-        logger.info("Checkpoint loaded: checkpoint_path=%s", checkpoint_path)
-
-    @staticmethod
     def log_and_send_blocking(
         tx: TrainingTaskSink,
         training_id: str,
         msg: str,
     ) -> None:
         logger.info("training_id=%s %s", training_id, msg)
-        tx.send_training_updates(
-            TrainingUpdatesMessage(
-                id=training_id,
-                updates=[
-                    TrainingUpdate(
-                        training_run_state=TrainingRunStatePPOTrainingRunState(
-                            content=PPOTrainingRunState(epoch_index=0, update_index=0)
-                        ),
-                        logs=[msg],
-                        metrics=[],
-                        checkpoints=[],
-                    )
-                ],
-            )
-        )
+        tx.send_training_updates({
+            "id": training_id,
+            "updates": [{
+                "training_run_state": {
+                    "type": "PPOTrainingRunState",
+                    "content": {"epoch_index": 0, "update_index": 0},
+                },
+                "logs": [msg], "metrics": [], "checkpoints": [],
+            }],
+        })
 
     def _save_and_send_checkpoint(
         self,
@@ -397,25 +364,17 @@ class TrainingWorkflow:
                     zf.write(fpath, arcname=os.path.relpath(fpath, base))
         model_zip_base64 = base64.b64encode(buf.getvalue()).decode()
 
-        checkpoint = Checkpoint(model_zip_base64=model_zip_base64)
-        tx.send_training_updates(
-            TrainingUpdatesMessage(
-                id=self.id,
-                updates=[
-                    TrainingUpdate(
-                        training_run_state=TrainingRunStatePPOTrainingRunState(
-                            content=PPOTrainingRunState(
-                                epoch_index=epoch_index,
-                                update_index=update_index,
-                            )
-                        ),
-                        logs=[],
-                        metrics=[],
-                        checkpoints=[checkpoint],
-                    )
-                ],
-            )
-        )
+        tx.send_training_updates({
+            "id": self.id,
+            "updates": [{
+                "training_run_state": {
+                    "type": "PPOTrainingRunState",
+                    "content": {"epoch_index": epoch_index, "update_index": update_index},
+                },
+                "logs": [], "metrics": [],
+                "checkpoints": [{"model_zip_base64": model_zip_base64}],
+            }],
+        })
         logger.info("Checkpoint sent: training_id=%s epoch=%s update=%s", self.id, epoch_index, update_index)
 
     def run_training_blocking(
@@ -527,67 +486,30 @@ class TrainingWorkflow:
                 mean_entropy,
             )
 
-            mean_entropy_m = TrainingMetricsMeanEntropy(
-                content=MetricsData(x_axis=[float(i)], y_axis=[mean_entropy])
-            )
-            mean_reward_m = TrainingMetricsMeanReward(
-                content=MetricsData(x_axis=[float(i)], y_axis=[mean_reward])
-            )
-
+            # Preserve the legacy outgoing metrics until the output-contract pass.
             num_updates = len(runtime_info.mean_policy_loss())
-            base_update_step = i * num_updates
-            update_steps = [float(base_update_step + u) for u in range(num_updates)]
-
-            mean_policy_loss_m = TrainingMetricsMeanPolicyLoss(
-                content=MetricsData(
-                    x_axis=update_steps.copy(),
-                    y_axis=list(runtime_info.mean_policy_loss()),
+            update_steps = [float(i * num_updates + u) for u in range(num_updates)]
+            metrics = [
+                {"type": name, "content": {"x_axis": xs, "y_axis": ys}}
+                for name, xs, ys in (
+                    ("MeanEntropy", [float(i)], [mean_entropy]),
+                    ("MeanReward", [float(i)], [mean_reward]),
+                    ("MeanPolicyLoss", update_steps, list(runtime_info.mean_policy_loss())),
+                    ("ValueLoss", update_steps, list(runtime_info.mean_value_loss())),
+                    ("PolicyGradientNorm", update_steps, list(runtime_info.policy_gradient_norm())),
+                    ("ValueGradientNorm", update_steps, list(runtime_info.value_gradient_norm())),
                 )
-            )
-            mean_value_loss_m = TrainingMetricsValueLoss(
-                content=MetricsData(
-                    x_axis=update_steps.copy(),
-                    y_axis=list(runtime_info.mean_value_loss()),
-                )
-            )
-            policy_grad_norm_m = TrainingMetricsPolicyGradientNorm(
-                content=MetricsData(
-                    x_axis=update_steps.copy(),
-                    y_axis=list(runtime_info.policy_gradient_norm()),
-                )
-            )
-            value_grad_norm_m = TrainingMetricsValueGradientNorm(
-                content=MetricsData(
-                    x_axis=update_steps,
-                    y_axis=list(runtime_info.value_gradient_norm()),
-                )
-            )
-
-            tx.send_training_updates(
-                TrainingUpdatesMessage(
-                    id=self.id,
-                    updates=[
-                        TrainingUpdate(
-                            training_run_state=TrainingRunStatePPOTrainingRunState(
-                                content=PPOTrainingRunState(
-                                    epoch_index=i,
-                                    update_index=num_updates - 1,
-                                )
-                            ),
-                            logs=[],
-                            metrics=[
-                                mean_entropy_m,
-                                mean_reward_m,
-                                mean_policy_loss_m,
-                                mean_value_loss_m,
-                                policy_grad_norm_m,
-                                value_grad_norm_m,
-                            ],
-                            checkpoints=[],
-                        )
-                    ],
-                )
-            )
+            ]
+            tx.send_training_updates({
+                "id": self.id,
+                "updates": [{
+                    "training_run_state": {
+                        "type": "PPOTrainingRunState",
+                        "content": {"epoch_index": i, "update_index": num_updates - 1},
+                    },
+                    "logs": [], "metrics": metrics, "checkpoints": [],
+                }],
+            })
 
         if freq.type == CheckpointFrequencyTypes.LAST_ONLY and last_epoch_run >= 0:
             self._save_and_send_checkpoint(
@@ -597,5 +519,4 @@ class TrainingWorkflow:
                 update_index=self.params.num_updates - 1,
             )
 
-        logger.info("Training run finished, sending StopTrainingMessage: id=%s", self.id)
-        tx.send_stop_training(StopTrainingMessage(id=self.id))
+        logger.info("Training run finished: id=%s", self.id)

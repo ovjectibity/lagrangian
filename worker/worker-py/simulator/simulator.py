@@ -11,7 +11,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from commondef.training import (
+from commondef.records.model import Body, WorldBody
+from commondef.records.workload_graph import (
     PolicyOutputSpec,
     PolicyOutputSpecEEFOutputSpec,
     PolicyOutputSpecProprioceptiveOutputSpec,
@@ -61,6 +62,55 @@ _CAM_HEIGHT = 224
 _CAM_WIDTH = 224
 
 class Simulator(ABC):
+    @staticmethod
+    def get_world_body(
+        model: Any,
+        xpos: jax.Array | np.ndarray,
+        xquat: jax.Array | np.ndarray,
+    ) -> WorldBody:
+        """Convert one MuJoCo/MJX pose snapshot to the shared body hierarchy.
+
+        Pass the CPU MjModel for names and topology, including for MJX poses.
+        Select one environment/timestep before calling: xpos must have shape
+        (nbody, 3), and xquat (nbody, 4). Positions and wxyz quaternions remain
+        in world coordinates, matching the app's WorldBody conversion.
+
+        Includes the world body (ID 0); geometry and Euler angles remain unset.
+        This creates Python records on the host and must run outside JIT/vmap.
+        Converting MJX arrays to NumPy synchronizes their device computation.
+        """
+        nbody = int(model.nbody)
+        positions = np.asarray(xpos)
+        quaternions = np.asarray(xquat)
+        parents = np.asarray(model.body_parentid)
+        if nbody < 1 or parents.shape != (nbody,):
+            raise ValueError("Model must contain a world body and one parent ID per body")
+        if positions.shape != (nbody, 3) or quaternions.shape != (nbody, 4):
+            raise ValueError("Expected one pose snapshot with shapes (nbody, 3) and (nbody, 4)")
+        if not np.isfinite(positions).all() or not np.isfinite(quaternions).all():
+            raise ValueError("Body poses must contain only finite values")
+
+        bodies = [
+            Body(
+                name=model.body(body_id).name or None,
+                body_id=body_id,
+                pos=positions[body_id].tolist(),
+                quat=quaternions[body_id].tolist(),
+            )
+            for body_id in range(nbody)
+        ]
+        if parents[0] != 0:
+            raise ValueError("World body must reference itself as its parent")
+        for body_id in range(1, nbody):
+            parent_id = int(parents[body_id])
+            if parent_id < 0 or parent_id >= body_id:
+                raise ValueError("MuJoCo body parents must precede their children")
+            parent = bodies[parent_id]
+            if parent.bodies is None:
+                parent.bodies = []
+            parent.bodies.append(bodies[body_id])
+        return WorldBody(bodies=[bodies[0]])
+
     @staticmethod
     def _get_contact_pair_sensor_metadata(
         model: Any,

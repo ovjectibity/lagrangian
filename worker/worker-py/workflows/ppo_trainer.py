@@ -13,7 +13,7 @@ import numpy as np
 from jax import random
 
 from commondef.ioadapter import PolicyInputState
-from commondef.training import (
+from commondef.records.workload_graph import (
     PolicyInputSpec,
     InputStateItemSensors,
     InputStateTypes,
@@ -105,7 +105,11 @@ class PPOTrainer:
         )
         self.learning_rate = learning_rate
         self._rng_key = rng_key if rng_key is not None else random.PRNGKey(seed)
-        self.policy_opt = self._init_adam_state(self.model.get_policy_store())
+        policy = self.model.get_policy_store()
+        self.policy_opt = (
+            {name: self._init_adam_state(weights) for name, weights in policy.items()}
+            if "pi0" in policy else self._init_adam_state(policy)
+        )
         self.value_opt = self._init_adam_state(self.model.get_value_store())
         self._jit_gen_trajs: Any = None
         self._jit_train_epoch: Any = None
@@ -144,6 +148,15 @@ class PPOTrainer:
         grads: Params,
         opt_state: dict[str, Any],
     ) -> tuple[Params, dict[str, Any]]:
+        if "t" not in opt_state:
+            results = {
+                name: self._adam_step(params[name], grads[name], state)
+                for name, state in opt_state.items()
+            }
+            return (
+                {name: result[0] for name, result in results.items()},
+                {name: result[1] for name, result in results.items()},
+            )
         beta1 = 0.9
         beta2 = 0.999
         eps = 1e-8
@@ -1238,7 +1251,7 @@ def learning_step(
     Args:
         policy_store:    current policy parameters
         value_store:     current value parameters
-        policy_opt:         Adam state for policy {"m", "v", "t"}
+        policy_opt:         Adam state for policy; VLA components each have {"m", "v", "t"}
         value_opt:          Adam state for value  {"m", "v", "t"}
         policy_fn_log_prob: pure fn (params, control_wstates, policy_output) ->
                             per-step joint log-probs [num_trajs, T]
@@ -1265,6 +1278,15 @@ def learning_step(
         grads: Params,
         opt_state: dict,
     ) -> tuple[Params, dict]:
+        if "t" not in opt_state:
+            results = {
+                name: adam_step(params[name], grads[name], state)
+                for name, state in opt_state.items()
+            }
+            return (
+                {name: result[0] for name, result in results.items()},
+                {name: result[1] for name, result in results.items()},
+            )
         t = opt_state["t"] + 1
         m = jax.tree_util.tree_map(
             lambda m_old, g: beta1 * m_old + (1.0 - beta1) * g,

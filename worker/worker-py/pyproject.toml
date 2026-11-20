@@ -3,6 +3,7 @@ name = "lagrangian-worker"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
+    "boto3",
     "cupti-python",
     "flax",
     "huggingface-hub",

@@ -31,46 +31,52 @@ if os.getenv("CUDA_DEBUG_MODE") == "1":
 # warp.config.verify_fp = True
 
 import asyncio
-import base64
 import hmac
-import io
 import json
 import logging
+import shutil
 import ssl
+import stat
 import tempfile
 import threading
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 
 import jax
 import websockets
 from pydantic import ValidationError
 from websockets.exceptions import ConnectionClosed
 
-from commondef.remoteworkermessages import (
+from commondef.remoteworker.remoteworkermessages import (
     RemoteWorkerServerMessageTypes,
-    StartTestMessage,
-    StartTrainingMessage,
-    StopTestMessage,
-    StopTrainingMessage,
+    StartTestWorkerMessage,
+    StartTrainingWorkerMessage,
+    StopWorkloadServer,
+    StopWorkloadWorker,
+    WorkloadStopReasonWorkerCompletedSuccess,
+    WorkloadStopReasonWorkerRequestedByAppServer,
+    WorkloadStopReasonWorkerWorkerFailure,
 )
-from commondef.testing import TestMethodCustom, TestMethodDataset
+from commondef.records.assets import CheckpointRef, SimulationModelType
+from commondef.records.workload import LogStream, LogType, WorkloadLogs
+from commondef.records.workload_graph import TestMethodCustom, TestMethodDataset
+from utils.asset_storage import download_file
 from workflows.testing import CallbackTestingTaskSink, TestingWorkflow
 from workflows.training import CallbackTrainingTaskSink, TrainingWorkflow
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class TrainingTaskState:
-    task: asyncio.Task[None]
-    stop_event: threading.Event
+# IDs also identify local asset directories, so connections must not run the
+# same workload concurrently and replace one another's downloaded assets.
+_active_workloads: set[str] = set()
 
 
 @dataclass
-class TestingTaskState:
+class WorkloadTaskState:
     task: asyncio.Task[None]
     stop_event: threading.Event
 
@@ -113,61 +119,93 @@ def _extract_presented_secret(websocket: Any) -> str | None:
     return None
 
 
-def _extract_sim_model_from_zip(
-    model_zip_base64: str,
-) -> tuple[tempfile.TemporaryDirectory, str]:
-    tempdir = tempfile.TemporaryDirectory(prefix="lagrangian-sim-model-")
-    root = Path(tempdir.name).resolve()
-    try:
-        zip_bytes = base64.b64decode(model_zip_base64)
-        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
-            for member in zf.namelist():
-                member_path = (root / member).resolve()
-                if member_path != root and root not in member_path.parents:
-                    raise ValueError(f"Unsafe zip member: {member}")
-            zf.extractall(root)
-            xml_files = [m for m in zf.namelist() if "/" not in m and m.endswith(".xml")]
-            if not xml_files:
-                raise FileNotFoundError("No XML found at zip root")
-        return tempdir, str((root / xml_files[0]).resolve())
-    except Exception:
-        tempdir.cleanup()
-        raise
+def _asset_id(value: str) -> str:
+    if not value or value in {".", ".."} or any(c in value for c in ("/", "\\", "\x00")):
+        raise ValueError("Workload and asset IDs must be single path components")
+    return value
 
 
-def _extract_checkpoint_from_zip(
-    checkpoint_zip_base64: str,
-) -> tuple[tempfile.TemporaryDirectory, str]:
-    tempdir = tempfile.TemporaryDirectory(prefix="lagrangian-checkpoint-")
-    root = Path(tempdir.name).resolve()
-    try:
-        zip_bytes = base64.b64decode(checkpoint_zip_base64)
-        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
-            for member in zf.namelist():
-                member_path = (root / member).resolve()
-                if member_path != root and root not in member_path.parents:
-                    raise ValueError(f"Unsafe zip member: {member}")
-            zf.extractall(root)
-        return tempdir, str(root)
-    except Exception:
-        tempdir.cleanup()
-        raise
+def _extract_asset_zip(archive_path: Path) -> None:
+    root = archive_path.parent.resolve()
+    with zipfile.ZipFile(archive_path) as archive:
+        for member in archive.infolist():
+            target = (root / member.filename).resolve()
+            if (
+                (target != root and root not in target.parents)
+                or target == archive_path.resolve()
+                or stat.S_ISLNK(member.external_attr >> 16)
+            ):
+                raise ValueError(f"Unsafe ZIP member: {member.filename}")
+        archive.extractall(root)
 
 
-def _log_message_payload(msg: str, training_id: str = "system") -> dict[str, Any]:
+def _download_workload_assets(
+    message: StartTrainingWorkerMessage | StartTestWorkerMessage,
+) -> tuple[dict[str, str], dict[str, tuple[CheckpointRef, Path]]]:
+    """Retain downloaded ZIPs and extracted assets in the workload asset tree."""
+    root = Path("/tmp/workload_assets") / _asset_id(message.workload_id)
+    models: dict[str, str] = {}
+    checkpoints: dict[str, tuple[CheckpointRef, Path]] = {}
+
+    def prepare(
+        uri: str, directory: Path, archive_name: str,
+        required: list[str], *, directories: bool = False,
+    ) -> None:
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        # Failed downloads/extraction must never reuse stale extracted weights.
+        with tempfile.TemporaryDirectory(prefix=".download-", dir=directory.parent) as staging:
+            stage = Path(staging)
+            archive = stage / archive_name
+            download_file(uri, archive)
+            _extract_asset_zip(archive)
+            for name in required:
+                item = (stage / name).resolve()
+                valid = item.is_dir() if directories else item.is_file()
+                if stage.resolve() not in item.parents or not valid:
+                    raise ValueError(f"Missing or unsafe asset content: {name}")
+            if directory.exists():
+                shutil.rmtree(directory)
+            stage.rename(directory)
+
+    for ref in message.simulation_models:
+        asset_id = _asset_id(ref.simulation_model_id)
+        if asset_id in models:
+            raise ValueError(f"Duplicate simulation model reference: {asset_id}")
+        if ref.model_type != SimulationModelType.MJCF:
+            raise ValueError(f"Unsupported simulation model format: {ref.model_type}")
+        directory = root / "models" / asset_id
+        prepare(ref.uri_path, directory, f"m_{asset_id}.zip", [ref.base_file_name])
+        base_file = (directory / ref.base_file_name).resolve()
+        if directory.resolve() not in base_file.parents or not base_file.is_file():
+            raise ValueError(f"Missing or unsafe simulation model base file: {ref.base_file_name}")
+        models[asset_id] = str(base_file)
+    for ref in message.checkpoints:
+        asset_id = _asset_id(ref.checkpoint_id)
+        if asset_id in checkpoints:
+            raise ValueError(f"Duplicate checkpoint reference: {asset_id}")
+        directory = root / "checkpoints" / asset_id
+        prepare(
+            ref.uri_path, directory, f"cp_{asset_id}.zip",
+            ["weights", "optimizer"], directories=True,
+        )
+        checkpoints[asset_id] = (ref, directory)
+    return models, checkpoints
+
+
+def _log_message_payload(
+    msg: str, workload_id: str = "system", testing: bool = False,
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    log = WorkloadLogs(
+        workload_id=workload_id, created_at=now, log_timestamp=now,
+        log_id=str(uuid4()), log_line_text=msg, user_facing=True,
+        log_type=LogType.ERROR, stream=LogStream.WORKER,
+    )
     return {
-        "type": "TrainingUpdatesMessage",
+        "type": "TestUpdatesMessage" if testing else "TrainingUpdatesMessage",
         "content": {
-            "id": training_id,
-            "updates": [{
-                "training_run_state": {
-                    "type": "PPOTrainingRunState",
-                    "content": {"epoch_index": 0, "update_index": 0},
-                },
-                "logs": [msg],
-                "metrics": [],
-                "checkpoints": [],
-            }],
+            "workload_id": workload_id, "logs": [log.model_dump(mode="json")],
+            "metrics": [], "checkpoints": [], "camera_frames": [], "model_states": [],
         },
     }
 
@@ -199,8 +237,7 @@ async def handle_connection(
         logger.warning("Unauthorized connection rejected: %s", remote_addr)
         return
 
-    training_tasks: dict[str, TrainingTaskState] = {}
-    testing_tasks: dict[str, TestingTaskState] = {}
+    workload_tasks: dict[str, WorkloadTaskState] = {}
     send_queue: asyncio.Queue[dict[str, Any] | bytes] = asyncio.Queue()
     sender_task = asyncio.create_task(_sender_loop(websocket, send_queue))
     loop = asyncio.get_running_loop()
@@ -208,310 +245,134 @@ async def handle_connection(
     def thread_safe_send(payload: dict[str, Any] | bytes) -> None:
         loop.call_soon_threadsafe(send_queue.put_nowait, payload)
 
+    async def run_workload(
+        message: StartTrainingWorkerMessage | StartTestWorkerMessage,
+        testing: bool,
+        stop_event: threading.Event,
+    ) -> None:
+        workload_id = message.workload_id
+
+        def execute() -> None:
+            workflow = None
+            try:
+                models, checkpoints = _download_workload_assets(message)
+                if stop_event.is_set():
+                    return
+                if testing:
+                    controller = message.test_graph.test_job_controller
+                    method = controller.test_method
+                    if isinstance(method, TestMethodCustom):
+                        model_path = models.get(method.content.simulation_model_id)
+                        if model_path is None:
+                            raise ValueError("Required testing simulation model reference was not supplied")
+                    elif isinstance(method, TestMethodDataset):
+                        model_path = None
+                    else:
+                        raise ValueError("Unsupported testing method")
+                    workflow = TestingWorkflow(
+                        test_id=workload_id, test_controller=controller,
+                        model_path=model_path, checkpoints=checkpoints,
+                        rng_key=jax.random.PRNGKey(0),
+                    )
+                    if not stop_event.is_set():
+                        workflow.run_test_blocking(
+                            CallbackTestingTaskSink(thread_safe_send), stop_event.is_set,
+                        )
+                else:
+                    controller = message.training_graph.training_job_controller
+                    model_id = controller.training_method.content.simulation_model_id
+                    model_path = models.get(model_id)
+                    if model_path is None:
+                        raise ValueError(f"Required training simulation model {model_id!r} was not supplied")
+                    workflow = TrainingWorkflow(
+                        training_id=workload_id, training_controller=controller,
+                        model_path=model_path, checkpoints=checkpoints,
+                        rng_key=jax.random.PRNGKey(0),
+                    )
+                    if not stop_event.is_set():
+                        workflow.run_training_blocking(
+                            CallbackTrainingTaskSink(thread_safe_send), stop_event.is_set,
+                        )
+            finally:
+                if workflow is not None:
+                    workflow.close()
+
+        try:
+            await asyncio.to_thread(execute)
+            reason = (
+                WorkloadStopReasonWorkerRequestedByAppServer()
+                if stop_event.is_set() else WorkloadStopReasonWorkerCompletedSuccess()
+            )
+        except Exception as exc:
+            logger.exception("Workload failed: workload_id=%s", workload_id)
+            await send_queue.put(_log_message_payload(
+                f"Workload failed: {type(exc).__name__}: {exc}", workload_id, testing,
+            ))
+            reason = WorkloadStopReasonWorkerWorkerFailure(content=f"{type(exc).__name__}: {exc}")
+        finally:
+            workload_tasks.pop(workload_id, None)
+            _active_workloads.discard(workload_id)
+        stopped = StopWorkloadWorker(workload_id=workload_id, reason=reason)
+        await send_queue.put({
+            "type": "StopTestingMessage" if testing else "StopTrainingMessage",
+            "content": stopped.model_dump(mode="json"),
+        })
+
     try:
         async for message in websocket:
             if not isinstance(message, str):
                 continue
             try:
                 payload = json.loads(message)
-            except json.JSONDecodeError:
-                await send_queue.put(_log_message_payload("Invalid JSON message received"))
-                continue
-            if not isinstance(payload, dict):
-                await send_queue.put(_log_message_payload("Invalid message payload type"))
-                continue
-
-            msg_type = payload.get("type")
-            content = payload.get("content")
-            logger.info("Received message: type=%s", msg_type)
-
-            # ── START TRAINING ────────────────────────────────────────────
-            if msg_type == RemoteWorkerServerMessageTypes.START_TRAINING_MESSAGE.value:
-                try:
-                    start_msg = StartTrainingMessage.model_validate(content)
-                except ValidationError as exc:
-                    logger.warning("Invalid StartTrainingMessage: %s", exc)
-                    await send_queue.put(_log_message_payload(f"Invalid StartTrainingMessage: {exc}"))
-                    continue
-
-                training_id = start_msg.id
-                if training_id in training_tasks and not training_tasks[training_id].task.done():
-                    await send_queue.put(_log_message_payload(
-                        f"Training task '{training_id}' already running", training_id=training_id
-                    ))
-                    continue
-
-                training_controller = start_msg.training_graph.training_job_controller
-                ppo_params = training_controller.training_method.content
-                sim_model_zip = start_msg.simulation_models.get(ppo_params.simulation_model)
-
-                if sim_model_zip is None:
-                    await send_queue.put(_log_message_payload(
-                        f"Training not started: simulation model "
-                        f"'{ppo_params.simulation_model}' was not provided",
-                        training_id=training_id,
-                    ))
-                    continue
-
-                try:
-                    model_tmpdir, model_path = _extract_sim_model_from_zip(sim_model_zip)
-                except Exception as exc:
-                    logger.exception(
-                        "Simulation model extraction failed for training_id=%s",
-                        training_id,
+                if not isinstance(payload, dict):
+                    raise ValueError("Message must be a JSON object")
+                msg_type = payload.get("type")
+                content = payload.get("content")
+                if msg_type in {
+                    RemoteWorkerServerMessageTypes.START_TRAINING_MESSAGE.value,
+                    RemoteWorkerServerMessageTypes.START_TESTING_MESSAGE.value,
+                }:
+                    testing = msg_type == RemoteWorkerServerMessageTypes.START_TESTING_MESSAGE.value
+                    message_type = StartTestWorkerMessage if testing else StartTrainingWorkerMessage
+                    start = message_type.model_validate(content)
+                    _asset_id(start.workload_id)
+                    if start.workload_id in _active_workloads:
+                        raise ValueError(f"Workload {start.workload_id!r} is already running")
+                    stop_event = threading.Event()
+                    task = asyncio.create_task(
+                        run_workload(start, testing, stop_event),
+                        name=f"workload-{start.workload_id}",
                     )
-                    await send_queue.put(_log_message_payload(
-                        f"Simulation model extraction failed: "
-                        f"{type(exc).__name__}: {exc}",
-                        training_id=training_id,
-                    ))
-                    continue
-
-                checkpoint_tmpdirs: list[tempfile.TemporaryDirectory] = []
-                checkpoint_paths: list[str] = []
-                for ckpt in start_msg.checkpoints:
-                    if ckpt.model_zip_base_64 is not None:
-                        try:
-                            checkpoint_tmpdir, checkpoint_path = (
-                                _extract_checkpoint_from_zip(ckpt.model_zip_base_64)
-                            )
-                            checkpoint_tmpdirs.append(checkpoint_tmpdir)
-                            checkpoint_paths.append(checkpoint_path)
-                        except Exception as exc:
-                            logger.exception(
-                                "Checkpoint extraction failed for training_id=%s",
-                                training_id,
-                            )
-                            await send_queue.put(_log_message_payload(
-                                f"Checkpoint extraction failed: "
-                                f"{type(exc).__name__}: {exc}",
-                                training_id=training_id,
-                            ))
-
-                try:
-                    workflow = TrainingWorkflow(
-                        training_id=training_id,
-                        training_controller=training_controller,
-                        model_path=model_path,
-                        checkpoint_paths=checkpoint_paths,
-                        rng_key=jax.random.PRNGKey(0),
-                    )
-                except Exception as exc:
-                    logger.exception(
-                        "Failed to initialize training workflow for training_id=%s",
-                        training_id,
-                    )
-                    await send_queue.put(_log_message_payload(
-                        f"Failed to initialize training: "
-                        f"{type(exc).__name__}: {exc}",
-                        training_id=training_id,
-                    ))
-                    model_tmpdir.cleanup()
-                    for checkpoint_tmpdir in checkpoint_tmpdirs:
-                        checkpoint_tmpdir.cleanup()
-                    continue
-
-                stop_event = threading.Event()
-                sink = CallbackTrainingTaskSink(thread_safe_send)
-                tmpdir_refs = (model_tmpdir, *checkpoint_tmpdirs)
-
-                async def run_training(
-                    wf: TrainingWorkflow = workflow,
-                    s: CallbackTrainingTaskSink = sink,
-                    ev: threading.Event = stop_event,
-                    tempdirs: tuple[tempfile.TemporaryDirectory, ...] = tmpdir_refs,
-                ) -> None:
-                    try:
-                        await asyncio.to_thread(wf.run_training_blocking, s, ev.is_set)
-                    finally:
-                        for tempdir in tempdirs:
-                            tempdir.cleanup()
-
-                task = asyncio.create_task(run_training(), name=f"training-{training_id}")
-
-                def _on_training_done(
-                    done_task: asyncio.Task[None],
-                    tid: str = training_id,
-                ) -> None:
-                    training_tasks.pop(tid, None)
-                    try:
-                        done_task.result()
-                        logger.info("Training task completed: %s", tid)
-                    except asyncio.CancelledError:
-                        logger.info("Training task cancelled: %s", tid)
-                    except Exception:
-                        logger.exception("Training task failed: %s", tid)
-                        thread_safe_send(_log_message_payload(
-                            f"Training task '{tid}' failed unexpectedly", training_id=tid
-                        ))
-
-                task.add_done_callback(_on_training_done)
-                training_tasks[training_id] = TrainingTaskState(task=task, stop_event=stop_event)
-                await send_queue.put(_log_message_payload(
-                    f"Started training task '{training_id}'", training_id=training_id
-                ))
-                continue
-
-            # ── STOP TRAINING ─────────────────────────────────────────────
-            if msg_type == RemoteWorkerServerMessageTypes.STOP_TRAINING_MESSAGE.value:
-                try:
-                    stop_msg = StopTrainingMessage.model_validate(content)
-                except ValidationError as exc:
-                    logger.warning("Invalid StopTrainingMessage: %s", exc)
-                    await send_queue.put(_log_message_payload(f"Invalid StopTrainingMessage: {exc}"))
-                    continue
-                task_state = training_tasks.get(stop_msg.id)
-                if task_state is None:
-                    await send_queue.put(_log_message_payload(
-                        f"No running training task for id '{stop_msg.id}'"
-                    ))
-                    continue
-                task_state.stop_event.set()
-                await send_queue.put(_log_message_payload(
-                    f"Stop signal sent for training task '{stop_msg.id}'", training_id=stop_msg.id
-                ))
-                continue
-
-            # ── START TESTING ─────────────────────────────────────────────
-            if msg_type == RemoteWorkerServerMessageTypes.START_TESTING_MESSAGE.value:
-                try:
-                    start_msg = StartTestMessage.model_validate(content)
-                except ValidationError as exc:
-                    logger.warning("Invalid StartTestMessage: %s", exc)
-                    await send_queue.put(_log_message_payload(f"Invalid StartTestMessage: {exc}"))
-                    continue
-
-                test_id = start_msg.id
-                if test_id in testing_tasks and not testing_tasks[test_id].task.done():
-                    await send_queue.put(_log_message_payload(f"Testing task '{test_id}' already running"))
-                    continue
-
-                test_controller = start_msg.test_graph.test_job_controller
-                test_model_path: str | None = None
-                test_model_tmpdir: tempfile.TemporaryDirectory | None = None
-                test_method = test_controller.test_method
-                if isinstance(test_method, TestMethodCustom):
-                    sim_model_zip = start_msg.simulation_models.get(
-                        test_method.content.simulation_model
-                    )
-                    if sim_model_zip:
-                        try:
-                            test_model_tmpdir, test_model_path = (
-                                _extract_sim_model_from_zip(sim_model_zip)
-                            )
-                        except Exception as exc:
-                            logger.exception(
-                                "Failed to extract sim model for test_id=%s",
-                                test_id,
-                            )
-                            await send_queue.put(_log_message_payload(
-                                f"Test not started: sim model extraction failed: {exc}"
-                            ))
-                            continue
-                    if test_model_path is None:
-                        await send_queue.put(_log_message_payload(
-                            "Test not started: simulation model not found",
-                            training_id=test_id,
-                        ))
-                        continue
-                elif not isinstance(test_method, TestMethodDataset):
-                    await send_queue.put(_log_message_payload(
-                        "Test not started: unsupported testing method",
-                        training_id=test_id,
-                    ))
-                    continue
-
-                try:
-                    workflow = TestingWorkflow(
-                        test_id=test_id,
-                        test_controller=test_controller,
-                        model_path=test_model_path,
-                        rng_key=jax.random.PRNGKey(0),
-                    )
-                except Exception as exc:
-                    logger.exception(
-                        "Failed to initialize testing workflow for test_id=%s",
-                        test_id,
-                    )
-                    await send_queue.put(_log_message_payload(
-                        f"Test not started: initialization failed: {exc}",
-                        training_id=test_id,
-                    ))
-                    if test_model_tmpdir is not None:
-                        test_model_tmpdir.cleanup()
-                    continue
-                stop_event = threading.Event()
-                sink = CallbackTestingTaskSink(thread_safe_send)
-                _test_tmpdir_ref = test_model_tmpdir
-
-                async def run_testing(
-                    wf: TestingWorkflow = workflow,
-                    s: CallbackTestingTaskSink = sink,
-                    ev: threading.Event = stop_event,
-                    td: tempfile.TemporaryDirectory | None = _test_tmpdir_ref,
-                ) -> None:
-                    try:
-                        await asyncio.to_thread(wf.run_test_blocking, s, ev.is_set)
-                    finally:
-                        if td is not None:
-                            td.cleanup()
-
-                task = asyncio.create_task(run_testing(), name=f"testing-{test_id}")
-
-                def _on_test_done(
-                    done_task: asyncio.Task[None],
-                    tid: str = test_id,
-                ) -> None:
-                    testing_tasks.pop(tid, None)
-                    try:
-                        done_task.result()
-                        logger.info("Testing task completed: %s", tid)
-                    except asyncio.CancelledError:
-                        logger.info("Testing task cancelled: %s", tid)
-                    except Exception:
-                        logger.exception("Testing task failed: %s", tid)
-                        thread_safe_send(_log_message_payload(
-                            f"Testing task '{tid}' failed unexpectedly"
-                        ))
-
-                task.add_done_callback(_on_test_done)
-                testing_tasks[test_id] = TestingTaskState(task=task, stop_event=stop_event)
-                continue
-
-            # ── STOP TESTING ──────────────────────────────────────────────
-            if msg_type == RemoteWorkerServerMessageTypes.STOP_TESTING_MESSAGE.value:
-                try:
-                    stop_msg = StopTestMessage.model_validate(content)
-                except ValidationError as exc:
-                    logger.warning("Invalid StopTestMessage: %s", exc)
-                    await send_queue.put(_log_message_payload(f"Invalid StopTestMessage: {exc}"))
-                    continue
-                task_state = testing_tasks.get(stop_msg.id)
-                if task_state is None:
-                    await send_queue.put(_log_message_payload(
-                        f"No running testing task for id '{stop_msg.id}'"
-                    ))
-                    continue
-                task_state.stop_event.set()
-                continue
-
-            await send_queue.put(_log_message_payload(f"Unsupported message type: {msg_type}"))
-
-    except ConnectionClosed as exc:
-        logger.info(
-            "Websocket closed: %s code=%s reason=%s", remote_addr, exc.code, exc.reason
-        )
+                    _active_workloads.add(start.workload_id)
+                    workload_tasks[start.workload_id] = WorkloadTaskState(task, stop_event)
+                elif msg_type in {
+                    RemoteWorkerServerMessageTypes.STOP_TRAINING_MESSAGE.value,
+                    RemoteWorkerServerMessageTypes.STOP_TESTING_MESSAGE.value,
+                }:
+                    stop = StopWorkloadServer.model_validate(content)
+                    state = workload_tasks.get(stop.workload_id)
+                    if state is None:
+                        raise ValueError(f"No running workload for {stop.workload_id!r}")
+                    state.stop_event.set()
+                else:
+                    raise ValueError(f"Unsupported message type: {msg_type}")
+            except (ValueError, ValidationError) as exc:
+                logger.warning("Invalid worker message: %s", exc)
+                await send_queue.put(_log_message_payload(str(exc)))
+    except ConnectionClosed:
+        logger.info("Websocket closed: %s", remote_addr)
     finally:
-        for tid, ts in list(training_tasks.items()):
-            ts.stop_event.set()
-            logger.info("Stop signal sent to training task '%s' on disconnect", tid)
-        for tid, ts in list(testing_tasks.items()):
-            ts.stop_event.set()
-            logger.info("Stop signal sent to testing task '%s' on disconnect", tid)
+        states = list(workload_tasks.values())
+        for state in states:
+            state.stop_event.set()
+        if states:
+            # A to_thread task must finish before its assets or model resources
+            # can be released. Cancelling it would leave its thread running.
+            await asyncio.gather(*(state.task for state in states), return_exceptions=True)
         sender_task.cancel()
         try:
             await sender_task
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, ConnectionClosed):
             pass
         logger.info("Client disconnected: %s", remote_addr)
 

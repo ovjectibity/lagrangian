@@ -5,6 +5,9 @@ import copy
 from dataclasses import replace
 import logging
 from typing import Any, Callable
+from pathlib import Path
+
+from commondef.records.assets import CheckpointModelType, CheckpointRef
 
 import jax
 import jax.numpy as jnp
@@ -12,19 +15,13 @@ import numpy as np
 
 from commondef import testing_updates_pb2 as pb
 from commondef.ioadapter import PolicyInputState
-from commondef.remoteworkermessages import (
-    RemoteWorkerClientMessageStopTestingMessage,
-    StopTestMessage,
+from commondef.records.workload_graph import (
     TrainingAccelerationMode,
-)
-from commondef.testing import (
     DatasetLibero,
     LiberoDatasetType,
     TestJobController,
     TestMethodCustom,
     TestMethodDataset,
-)
-from commondef.training import (
     ControlModel,
     PolicyInputSpecStandardInputSpec,
     InputStateItemSensors,
@@ -35,7 +32,7 @@ from commondef.training import (
 )
 from datasets.libero.libero import get_task_mjcfs
 from models.mlp import MLPModel
-from models.model import TestingModel
+from models.model import TestingModel, load_checkpoint
 from models.pi0.pi0 import Pi0Model
 from simulator.simulator import MjxSimulator, MujocoSimulator
 from simulator.state import SimulatorState
@@ -115,22 +112,12 @@ class TestingTaskSink(ABC):
     def send_test_updates(self, payload: bytes) -> None:
         pass
 
-    @abstractmethod
-    def send_stop_testing(self, message: StopTestMessage) -> None:
-        pass
-
-
 class CallbackTestingTaskSink(TestingTaskSink):
     def __init__(self, send_message: Callable[[dict[str, Any] | bytes], None]) -> None:
         self._send_message = send_message
 
     def send_test_updates(self, payload: bytes) -> None:
         self._send_message(payload)
-
-    def send_stop_testing(self, message: StopTestMessage) -> None:
-        wrapped = RemoteWorkerClientMessageStopTestingMessage(content=message)
-        self._send_message(wrapped.model_dump(mode="json", by_alias=True))
-
 
 class TestingWorkflow:
     def __init__(
@@ -139,6 +126,7 @@ class TestingWorkflow:
         test_controller: TestJobController,
         model_path: str | None = None,
         rng_key: jax.Array | None = None,
+        checkpoints: dict[str, tuple[CheckpointRef, Path]] | None = None,
     ) -> None:
         self.id = test_id
         self.test_controller = test_controller
@@ -187,6 +175,11 @@ class TestingWorkflow:
             self.model = self._build_model_for_testing(
                 control_model,
                 rng_key=model_rng,
+            )
+
+            load_checkpoint(
+                self.model, control_model.model_type, control_model.model,
+                CheckpointModelType.POLICY, checkpoints or {},
             )
 
             control_spec = self.model.get_control_input_spec()
@@ -327,7 +320,7 @@ class TestingWorkflow:
             content=StandardInputSpec(base_body_name=None, states=[]),
         )
         if isinstance(control_model.model, MLModelVLA):
-            vla_spec = control_model.model.content
+            vla_spec = control_model.model
             return Pi0Model(
                 vla_spec,
                 noise_mlp_spec=None,
@@ -453,8 +446,7 @@ class TestingWorkflow:
                 f"Unsupported testing simulator classes: {simulator_classes}"
             )
 
-        logger.info("Test run finished, sending StopTestingMessage: id=%s", self.id)
-        tx.send_stop_testing(StopTestMessage(id=self.id))
+        logger.info("Test run finished: id=%s", self.id)
 
     def _run_mjx_batched(
         self,
