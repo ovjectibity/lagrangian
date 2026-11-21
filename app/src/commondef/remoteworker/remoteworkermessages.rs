@@ -27,6 +27,7 @@ pub struct WorkloadUpdates {
     pub metrics: Vec<WorkloadUserMetrics>, 
     pub checkpoints: Vec<CheckpointRef>,
     pub camera_frames:  Vec<TrajectoryCameraFrameRef>,
+    pub simulation_models: Vec<SimulationModelRef>,
     pub model_states: Vec<WorkloadSimulationModelTrajectoryState>
 }
 

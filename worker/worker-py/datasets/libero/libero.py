@@ -1,4 +1,6 @@
 import os
+import hashlib
+import shutil
 from importlib.util import find_spec
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -59,6 +61,48 @@ SUPPORTED_DATASETS = {
     "libero_object",
     "libero_spatial",
 }
+
+
+def save_task_model(mjcf: str, directory: Path) -> str:
+    """Save LIBERO's expanded MJCF and copy its resolved file dependencies.
+
+    Robosuite resolves asset file paths before returning get_xml(). Rewrite
+    those references so the exported directory can load on a different node.
+    Unresolved includes or relative assets fail instead of producing a ZIP
+    that silently depends on this worker's installation.
+    """
+    root = ET.fromstring(mjcf)
+    if root.findall(".//include"):
+        raise ValueError("Dataset export requires expanded MJCF includes")
+    compiler = root.find("compiler")
+    directories = dict(compiler.attrib) if compiler is not None else {}
+    directory.mkdir(parents=True, exist_ok=True)
+    copied = {}
+    for node in root.iter():
+        for attribute, value in list(node.attrib.items()):
+            if attribute not in {"file", "fileleft", "fileright", "fileup", "filedown", "filefront", "fileback"}:
+                continue
+            source = Path(value)
+            if not source.is_absolute():
+                option = "meshdir" if node.tag in {"mesh", "skin"} else "texturedir"
+                source = Path(directories.get(option, directories.get("assetdir", ""))) / source
+            if not source.is_absolute():
+                raise ValueError(f"Dataset asset path is not resolved: {value}")
+            source = source.resolve(strict=True)
+            if source not in copied:
+                relative = Path("assets") / (hashlib.sha256(str(source).encode()).hexdigest()[:16] + "_" + source.name)
+                destination = directory / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+                copied[source] = relative.as_posix()
+            node.set(attribute, copied[source])
+    if compiler is not None:
+        for attribute in ("meshdir", "texturedir", "assetdir"):
+            compiler.attrib.pop(attribute, None)
+        compiler.set("strippath", "false")
+    filename = "model.xml"
+    ET.ElementTree(root).write(directory / filename, encoding="utf-8", xml_declaration=True)
+    return filename
 
 
 def couple_panda_gripper_jaws(mjcf: str) -> str:

@@ -59,6 +59,7 @@ class WorkloadUpdates(BaseModel):
     metrics: List[WorkloadUserMetrics]
     checkpoints: List[CheckpointRef]
     camera_frames: List[TrajectoryCameraFrameRef]
+    simulation_models: List[SimulationModelRef]
     model_states: List[WorkloadSimulationModelTrajectoryState]
 
 class RemoteWorkerClientMessageTypes(str, Enum):

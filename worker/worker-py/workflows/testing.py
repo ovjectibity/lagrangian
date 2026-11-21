@@ -6,18 +6,26 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import uuid4
 import logging
+import os
+import zipfile
 from typing import Any, Callable
 from pathlib import Path
 
-from commondef.records.assets import CheckpointModelType, CheckpointRef
+from commondef.records.assets import (
+    CheckpointModelType, CheckpointRef, SimulationModelRef,
+    SimulationModelType, SimulationModelFileType, TrajectoryCameraFrameRef,
+)
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from PIL import Image
 
-from commondef import testing_updates_pb2 as pb
 from commondef.luts import USER_METRICS_LUT, WORKLOAD_STRUCTURE_LUT
-from commondef.records.workload import WorkloadUserMetrics
+from commondef.records.workload import (
+    WorkloadUserMetrics, WorkloadSimulationModelTrajectoryState,
+    WorkloadLogs, LogType, LogStream,
+)
 from commondef.remoteworker.remoteworkermessages import (
     WorkloadUpdates, RemoteWorkerClientMessageTestUpdatesMessage,
 )
@@ -37,11 +45,12 @@ from commondef.records.workload_graph import (
     MLModelVLA,
     StandardInputSpec,
 )
-from datasets.libero.libero import get_task_mjcfs
+from datasets.libero.libero import get_task_mjcfs, save_task_model
 from models.mlp import MLPModel
 from models.model import TestingModel, load_checkpoint, load_reward_function
 from models.pi0.pi0 import Pi0Model
-from simulator.simulator import MjxSimulator, MujocoSimulator
+from simulator.simulator import Simulator, MjxSimulator, MujocoSimulator
+from utils.asset_storage import upload_file
 from simulator.state import SimulatorState
 
 
@@ -52,94 +61,38 @@ Array = jax.Array
 UPDATE_CHUNK_SIZE = 10
 
 
-def _build_stream_bytes(
-    test_id: str,
-    task_sim_states: list[tuple[int, list[list[tuple[Any, Any]]]]],
-    task_frames_u8: list[tuple[int, Any]] | None,
-) -> bytes:
-    """Build a `TestingStreamMessage` from task-major pose and frame updates.
-
-    `task_sim_states` has shape [task][env][t], with each leaf containing an
-    `(xpos, xquat)` pair. `task_frames_u8`, if present, contains one
-    `(task_index, frames)` entry per task with camera output, where `frames`
-    has shape [env, t, camera, height, width, channel]. Protobuf's `bytes`
-    field receives each contiguous raw u8 buffer.
-    """
-    update = pb.TestUpdate(
-        id=test_id,
-        simulation_state=[
-            pb.TaskUpdates(
-                task_index=task_index,
-                environments=[
-                    pb.EnvUpdates(updates=[
-                        pb.ModelForward(
-                            nbody=len(xpos) // 3,
-                            xpos=xpos,
-                            xquat=xquat,
-                        )
-                        for xpos, xquat in env_updates
-                    ])
-                    for env_updates in task_sim_state
-                ],
-            )
-            for task_index, task_sim_state in task_sim_states
-        ],
-    )
-    if task_frames_u8 is not None:
-        state_task_indices = {task_index for task_index, _ in task_sim_states}
-        frame_task_indices: set[int] = set()
-        for task_index, frames_u8 in task_frames_u8:
-            if task_index not in state_task_indices:
-                raise ValueError(
-                    "Camera frames must reference a task present in simulation state"
-                )
-            if task_index in frame_task_indices:
-                raise ValueError("Camera frames may contain only one entry per task")
-            if len(frames_u8.shape) != 6:
-                raise ValueError(
-                    "Camera frames must have shape "
-                    "[env, t, camera, height, width, channel]"
-                )
-            frame_task_indices.add(task_index)
-            nenv, t, ncam, h, w = (int(d) for d in frames_u8.shape[:5])
-            update.frames.add(
-                task_index=task_index,
-                nenv=nenv,
-                t=t,
-                ncam=ncam,
-                h=h,
-                w=w,
-                frames=np.ascontiguousarray(frames_u8).tobytes(),
-            )
-    return pb.TestingStreamMessage(test_update=update).SerializeToString()
-
-
 class TestingTaskSink(ABC):
     @abstractmethod
-    def send_test_updates(self, payload: bytes | WorkloadUpdates) -> None:
+    def send_test_updates(self, payload: WorkloadUpdates) -> None:
         pass
 
 class CallbackTestingTaskSink(TestingTaskSink):
-    def __init__(self, send_message: Callable[[dict[str, Any] | bytes], None]) -> None:
+    def __init__(self, send_message: Callable[[dict[str, Any]], None]) -> None:
         self._send_message = send_message
 
-    def send_test_updates(self, payload: bytes | WorkloadUpdates) -> None:
-        if isinstance(payload, WorkloadUpdates):
-            message = RemoteWorkerClientMessageTestUpdatesMessage(content=payload)
-            self._send_message(message.model_dump(mode="json"))
-        else:
-            self._send_message(payload)
+    def send_test_updates(self, payload: WorkloadUpdates) -> None:
+        message = RemoteWorkerClientMessageTestUpdatesMessage(content=payload)
+        self._send_message(message.model_dump(mode="json"))
+
 
 class TestingWorkflow:
     def __init__(
         self,
-        test_id: str,
+        workload_id: str,
         test_controller: TestJobController,
-        model_path: str | None = None,
+        model_paths: dict[str, str],
+        simulation_models: list[SimulationModelRef],
         rng_key: jax.Array | None = None,
         checkpoints: dict[str, tuple[CheckpointRef, Path]] | None = None,
+        s3_bucket: str | None = None,
     ) -> None:
-        self.id = test_id
+        if not workload_id or workload_id in {".", ".."} or any(c in workload_id for c in ("/", "\\", "\x00")):
+            raise ValueError("Workload ID must be a single path component")
+        self.id = workload_id
+        self._asset_root = Path("/tmp/workload_assets") / workload_id
+        self._s3_bucket = s3_bucket or os.environ.get("S3_BUCKET")
+        self._model_refs: dict[int | None, SimulationModelRef] = {}
+        self._generated_models: dict[int | None, Path] = {}
         self.test_controller = test_controller
         self.simulator_states: dict[int | None, SimulatorState] = {}
 
@@ -153,10 +106,10 @@ class TestingWorkflow:
             ]
             if len(structures) != 1:
                 raise ValueError(f"Expected one testing structure LUT for {method}")
-            structure_id = structures[0]["workload_structure_id"]
+            self._structure_id = structures[0]["workload_structure_id"]
             self._metric_definitions = {
                 row["name"]: row for row in USER_METRICS_LUT.values()
-                if row["workload_structure_id"] == structure_id
+                if row["workload_structure_id"] == self._structure_id
             }
             reward = test_method.content.reward_function if custom else None
             self._reward_input_spec = reward.input_spec if reward is not None else None
@@ -166,10 +119,15 @@ class TestingWorkflow:
                 if state.type == InputStateTypes.INPUT_STATE_SENSORS
                 and state.content == InputStateItemSensors.CAMERAS
             ) if reward is not None else ()
-            task_mjcfs: dict[int, str] = {}
+            task_paths: dict[int | None, str] = {}
             if isinstance(test_method, TestMethodCustom):
-                if model_path is None:
-                    raise ValueError("Custom testing requires a simulation model path")
+                model_id = test_method.content.simulation_model_id
+                matching = [ref for ref in simulation_models if ref.simulation_model_id == model_id]
+                model_path = model_paths.get(model_id)
+                if len(matching) != 1 or model_path is None:
+                    raise ValueError("Custom testing requires its simulation model reference and local path")
+                self._model_refs[None] = matching[0]
+                task_paths[None] = model_path
                 params = test_method.content.test_params
                 control_model = test_method.content.control_model
                 self.num_envs_per_task = int(params.num_parallel_envs)
@@ -184,6 +142,8 @@ class TestingWorkflow:
                 self.num_timesteps = int(params.num_timesteps)
 
                 task_indices = list(params.tasks_index)
+                if not task_indices:
+                    raise ValueError("Dataset testing requires at least one task")
                 if len(task_indices) != len(set(task_indices)):
                     raise ValueError("LIBERO task indices must be unique")
 
@@ -195,8 +155,27 @@ class TestingWorkflow:
                     LiberoDatasetType.LIBEROSPATIAL: "libero_spatial",
                 }
                 dataset_name = dataset_names[params.libero_dataset_type]
+                self._validate_asset_bucket()
                 mjcfs = get_task_mjcfs(task_indices, dataset_name)
-                task_mjcfs = dict(zip(task_indices, mjcfs, strict=True))
+                for task_index, mjcf in zip(task_indices, mjcfs, strict=True):
+                    model_id = str(uuid4())
+                    directory = self._asset_root / "models" / model_id
+                    filename = save_task_model(mjcf, directory)
+                    archive = directory / f"m_{model_id}.zip"
+                    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+                        for path in sorted(directory.rglob("*")):
+                            if path.is_file() and path != archive:
+                                bundle.write(path, path.relative_to(directory).as_posix())
+                    now = datetime.now(timezone.utc)
+                    self._model_refs[task_index] = SimulationModelRef(
+                        simulation_model_id=model_id, created_at=now, updated_at=now,
+                        name=f"{dataset_name} task {task_index}",
+                        uri_path=self._asset_uri(f"models/{model_id}/m_{model_id}.zip"),
+                        model_type=SimulationModelType.MJCF,
+                        file_type=SimulationModelFileType.ZIP, base_file_name=filename,
+                    )
+                    self._generated_models[task_index] = archive
+                    task_paths[task_index] = str(directory / filename)
             else:
                 raise ValueError("Unsupported testing method")
             if self.num_envs_per_task < 1:
@@ -227,111 +206,46 @@ class TestingWorkflow:
             )
             mode = self.test_controller.acceleration_mode
 
-            def initialize_simulator_state(
-                *,
-                source_model_path: str | None = None,
-                mjcf: str | None = None,
-            ) -> SimulatorState:
+            for task_index, path in task_paths.items():
+                mjx_data = mjx_model = None
                 if mode == TrainingAccelerationMode.MLGPUSIMULATIONGPU:
-                    (
-                        mjx_data,
-                        mjx_model,
-                        mujoco_data,
-                        mujoco_model,
-                    ) = MjxSimulator.init(
-                        model_path=source_model_path,
-                        mjcf=mjcf,
-                        nworld=self.num_envs_per_task,
+                    simulator_class = MjxSimulator
+                    mjx_data, mjx_model, mujoco_data, mujoco_model = MjxSimulator.init(
+                        model_path=path, nworld=self.num_envs_per_task,
                     )
-                    contact_sensor_addresses, contact_body_pairs = (
-                        MjxSimulator._get_contact_pair_sensor_metadata(mujoco_model)
-                    )
-                    return SimulatorState(
-                        simulator_class=MjxSimulator,
-                        mjx_data=mjx_data,
-                        mjx_model=mjx_model,
-                        mujoco_data=mujoco_data,
-                        mujoco_model=mujoco_model,
-                        contact_sensor_addresses=jnp.asarray(
-                            contact_sensor_addresses,
-                            dtype=jnp.int32,
-                        ),
-                        contact_body_pairs=jnp.asarray(
-                            contact_body_pairs,
-                            dtype=jnp.int32,
-                        ),
-                    )
-                if mode in (
+                elif mode in (
                     TrainingAccelerationMode.MLCPUSIMULATIONCPU,
                     TrainingAccelerationMode.MLGPUSIMULATIONCPU,
                 ):
-                    mujoco_data, mujoco_model = MujocoSimulator.init(
-                        model_path=source_model_path,
-                        mjcf=mjcf,
-                    )
-                    contact_sensor_addresses, contact_body_pairs = (
-                        MujocoSimulator._get_contact_pair_sensor_metadata(mujoco_model)
-                    )
-                    return SimulatorState(
-                        simulator_class=MujocoSimulator,
-                        mujoco_data=mujoco_data,
-                        mujoco_model=mujoco_model,
-                        contact_sensor_addresses=contact_sensor_addresses,
-                        contact_body_pairs=contact_body_pairs,
-                    )
-                raise ValueError(
-                    f"Unsupported local testing acceleration mode: {mode}"
-                )
-
-            def initialize_render_context(
-                simulator_state: SimulatorState,
-                nworld: int,
-            ) -> None:
-                simulator_class = simulator_state.simulator_class
-                mujoco_model = simulator_state.mujoco_model
-                if mujoco_model.ncam == 0:
-                    raise ValueError(
-                        "Control input spec requests Cameras, but the model has no cameras"
-                    )
-                if simulator_class is MjxSimulator:
-                    render_ctx = MjxSimulator.get_render_context(
-                        mujoco_model,
-                        nworld=nworld,
-                    )
-                    simulator_state.render_ctx = render_ctx
-                    simulator_state.render_ctx_pytree = render_ctx.pytree()
+                    simulator_class = MujocoSimulator
+                    mujoco_data, mujoco_model = MujocoSimulator.init(model_path=path)
                 else:
-                    simulator_state.render_ctx = (
-                        MujocoSimulator.get_render_context(mujoco_model)
-                    )
+                    raise ValueError(f"Unsupported testing acceleration mode: {mode}")
 
-            if isinstance(test_method, TestMethodCustom):
-                simulator_state = initialize_simulator_state(
-                    source_model_path=model_path,
+                addresses, body_pairs = simulator_class._get_contact_pair_sensor_metadata(mujoco_model)
+                if simulator_class is MjxSimulator:
+                    addresses = jnp.asarray(addresses, dtype=jnp.int32)
+                    body_pairs = jnp.asarray(body_pairs, dtype=jnp.int32)
+                state = SimulatorState(
+                    simulator_class=simulator_class,
+                    mujoco_data=mujoco_data, mujoco_model=mujoco_model,
+                    mjx_data=mjx_data, mjx_model=mjx_model,
+                    contact_sensor_addresses=addresses, contact_body_pairs=body_pairs,
                 )
-                self.simulator_states[None] = simulator_state
-                if self._camera_state_indices or self._reward_camera_indices:
-                    initialize_render_context(
-                        simulator_state,
-                        nworld=self.num_envs_per_task,
-                    )
-            else:
-                for task_index, mjcf in task_mjcfs.items():
-                    simulator_state = initialize_simulator_state(mjcf=mjcf)
-                    self.simulator_states[task_index] = simulator_state
+                self.simulator_states[task_index] = state
+                if int(mujoco_model.ncam) == 0:
                     if self._camera_state_indices or self._reward_camera_indices:
-                        initialize_render_context(
-                            simulator_state,
-                            nworld=self.num_envs_per_task,
-                        )
-                    logger.info(
-                        "Initialized LIBERO task simulator: id=%s task_index=%s "
-                        "num_envs=%s acceleration=%s",
-                        self.id,
-                        task_index,
-                        self.num_envs_per_task,
-                        mode,
+                        raise ValueError("Input specs request cameras but the simulation model has none")
+                    continue
+                if custom:
+                    self._validate_asset_bucket()
+                if simulator_class is MjxSimulator:
+                    state.render_ctx = MjxSimulator.get_render_context(
+                        mujoco_model, nworld=self.num_envs_per_task,
                     )
+                    state.render_ctx_pytree = state.render_ctx.pytree()
+                else:
+                    state.render_ctx = MujocoSimulator.get_render_context(mujoco_model)
 
             logger.info(
                 "TestingWorkflow initialized: id=%s tasks=%s "
@@ -406,12 +320,46 @@ class TestingWorkflow:
             states[index] = replace(states[index], content=camera_frames)
         return replace(state, content=replace(state.content, states=states))
 
-    def _send_metric(
-        self, tx: TestingTaskSink, name: str,
-        coordinates: list[list[int]], values: list[float],
+    def _validate_asset_bucket(self) -> None:
+        if not self._s3_bucket or "/" in self._s3_bucket:
+            raise ValueError("Configure S3_BUCKET with a bucket name for worker-generated assets")
+
+    def _asset_uri(self, key: str) -> str:
+        return f"s3://{self._s3_bucket}/worker/{self.id}/{key}"
+
+    def _send_update(
+        self, tx: TestingTaskSink, *, logs: list[WorkloadLogs] | None = None,
+        metrics: list[WorkloadUserMetrics] | None = None,
+        camera_frames: list[TrajectoryCameraFrameRef] | None = None,
+        model_states: list[WorkloadSimulationModelTrajectoryState] | None = None,
+        simulation_models: list[SimulationModelRef] | None = None,
     ) -> None:
-        if not values:
-            return
+        tx.send_test_updates(WorkloadUpdates(
+            workload_id=self.id, logs=logs or [], metrics=metrics or [], checkpoints=[],
+            camera_frames=camera_frames or [], model_states=model_states or [],
+            simulation_models=simulation_models or [],
+        ))
+
+    def _log(self, tx: TestingTaskSink, text: str) -> None:
+        now = datetime.now(timezone.utc)
+        self._send_update(tx, logs=[WorkloadLogs(
+            workload_id=self.id, created_at=now, log_timestamp=now,
+            log_id=str(uuid4()), log_line_text=text, user_facing=True,
+            log_type=LogType.INFO, stream=LogStream.WORKER,
+        )])
+
+    def _start_task(self, tx: TestingTaskSink, task_index: int | None) -> None:
+        archive = self._generated_models.get(task_index)
+        if archive is not None:
+            ref = self._model_refs[task_index]
+            upload_file(archive, ref.uri_path)
+            # Publish the model before any records reference its generated ID.
+            self._send_update(tx, simulation_models=[ref])
+        self._log(tx, f"Starting testing task {0 if task_index is None else task_index}")
+
+    def _metric_record(
+        self, name: str, coordinates: list[list[int]], values: list[float],
+    ) -> WorkloadUserMetrics:
         definition = self._metric_definitions[name]
         structure = WORKLOAD_STRUCTURE_LUT[definition["workload_structure_id"]]
         dimensions = structure["number_of_state_indices"] - len(
@@ -421,15 +369,88 @@ class TestingWorkflow:
             raise ValueError(f"Metric {name} does not match its LUT coordinates")
         if not np.isfinite(values).all():
             raise ValueError(f"Metric {name} contains non-finite values")
-        metric = WorkloadUserMetrics(
+        return WorkloadUserMetrics(
             metrics_entry_id=str(uuid4()), created_at=datetime.now(timezone.utc),
             workload_id=self.id, metric_id=definition["metric_id"],
             workload_structure_state_values=coordinates, metric_values=values,
         )
-        tx.send_test_updates(WorkloadUpdates(
-            workload_id=self.id, logs=[], metrics=[metric], checkpoints=[],
-            camera_frames=[], model_states=[],
-        ))
+
+    def _send_metric(
+        self, tx: TestingTaskSink, name: str,
+        coordinates: list[list[int]], values: list[float],
+    ) -> None:
+        if values:
+            self._send_update(tx, metrics=[self._metric_record(name, coordinates, values)])
+
+    def _publish_batch(
+        self, tx: TestingTaskSink, task_index: int | None, start_timestep: int,
+        environments: list[int], positions: np.ndarray, quaternions: np.ndarray,
+        frames: np.ndarray | None, rewards: np.ndarray | None,
+    ) -> None:
+        """Publish post-step snapshots, uploading every PNG before its reference.
+
+        Pose arrays are [time, environment, body, component]. Frames, when
+        present, are [time, environment, camera, height, width, RGB]. This runs
+        in the workflow thread, outside JIT and outside the asyncio event loop.
+        """
+        model = self.simulator_states[task_index].mujoco_model
+        ref = self._model_refs[task_index]
+        task_id = 0 if task_index is None else task_index
+        steps, envs = positions.shape[:2]
+        if envs != len(environments) or positions.shape != (steps, envs, int(model.nbody), 3):
+            raise ValueError("Pose batch does not match the model or environment count")
+        if quaternions.shape != (steps, envs, int(model.nbody), 4):
+            raise ValueError("Quaternion batch does not match the pose batch")
+        if frames is not None:
+            if frames.ndim != 6 or frames.shape[:3] != (steps, envs, int(model.ncam)) or frames.shape[-1] != 3:
+                raise ValueError("Camera frame batch does not match the model or pose batch")
+            if not np.isfinite(frames).all():
+                raise ValueError("Camera frames must contain only finite values")
+            if frames.dtype != np.uint8:
+                frames = (np.clip(frames, 0, 1) * 255).round().astype(np.uint8)
+            directory = self._asset_root / "cameras"
+            directory.mkdir(parents=True, exist_ok=True)
+        elif int(model.ncam) > 0:
+            raise ValueError("Post-step camera frames are missing")
+        coordinates = [
+            [task_id, environment, start_timestep + t]
+            for t in range(steps) for environment in environments
+        ]
+        metrics = []
+        if rewards is not None:
+            if rewards.shape != (steps, envs):
+                raise ValueError("Reward batch does not match the pose batch")
+            metrics = [self._metric_record("Reward", coordinates, rewards.reshape(-1).tolist())]
+        states = []
+        cameras = []
+        now = datetime.now(timezone.utc)
+        for t in range(steps):
+            for env_slot, environment in enumerate(environments):
+                coordinate = [task_id, environment, start_timestep + t]
+                states.append(WorkloadSimulationModelTrajectoryState(
+                    created_at=now, sim_model_state_entry_id=str(uuid4()),
+                    workload_id=self.id, workload_structure_id=self._structure_id,
+                    workload_structure_state=coordinate,
+                    simulation_model_id=ref.simulation_model_id,
+                    state=Simulator.get_world_body(model, positions[t, env_slot], quaternions[t, env_slot]),
+                ))
+                if frames is None:
+                    continue
+                for camera_id, frame in enumerate(frames[t, env_slot]):
+                    frame_id = str(uuid4())
+                    filename = f"cf_{frame_id}.png"
+                    path = directory / filename
+                    Image.fromarray(frame).save(path, format="PNG")
+                    uri = self._asset_uri(f"cameras/{filename}")
+                    upload_file(path, uri)
+                    cameras.append(TrajectoryCameraFrameRef(
+                        camera_frame_id=frame_id, workload_id=self.id,
+                        workload_structure_id=self._structure_id,
+                        workload_structure_state=coordinate,
+                        camera_id=str(camera_id), model_camera_name=model.camera(camera_id).name or "",
+                        uri_path=uri, simulation_model_id=ref.simulation_model_id,
+                    ))
+        self._send_update(tx, metrics=metrics, camera_frames=cameras, model_states=states)
 
     def close(self) -> None:
         """Release caller-owned rendering resources, if any."""
@@ -447,13 +468,13 @@ class TestingWorkflow:
                 except Exception:
                     logger.exception(
                         "Failed to close testing render context: "
-                        "test_id=%s task_index=%s",
+                        "workload_id=%s task_index=%s",
                         self.id,
                         task_index,
                     )
                     continue
             logger.info(
-                "Testing render context released: test_id=%s task_index=%s",
+                "Testing render context released: workload_id=%s task_index=%s",
                 self.id,
                 task_index,
             )
@@ -484,6 +505,7 @@ class TestingWorkflow:
             self.num_envs_per_task,
         )
 
+        self._log(tx, "Testing started")
         simulator_classes = {
             simulator_state.simulator_class
             for simulator_state in self.simulator_states.values()
@@ -507,6 +529,7 @@ class TestingWorkflow:
                 f"Unsupported testing simulator classes: {simulator_classes}"
             )
 
+        self._log(tx, "Testing stopped" if should_stop is not None and should_stop() else "Testing completed")
         logger.info("Test run finished: id=%s", self.id)
 
     def _run_mjx_batched(
@@ -530,6 +553,7 @@ class TestingWorkflow:
                 )
                 break
 
+            self._start_task(tx, task_index)
             simulator_class = simulator_state.simulator_class
             if simulator_class is not MjxSimulator:
                 raise ValueError("MJX batched testing requires MjxSimulator state")
@@ -548,11 +572,11 @@ class TestingWorkflow:
             render_ctx = simulator_state.render_ctx_pytree
             contact_sensor_addresses = simulator_state.contact_sensor_addresses
             contact_body_pairs = simulator_state.contact_body_pairs
-            has_cameras = bool(self._camera_state_indices or self._reward_camera_indices)
+            needs_input_cameras = bool(self._camera_state_indices or self._reward_camera_indices)
+            has_cameras = int(simulator_state.mujoco_model.ncam) > 0
             task_id = 0 if task_index is None else task_index
             reward_totals = np.zeros(num_envs, dtype=np.float64)
             entropy_total = 0.0
-            samples = 0
 
             def state_fn(data: Any) -> PolicyInputState:
                 return simulator_class.get_model_state_pure(
@@ -576,7 +600,7 @@ class TestingWorkflow:
                 rng, step_key = jax.random.split(rng)
                 env_keys = jax.random.split(step_key, num_envs)
                 input_state: PolicyInputState = jax.vmap(state_fn)(bd)
-                if has_cameras:
+                if needs_input_cameras:
                     camera_frames, bd = simulator_class.get_model_render(
                         bd, mjx_model, render_ctx
                     )
@@ -619,26 +643,26 @@ class TestingWorkflow:
                     # report it at the chunk boundary before publishing updates.
                     controls = jnp.where(valid, controls, data.ctrl)
                     return (
-                        simulator_class.forward_dyn_pure(data, mjx_model, controls),
+                        simulator_class.forward_dyn_pure(data, mjx_model, controls, refresh_state=True),
                         valid,
                     )
 
                 bd_next, controls_valid = jax.vmap(step)(bd, actions)
+                output_frames = jnp.empty((num_envs, 0, 0, 0, 3), dtype=jnp.float32)
+                if has_cameras:
+                    output_frames, bd_next = simulator_class.get_model_render(
+                        bd_next, mjx_model, render_ctx,
+                    )
                 rewards = jnp.empty((num_envs, 0))
                 if self._reward_fn is not None:
                     reward_post = jax.vmap(reward_state_fn)(bd_next)
                     if self._reward_camera_indices:
-                        reward_cameras, bd_next = simulator_class.get_model_render(
-                            bd_next, mjx_model, render_ctx,
-                        )
                         reward_post = self._with_camera_frames(
-                            reward_post, reward_cameras, self._reward_camera_indices,
+                            reward_post, output_frames, self._reward_camera_indices,
                         )
-                    rewards = jax.vmap(
-                        lambda pre, post: jnp.asarray(self._reward_fn(pre, post)).reshape(())
-                    )(reward_pre, reward_post)
+                    rewards = jax.vmap(self._reward_fn)(reward_pre, reward_post)
                 return (bd_next, rng), (
-                    camera_frames,
+                    output_frames,
                     bd_next.xpos[:, :nbody],
                     bd_next.xquat[:, :nbody],
                     controls_valid, rewards, entropy,
@@ -674,42 +698,21 @@ class TestingWorkflow:
                         f"timestep={timestep}"
                     )
                 start_timestep = num_timesteps - remaining
-                if self._reward_fn is not None:
-                    reward_values = np.asarray(rewards)
-                    reward_totals += reward_values.sum(axis=0)
-                    self._send_metric(
-                        tx, "Reward",
-                        [[task_id, env, start_timestep + t] for t in range(chunk) for env in range(num_envs)],
-                        reward_values.reshape(-1).tolist(),
-                    )
+                reward_values = np.asarray(rewards) if self._reward_fn is not None else None
                 if self._entropy_fn is not None:
                     entropy_values = np.asarray(entropies)
                     if not np.isfinite(entropy_values).all():
                         raise ValueError("Policy entropy contains non-finite values")
                     entropy_total += float(entropy_values.sum())
-                samples += chunk
-                xpos_np = chunk_xpos.reshape(chunk, num_envs, -1).tolist()
-                xquat_np = chunk_xquat.reshape(chunk, num_envs, -1).tolist()
-                sim_state = [
-                    [(xpos_np[t][i], xquat_np[t][i]) for t in range(chunk)]
-                    for i in range(num_envs)
-                ]
-                frames_u8 = None
-                if has_cameras:
-                    frames_u8 = np.asarray(
-                        (camera_frames * 255.0).round().astype(jnp.uint8)
-                    ).transpose(1, 0, 2, 3, 4, 5)
-                tx.send_test_updates(
-                    _build_stream_bytes(
-                        self.id,
-                        [(0 if task_index is None else task_index, sim_state)],
-                        None if frames_u8 is None else [
-                            (0 if task_index is None else task_index, frames_u8)
-                        ],
-                    )
+                self._publish_batch(
+                    tx, task_index, start_timestep, list(range(num_envs)),
+                    np.asarray(chunk_xpos), np.asarray(chunk_xquat),
+                    np.asarray(camera_frames) if has_cameras else None, reward_values,
                 )
+                if reward_values is not None:
+                    reward_totals += reward_values.sum(axis=0)
                 remaining -= chunk
-            if samples == num_timesteps:
+            if remaining == 0:
                 if self._reward_fn is not None:
                     self._send_metric(
                         tx, "Mean trajectory reward",
@@ -743,6 +746,7 @@ class TestingWorkflow:
                 )
                 break
 
+            self._start_task(tx, task_index)
             simulator_class = simulator_state.simulator_class
             if simulator_class is not MujocoSimulator:
                 raise ValueError("Sequential testing requires MujocoSimulator state")
@@ -855,42 +859,32 @@ class TestingWorkflow:
                             f"task_index={task_index} env_index={env_index} "
                             f"timestep={timestep}"
                         )
-                    data = simulator_class.forward_dyn_pure(data, model, controls)
+                    data = simulator_class.forward_dyn_pure(data, model, controls, refresh_state=True)
+                    output_frames = None
+                    if int(model.ncam) > 0:
+                        output_frames, data = simulator_class.get_model_render(data, model, render_ctx)
+                    reward = None
                     if self._reward_fn is not None:
                         reward_post = simulator_class.get_model_state_pure(
                             self._reward_input_spec, data, model,
                             contact_sensor_addresses, contact_body_pairs,
                         )
                         if self._reward_camera_indices:
-                            reward_cameras, data = simulator_class.get_model_render(data, model, render_ctx)
                             reward_post = self._with_camera_frames(
-                                reward_post, reward_cameras, self._reward_camera_indices,
+                                reward_post, output_frames, self._reward_camera_indices,
                             )
                         reward = float(np.asarray(self._reward_fn(reward_pre, reward_post)).reshape(()))
-                        self._send_metric(tx, "Reward", [[task_id, env_index, timestep]], [reward])
                         reward_total += reward
                     if entropy is not None:
                         entropy_total += entropy
                         entropy_count += 1
                     completed += 1
-                    xpos = data.xpos[: model.nbody].reshape(-1).tolist()
-                    xquat = data.xquat[: model.nbody].reshape(-1).tolist()
-                    frames_u8 = (
-                        np.asarray((cameras * 255.0).round().astype(np.uint8))[
-                            None, None
-                        ]
-                        if cameras is not None
-                        else None
-                    )
-                    sim_state = [[(xpos, xquat)]]
-                    tx.send_test_updates(
-                        _build_stream_bytes(
-                            self.id,
-                            [(0 if task_index is None else task_index, sim_state)],
-                            None if frames_u8 is None else [
-                                (0 if task_index is None else task_index, frames_u8)
-                            ],
-                        )
+                    self._publish_batch(
+                        tx, task_index, timestep, [env_index],
+                        np.asarray(data.xpos[: model.nbody])[None, None],
+                        np.asarray(data.xquat[: model.nbody])[None, None],
+                        np.asarray(output_frames)[None, None] if output_frames is not None else None,
+                        np.array([[reward]]) if reward is not None else None,
                     )
 
                 if completed == num_timesteps and self._reward_fn is not None:

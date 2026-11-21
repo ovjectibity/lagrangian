@@ -410,6 +410,7 @@ class Simulator(ABC):
         data: Any,
         model: Any,
         controls: jnp.ndarray | np.ndarray,
+        *, refresh_state: bool = False,
     ) -> Any:
         """Advance a copied physics state without mutating simulator-owned state."""
         pass
@@ -716,10 +717,14 @@ class MjxSimulator(Simulator):
         return data.ctrl.at[..., jnp.asarray(control_addresses)].set(robot_controls)
 
     @staticmethod
-    def forward_dyn_pure(data: Any, model: Any, controls: jnp.ndarray) -> Any:
+    def forward_dyn_pure(
+        data: Any, model: Any, controls: jnp.ndarray,
+        *, refresh_state: bool = False,
+    ) -> Any:
         """Return the next immutable MJX state without mutating ``data``."""
         data_with_controls = data.replace(ctrl=controls.reshape(data.ctrl.shape))
-        return mjx.step(model, data_with_controls)
+        stepped = mjx.step(model, data_with_controls)
+        return mjx.forward(model, stepped) if refresh_state else stepped
 
     @staticmethod
     def get_actuator_input_from_control_input(
@@ -974,11 +979,16 @@ class MujocoSimulator(Simulator):
         return full_controls
 
     @staticmethod
-    def forward_dyn_pure(data: Any, model: Any, controls: np.ndarray) -> Any:
-        """Return a stepped copy of MuJoCo data without mutating ``data``."""
+    def forward_dyn_pure(
+        data: Any, model: Any, controls: np.ndarray,
+        *, refresh_state: bool = False,
+    ) -> Any:
+        """Step a copy, optionally refreshing derived poses/sensors for output."""
         data_next = copy.copy(data)
         data_next.ctrl[:] = controls.reshape(data_next.ctrl.shape)
         mujoco.mj_step(model, data_next)
+        if refresh_state:
+            mujoco.mj_forward(model, data_next)
         return data_next
 
     @staticmethod

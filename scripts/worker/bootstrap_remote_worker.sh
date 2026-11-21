@@ -74,6 +74,7 @@ CUDA_ENABLE_COREDUMP_ON_EXCEPTION=__CUDA_DEBUG_MODE__
 CUDA_COREDUMP_SHOW_PROGRESS=__CUDA_DEBUG_MODE__
 CUDA_DEBUG_MODE=__CUDA_DEBUG_MODE__
 ENV_EOF
+printf 'S3_BUCKET=%s\n' "${S3_BUCKET:-lagrangian-asset-raw-storage}" >>/etc/lagrangian-worker.env
 
 docker run -d --restart unless-stopped \
   --gpus all \

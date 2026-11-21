@@ -64,7 +64,6 @@ from commondef.remoteworker.remoteworkermessages import (
 )
 from commondef.records.assets import CheckpointRef, SimulationModelType
 from commondef.records.workload import LogStream, LogType, WorkloadLogs
-from commondef.records.workload_graph import TestMethodCustom, TestMethodDataset
 from utils.asset_storage import download_file
 from workflows.testing import CallbackTestingTaskSink, TestingWorkflow
 from workflows.training import CallbackTrainingTaskSink, TrainingWorkflow
@@ -206,21 +205,17 @@ def _log_message_payload(
         "content": {
             "workload_id": workload_id, "logs": [log.model_dump(mode="json")],
             "metrics": [], "checkpoints": [], "camera_frames": [], "model_states": [],
+            "simulation_models": [],
         },
     }
 
 
 async def _sender_loop(
     websocket: Any,
-    send_queue: asyncio.Queue[dict[str, Any] | bytes],
+    send_queue: asyncio.Queue[dict[str, Any]],
 ) -> None:
     while True:
         payload = await send_queue.get()
-        # Pre-serialized protobuf updates are sent as raw binary frames; JSON
-        # control/log messages are sent as text frames.
-        if isinstance(payload, (bytes, bytearray)):
-            await websocket.send(payload)
-            continue
         logger.debug("Sending payload: type=%s", payload.get("type"))
         await websocket.send(json.dumps(payload))
 
@@ -238,11 +233,11 @@ async def handle_connection(
         return
 
     workload_tasks: dict[str, WorkloadTaskState] = {}
-    send_queue: asyncio.Queue[dict[str, Any] | bytes] = asyncio.Queue()
+    send_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     sender_task = asyncio.create_task(_sender_loop(websocket, send_queue))
     loop = asyncio.get_running_loop()
 
-    def thread_safe_send(payload: dict[str, Any] | bytes) -> None:
+    def thread_safe_send(payload: dict[str, Any]) -> None:
         loop.call_soon_threadsafe(send_queue.put_nowait, payload)
 
     async def run_workload(
@@ -259,20 +254,12 @@ async def handle_connection(
                 if stop_event.is_set():
                     return
                 if testing:
-                    controller = message.test_graph.test_job_controller
-                    method = controller.test_method
-                    if isinstance(method, TestMethodCustom):
-                        model_path = models.get(method.content.simulation_model_id)
-                        if model_path is None:
-                            raise ValueError("Required testing simulation model reference was not supplied")
-                    elif isinstance(method, TestMethodDataset):
-                        model_path = None
-                    else:
-                        raise ValueError("Unsupported testing method")
                     workflow = TestingWorkflow(
-                        test_id=workload_id, test_controller=controller,
-                        model_path=model_path, checkpoints=checkpoints,
-                        rng_key=jax.random.PRNGKey(0),
+                        workload_id=workload_id,
+                        test_controller=message.test_graph.test_job_controller,
+                        model_paths=models, simulation_models=message.simulation_models,
+                        checkpoints=checkpoints, rng_key=jax.random.PRNGKey(0),
+                        s3_bucket=os.environ.get("S3_BUCKET"),
                     )
                     if not stop_event.is_set():
                         workflow.run_test_blocking(
