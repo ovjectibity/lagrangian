@@ -343,6 +343,11 @@ CREATE TABLE IF NOT EXISTS assets.checkpoint_ref (
         AND 4294967295 >= ALL(workload_structure_state)
         AND array_position(workload_structure_state, NULL) IS NULL
     ),
+    na_indices BIGINT[] NOT NULL DEFAULT ARRAY[]::BIGINT[] CHECK (
+        0 <= ALL(na_indices)
+        AND 4294967295 >= ALL(na_indices)
+        AND array_position(na_indices, NULL) IS NULL
+    ),
     model_type TEXT NOT NULL CHECK (
         model_type IN ('policy', 'value', 'flow_noise')
     ),
@@ -350,6 +355,15 @@ CREATE TABLE IF NOT EXISTS assets.checkpoint_ref (
         jsonb_typeof(model_spec) = 'object'
     )
 );
+
+-- Add checkpoint dimension exclusions to previously initialized DBs.
+ALTER TABLE assets.checkpoint_ref
+    ADD COLUMN IF NOT EXISTS na_indices BIGINT[] NOT NULL
+    DEFAULT ARRAY[]::BIGINT[] CHECK (
+        0 <= ALL(na_indices)
+        AND 4294967295 >= ALL(na_indices)
+        AND array_position(na_indices, NULL) IS NULL
+    );
 
 CREATE TABLE IF NOT EXISTS assets.trajectory_camera_frame_ref (
     camera_frame_id TEXT PRIMARY KEY,

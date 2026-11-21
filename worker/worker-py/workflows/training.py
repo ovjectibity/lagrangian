@@ -397,7 +397,10 @@ class TrainingWorkflow:
                     name=f"{role.value} rollout {coordinate[0]} epoch {coordinate[1]}",
                     uri_path=uri, workload_id=self.id,
                     workload_structure_id=self._update_structure_id,
-                    workload_structure_state=coordinate, model_type=role, model_spec=spec,
+                    workload_structure_state=coordinate,
+                    # Checkpoints describe an update over all rollout samples.
+                    na_indices=[3, 4],
+                    model_type=role, model_spec=spec,
                 ))
         # Publish the set only after every component was saved and uploaded.
         self._send_update(tx, checkpoints=refs)
