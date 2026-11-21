@@ -64,6 +64,7 @@ pub enum WorkloadStatus {
     LaunchFailed,
     Scheduled,
     Ongoing,
+    UserStopped
 }
 
 /// Workload assembled from Postgres metadata and a MongoDB graph.
@@ -86,7 +87,11 @@ pub struct Workload {
     pub status: WorkloadStatus,
     pub workload_graph_id: String,
     pub workload_graph: WorkloadGraph,
+    /// Uploaded and generated models associated with this workload.
+    pub simulation_model_ids: Vec<String>,
     pub tags: Vec<String>,
+    pub name: String,
+    pub description: String,
 }
 
 /// Reduction already computed by the worker for a metric.

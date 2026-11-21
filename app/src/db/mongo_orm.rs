@@ -434,6 +434,19 @@ impl MongoOrm {
         .await
     }
 
+    /// Graph references do not have SQL foreign keys.
+    pub async fn simulation_model_is_referenced(
+        &self,
+        id: &str,
+    ) -> Result<bool> {
+        let count = self.db.collection::<Document>(GRAPHS)
+            .count_documents(doc! { "$or": [
+                { "graph.TrainingGraph.training_job_controller.training_method.content.simulation_model_id": id },
+                { "graph.TestGraph.test_job_controller.test_method.content.simulation_model_id": id },
+            ] }).await?;
+        Ok(count != 0)
+    }
+
     async fn insert_records<T: Serialize>(
         &self,
         collection: &str,

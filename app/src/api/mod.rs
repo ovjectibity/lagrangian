@@ -1,225 +1,478 @@
+//! Authenticated API, shared state and asset download tickets.
+
 pub mod checkpoints;
-pub mod experiments;
 pub mod models;
 pub mod reward_validation;
 pub mod testing;
 pub mod training;
-
-pub use app_proc_macros::route_doc;
+pub mod workloads;
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
+use aws_sdk_s3::Client as S3Client;
+use rocket::Request;
+use rocket::http::Status;
+use rocket::request::{FromRequest, Outcome};
 use rocket::serde::json::Json;
-use rocket::tokio::sync::{broadcast, Mutex as AsyncMutex};
-use rocket::tokio::task::JoinHandle;
+use tokio::sync::{Mutex, broadcast, watch};
 use utoipa::OpenApi;
+use uuid::Uuid;
 
-use crate::commondef::records::workload_graph;
+use crate::commondef::api::apimessages::*;
+use crate::commondef::records::assets::*;
+use crate::commondef::records::model::*;
+use crate::commondef::records::product::User;
+use crate::commondef::records::workload::*;
+use crate::commondef::records::workload_graph::*;
+use crate::commondef::remoteworker::remoteworkermessages::RemoteWorkerClientMessage;
+use crate::db::db_orm::PostgresOrm;
+use crate::db::mongo_orm::MongoOrm;
+use crate::db::{self, validations};
 
-fn has_contact_pairs(
-    input: &workload_graph::PolicyInputSpec,
-) -> bool {
-    use crate::commondef::records::workload_graph::{
-        InputState, InputStateItemSensors, PolicyInputSpec,
-    };
+pub type ApiResult<T> = Result<T, Status>;
 
-    let PolicyInputSpec::StandardInputSpec(spec) = input;
-    spec.states.iter().any(|state| {
-        matches!(
-            state,
-            InputState::InputStateSensors(
-                InputStateItemSensors::ContactPairs
-            )
-        )
-    })
+/// Identity obtained exclusively from an active access key.
+#[derive(Clone)]
+pub struct Authenticated {
+    pub user: User,
+    pub key_id: String,
 }
 
-#[cfg(test)]
-mod policy_input_tests {
-    use super::has_contact_pairs;
-    use crate::commondef::records::workload_graph::{
-        InputState, InputStateItemSensors, PolicyInputSpec,
-        StandardInputSpec,
-    };
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for Authenticated {
+    type Error = ();
 
-    #[test]
-    fn detects_contact_pairs_in_sensor_list() {
-        let mut spec = StandardInputSpec {
-            base_body_name: None,
-            states: vec![InputState::InputStateSensors(
-                InputStateItemSensors::Cameras,
-            )],
+    async fn from_request(
+        request: &'r Request<'_>,
+    ) -> Outcome<Self, Self::Error> {
+        let Some(state) =
+            request.rocket().state::<Arc<ApiState>>()
+        else {
+            return Outcome::Error((
+                Status::ServiceUnavailable,
+                (),
+            ));
         };
-        assert!(!has_contact_pairs(
-            &PolicyInputSpec::StandardInputSpec(spec.clone())
-        ));
-        spec.states.push(InputState::InputStateSensors(
-            InputStateItemSensors::ContactPairs,
-        ));
-        assert!(has_contact_pairs(
-            &PolicyInputSpec::StandardInputSpec(spec)
-        ));
+        let Some(value) = request
+            .headers()
+            .get_one("Authorization")
+            .and_then(|value| value.strip_prefix("Bearer "))
+        else {
+            return Outcome::Error((Status::Unauthorized, ()));
+        };
+        match state.authenticate(value).await {
+            Ok(auth) => Outcome::Success(auth),
+            Err(status) => Outcome::Error((status, ())),
+        }
     }
 }
 
-// ── OpenAPI spec ──────────────────────────────
+/// Dependencies and transient state; durable data lives in the DB.
+pub struct ApiState {
+    pub postgres: Arc<PostgresOrm>,
+    pub mongo: Arc<MongoOrm>,
+    pub s3: S3Client,
+    pub bucket: String,
+    pub jobs: Mutex<HashMap<String, (bool, watch::Sender<bool>)>>,
+    pub events: broadcast::Sender<RemoteWorkerClientMessage>,
+    /// Serializes persistence/publication with history snapshots.
+    pub delivery: Mutex<()>,
+    tickets: Mutex<HashMap<String, (Instant, String, String)>>,
+    downloads: Mutex<HashMap<String, (Instant, String, String)>>,
+}
+
+impl ApiState {
+    /// Construct the API dependencies without contacting S3.
+    pub fn new(
+        postgres: Arc<PostgresOrm>,
+        mongo: Arc<MongoOrm>,
+        s3: S3Client,
+        bucket: String,
+    ) -> Self {
+        let (events, _) = broadcast::channel(64);
+        Self {
+            postgres,
+            mongo,
+            s3,
+            bucket,
+            events,
+            jobs: Mutex::new(HashMap::new()),
+            delivery: Mutex::new(()),
+            tickets: Mutex::new(HashMap::new()),
+            downloads: Mutex::new(HashMap::new()),
+        }
+    }
+
+    async fn authenticate(
+        &self,
+        value: &str,
+    ) -> ApiResult<Authenticated> {
+        let key = self
+            .postgres
+            .get_access_key_by_value(value)
+            .await
+            .map_err(sql_error)?
+            .ok_or(Status::Unauthorized)?;
+        validations::validate_active_access_key(&key)
+            .map_err(|_| Status::Unauthorized)?;
+        let user = self
+            .postgres
+            .get_user(&key.user_id)
+            .await
+            .map_err(sql_error)?
+            .ok_or(Status::Unauthorized)?;
+        Ok(Authenticated {
+            user,
+            key_id: key.access_key_id,
+        })
+    }
+
+    pub(super) async fn authenticate_ticket(
+        &self,
+        key_id: &str,
+    ) -> ApiResult<Authenticated> {
+        let key = self
+            .postgres
+            .get_access_key(key_id)
+            .await
+            .map_err(sql_error)?
+            .ok_or(Status::Unauthorized)?;
+        self.authenticate(&key.access_key_value).await
+    }
+
+    /// Authorize a project before loading dependent resources.
+    pub async fn authorize_project(
+        &self,
+        auth: &Authenticated,
+        id: &str,
+    ) -> ApiResult<()> {
+        let project = self
+            .postgres
+            .get_project(id)
+            .await
+            .map_err(sql_error)?
+            .ok_or(Status::NotFound)?;
+        validations::validate_project_owner(
+            &project.user_id,
+            &auth.user.user_id,
+        )
+        .map_err(|_| Status::Forbidden)
+    }
+
+    /// Resolve and authorize a workload's owning project.
+    pub async fn authorize_workload(
+        &self,
+        auth: &Authenticated,
+        id: &str,
+    ) -> ApiResult<Workload> {
+        let record =
+            db::get_workload(&self.postgres, &self.mongo, id)
+                .await
+                .map_err(internal)?
+                .ok_or(Status::NotFound)?;
+        self.authorize_project(auth, &record.project_id).await?;
+        Ok(record)
+    }
+
+    /// Resolve and authorize a model's owning project.
+    pub async fn authorize_model(
+        &self,
+        auth: &Authenticated,
+        id: &str,
+    ) -> ApiResult<SimulationModelRef> {
+        let record = self
+            .postgres
+            .get_simulation_model_ref(id)
+            .await
+            .map_err(sql_error)?
+            .ok_or(Status::NotFound)?;
+        self.authorize_project(auth, &record.project_id).await?;
+        Ok(record)
+    }
+
+    /// Predefined checkpoints are shared across all users.
+    pub async fn authorize_checkpoint(
+        &self,
+        auth: &Authenticated,
+        id: &str,
+    ) -> ApiResult<CheckpointRef> {
+        let record = self
+            .postgres
+            .get_checkpoint_ref(id)
+            .await
+            .map_err(sql_error)?
+            .ok_or(Status::NotFound)?;
+        if let Some(id) = &record.workload_id {
+            self.authorize_workload(auth, id).await?;
+        }
+        Ok(record)
+    }
+
+    pub(super) async fn download_link(
+        &self,
+        auth: &Authenticated,
+        uri: &str,
+    ) -> ApiResult<String> {
+        let key = self.object_key(uri)?.to_owned();
+        let token = Uuid::new_v4().to_string();
+        let now = Instant::now();
+        let mut links = self.downloads.lock().await;
+        links.retain(|_, (expiry, _, _)| *expiry > now);
+        links.insert(
+            token.clone(),
+            (
+                now + Duration::from_secs(300),
+                auth.key_id.clone(),
+                key,
+            ),
+        );
+        Ok(format!("/api/assets/download/{token}"))
+    }
+
+    pub(super) fn object_key<'a>(
+        &self,
+        uri: &'a str,
+    ) -> ApiResult<&'a str> {
+        uri.strip_prefix(&format!("s3://{}/", self.bucket))
+            .ok_or(Status::InternalServerError)
+    }
+}
+
+/// Map SQL constraints and validation failures to HTTP errors.
+pub(super) fn sql_error(error: sqlx::Error) -> Status {
+    match &error {
+        sqlx::Error::Database(e)
+            if e.code().is_some_and(|code| {
+                matches!(code.as_ref(), "23503" | "23505")
+            }) =>
+        {
+            Status::Conflict
+        }
+        sqlx::Error::Protocol(_) => Status::BadRequest,
+        _ => internal(error),
+    }
+}
+
+pub(super) fn internal(error: impl std::fmt::Display) -> Status {
+    eprintln!("API operation failed: {error}");
+    Status::InternalServerError
+}
 
 #[derive(OpenApi)]
 #[openapi(
     paths(
-        models::get_default_model,
+        workloads::create_project,
+        workloads::list_projects,
+        workloads::delete_project,
+        workloads::list_workloads,
+        workloads::stop_workload,
+        workloads::get_workload_updates,
+        workloads::live_ticket,
+        workloads::live_updates,
         models::list_models,
+        models::get_models,
         models::save_model,
+        models::delete_model,
+        models::download_asset,
         checkpoints::list_checkpoints,
-        checkpoints::get_checkpoint,
-        experiments::list_experiments,
-        experiments::create_experiment,
-        experiments::list_runs,
-        experiments::create_run,
-        experiments::get_run,
-        experiments::get_run_checkpoints,
+        checkpoints::get_workload_checkpoints,
         training::start_training,
-        training::stop_training,
-        training::training_updates,
         testing::start_test,
-        testing::stop_test,
-        testing::test_updates,
     ),
     components(schemas(
-        models::DefaultModelResponse,
-        models::ModelsResponse,
-        models::SaveModelResponse,
-        checkpoints::CheckpointsResponse,
-        checkpoints::CheckpointResponse,
-        experiments::ExperimentsResponse,
-        experiments::ExperimentResponse,
-        experiments::RunsResponse,
-        experiments::RunResponse,
-        experiments::CheckpointsResponse,
-        experiments::CreateExperimentBody,
-        training::StartTrainingBody,
-        training::TrainingStartedResponse,
-        training::TrainingStoppedResponse,
-        testing::StartTestBody,
-        testing::TestStartedResponse,
-        testing::TestStoppedResponse,
-        crate::commondef::records::model::WorldBody,
-        crate::commondef::records::model::Body,
-        crate::commondef::records::model::Geom,
-        crate::commondef::records::model::GeomType,
-        crate::commondef::record
-            ::TrainingExperiment,
-        crate::commondef::record
-            ::TrainingExperimentRun,
-        crate::commondef::record::TrainingRunStatus,
-        crate::commondef::record::ModelReference,
-        crate::commondef::record
-            ::CheckpointReference,
-        crate::commondef::training::MLPModel,
-        crate::commondef::training::VLAModel,
-        workload_graph::ControlModel,
-        workload_graph::ValueModel,
-        workload_graph::MLModel,
-        workload_graph::PolicyInputSpec,
-        workload_graph::PolicyOutputSpec,
-        workload_graph::StandardInputSpec,
-        workload_graph::ProprioceptiveOutputSpec,
-        workload_graph::EEFOutputSpec,
-        workload_graph::InputState,
-        workload_graph::InputStateControllable,
-        workload_graph::InputStateItemControllable,
-        workload_graph::InputStateItemSensors,
-        workload_graph::OutputState,
-        workload_graph::OutputStateItem,
-        workload_graph::XPoseSpec,
-        workload_graph::IOStateXFrame,
-        workload_graph::IOStateXOrientationType,
-        workload_graph::ModelType,
-        workload_graph::CheckpointType,
-        workload_graph::Pretrained,
-        workload_graph::RewardSystem,
-        workload_graph::RewardLanguage,
-        workload_graph::TrainingGraph,
-        workload_graph::TrainingJobController,
-        workload_graph::TrainingMethod,
-        workload_graph::PPOTrainingMethod,
-        workload_graph::TrainingAccelerationMode,
-        workload_graph::ComputeInstance,
-        workload_graph::CheckpointFrequency,
-        workload_graph::ControlOutputMode,
-        workload_graph::FlowMatchingAction,
-        workload_graph::FlowNoiseConfig,
-        workload_graph::TestGraph,
-        workload_graph::TestJobController,
-        workload_graph::TestMethod,
-        workload_graph::CustomTestMethod,
-        workload_graph::CustomTestMethodTestParams,
-        workload_graph::DatasetMethod,
-        workload_graph::Dataset,
-        workload_graph::LiberoDatasetParams,
-        workload_graph::LiberoDatasetType,
-        crate::commondef::testing::StopTestMessage,
-        crate::commondef::testing::TestUpdateMessage,
-        crate::commondef::testing::CameraFrames,
-        crate::commondef::testing::ModelForward,
-        crate::commondef::clientmessages::ClientMessage,
-        crate::commondef::training::StopTrainingMessage,
-        crate::commondef::training
-            ::TrainingUpdatesMessage,
-        crate::commondef::training::TrainingUpdate,
-        crate::commondef::training::TrainingRunState,
-        crate::commondef::training::PPOTrainingRunState,
-        crate::commondef::training::TrainingMetrics,
-        crate::commondef::training::MetricsData,
-    )),
-    tags(
-        (
-            name = "Models",
-            description =
-                "Simulation model management",
-        ),
-        (
-            name = "Checkpoints",
-            description =
-                "Training checkpoint management",
-        ),
-        (
-            name = "Training",
-            description =
-                "Training experiments and runs",
-        ),
-        (
-            name = "Testing",
-            description =
-                "Simulation testing workloads",
-        ),
-    )
+        CreateProjectRequestBody,
+        WorkloadLiveTicketResponseBody,
+        DeleteProjectsRequestBody,
+        CreateProjectResponseBody,
+        GetProjectsResponseBody,
+        ListModelsRequestBody,
+        GetModelsRequestBody,
+        SaveModelRequestBody,
+        DeleteModelsRequestBody,
+        ListModelsResponseBody,
+        GetModelsResponseBody,
+        SaveModelResponseBody,
+        ListCheckpointsRequestBody,
+        GetWorkloadCheckpointsRequestBody,
+        ListCheckpointsResponseBody,
+        GetWorkloadCheckpointsResponseBody,
+        ListWorkloadsRequestBody,
+        ListWorkloadsResponseBody,
+        WorkloadUser,
+        StartTrainingRequestBody,
+        StartTestRequestBody,
+        StartTrainingResponseBody,
+        StartTestResponseBody,
+        StopWorkloadRequestBody,
+        WorkloadUpdatesResponseBody,
+        WorkloadUpdatesServer,
+        WorkloadUpdatesClient,
+        WorkloadStopped,
+        WorkloadStoppedReasonUser,
+        WorkloadUpdateUser,
+        WorkloadLogsUser,
+        WorkloadUserMetricsUser,
+        WorkloadSimulationModelTrajectoryStateUser,
+        TrajectoryCameraFrameRefUser,
+        CheckpointRefUser,
+        SimulationModelRefUser,
+        SimulationModelDataUser,
+        WorkloadGraph,
+        CustomTestMethodTestParams,
+        LiberoDatasetType,
+        LiberoDatasetParams,
+        Dataset,
+        DatasetMethod,
+        CustomTestMethod,
+        TestMethod,
+        TestJobController,
+        TestGraph,
+        IOStateXOrientationType,
+        IOStateXFrame,
+        XPoseSpec,
+        OutputStateItem,
+        InputStateItemControllable,
+        InputStateItemSensors,
+        OutputState,
+        InputStateControllable,
+        InputState,
+        StandardInputSpec,
+        ProprioceptiveOutputSpec,
+        EEFOutputSpec,
+        PolicyOutputSpec,
+        PolicyInputSpec,
+        Pretrained,
+        CheckpointType,
+        ModelType,
+        MLPModelSpec,
+        MLModel,
+        ControlModel,
+        ValueModel,
+        TrainingMethod,
+        FlowMatchingAction,
+        FlowNoiseConfig,
+        ControlOutputMode,
+        PPOTrainingMethod,
+        RewardLanguage,
+        RewardSystem,
+        TrainingAccelerationMode,
+        ComputeInstance,
+        TrainingJobController,
+        TrainingGraph,
+        CheckpointFrequency,
+        SimulationModelType,
+        SimulationModelFileType,
+        SimulationModelRef,
+        CheckpointModelType,
+        CheckpointRef,
+        TrajectoryCameraFrameRef,
+        WorkloadType,
+        LaunchOrigin,
+        WorkloadStatus,
+        Workload,
+        AggregationFunction,
+        WorkloadMethod,
+        UserMetricsLut,
+        WorkloadStructureLut,
+        LogType,
+        LogStream,
+        WorkloadLogs,
+        WorkloadUserMetrics,
+        WorkloadSimulationModelTrajectoryState,
+        GeomType,
+        Geom,
+        Body,
+        WorldBody,
+    ))
 )]
 pub struct ApiDoc;
 
+/// Serve the schema generated from the actual API handlers.
 #[get("/openapi.json")]
-pub async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
-    Json(ApiDoc::openapi())
-}
-
-// ── Shared API state ──────────────────────────
-
-pub struct ApiState {
-    pub training_senders: AsyncMutex<HashMap<String, broadcast::Sender<String>>>,
-    pub training_stops: AsyncMutex<HashMap<String, (JoinHandle<()>, Arc<AtomicBool>)>>,
-    pub simul_senders: AsyncMutex<HashMap<String, broadcast::Sender<Vec<u8>>>>,
-    pub simul_tasks: AsyncMutex<HashMap<String, JoinHandle<()>>>,
-}
-
-impl ApiState {
-    pub fn new() -> Self {
-        ApiState {
-            training_senders: AsyncMutex::new(HashMap::new()),
-            training_stops: AsyncMutex::new(HashMap::new()),
-            simul_senders: AsyncMutex::new(HashMap::new()),
-            simul_tasks: AsyncMutex::new(HashMap::new()),
+pub fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
+    use utoipa::openapi::security::{
+        Http, HttpAuthScheme, SecurityRequirement, SecurityScheme,
+    };
+    let mut document = ApiDoc::openapi();
+    if let Some(components) = document.components.as_mut() {
+        components.add_security_scheme(
+            "access_key",
+            SecurityScheme::Http(Http::new(
+                HttpAuthScheme::Bearer,
+            )),
+        );
+    }
+    for (path, item) in &mut document.paths.paths {
+        if path == "/api/assets/download/{token}"
+            || path == "/api/get_workload_live_updates"
+        {
+            continue;
         }
+        for operation in item.operations.values_mut() {
+            operation.security =
+                Some(vec![SecurityRequirement::new(
+                    "access_key",
+                    Vec::<String>::new(),
+                )]);
+        }
+    }
+    Json(document)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn openapi_contains_all_routes_and_resolves_schema_refs() {
+        fn check_refs(
+            value: &serde_json::Value,
+            root: &serde_json::Value,
+        ) {
+            match value {
+                serde_json::Value::Object(fields) => {
+                    if let Some(reference) = fields
+                        .get("$ref")
+                        .and_then(|v| v.as_str())
+                    {
+                        assert!(
+                            root.pointer(
+                                reference.trim_start_matches('#')
+                            )
+                            .is_some(),
+                            "Missing schema: {reference}"
+                        );
+                    }
+                    for field in fields.values() {
+                        check_refs(field, root);
+                    }
+                }
+                serde_json::Value::Array(values) => {
+                    for value in values {
+                        check_refs(value, root);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let document =
+            serde_json::to_value(openapi_json().into_inner())
+                .unwrap();
+        assert_eq!(
+            document["paths"].as_object().unwrap().len(),
+            17
+        );
+        assert!(
+            document["paths"]["/api/start_training"]["post"]
+                .is_object()
+        );
+        assert!(
+            document["paths"]["/api/delete_model"]["delete"]
+                .is_object()
+        );
+        assert!(document["paths"]["/api/list_projects"]["get"]["security"].is_array());
+        check_refs(&document, &document);
     }
 }

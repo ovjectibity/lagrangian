@@ -79,6 +79,7 @@ class TestingWorkflow:
     def __init__(
         self,
         workload_id: str,
+        project_id: str,
         test_controller: TestJobController,
         model_paths: dict[str, str],
         simulation_models: list[SimulationModelRef],
@@ -168,7 +169,7 @@ class TestingWorkflow:
                                 bundle.write(path, path.relative_to(directory).as_posix())
                     now = datetime.now(timezone.utc)
                     self._model_refs[task_index] = SimulationModelRef(
-                        simulation_model_id=model_id, created_at=now, updated_at=now,
+                        project_id=project_id, simulation_model_id=model_id, created_at=now, updated_at=now,
                         name=f"{dataset_name} task {task_index}",
                         uri_path=self._asset_uri(f"models/{model_id}/m_{model_id}.zip"),
                         model_type=SimulationModelType.MJCF,
@@ -325,7 +326,8 @@ class TestingWorkflow:
             raise ValueError("Configure S3_BUCKET with a bucket name for worker-generated assets")
 
     def _asset_uri(self, key: str) -> str:
-        return f"s3://{self._s3_bucket}/worker/{self.id}/{key}"
+        prefix = "worker/workloads" if key.startswith("cameras/") else "worker"
+        return f"s3://{self._s3_bucket}/{prefix}/{self.id}/{key}"
 
     def _send_update(
         self, tx: TestingTaskSink, *, logs: list[WorkloadLogs] | None = None,

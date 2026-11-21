@@ -1,190 +1,236 @@
-use std::env;
-use std::io::{Cursor, Read as _};
-use std::path::PathBuf;
+//! Project-scoped simulation models and temporary downloads.
 
-use rocket::form::Form;
-use rocket::fs::TempFile;
-use rocket::http::Status;
+use std::io::Cursor;
+use std::sync::Arc;
+
+use rocket::State;
+use rocket::http::{ContentType, Status};
+use rocket::response::stream::ReaderStream;
 use rocket::serde::json::Json;
-use serde::Serialize;
-use utoipa::ToSchema;
+use uuid::Uuid;
 use zip::ZipArchive;
 
-use crate::api::route_doc;
-use crate::commondef::records::model::WorldBody;
-use crate::commondef::record::ModelReference;
-use crate::simulator::mj_simulator::MjSimulator;
-use crate::simulator::Simulator as _;
+use super::{
+    ApiResult, ApiState, Authenticated, internal, sql_error,
+};
+use crate::commondef::api::apimessages::*;
+use crate::commondef::records::assets::SimulationModelRef;
+use crate::workflows;
 
-// ── Response types ───────────────────────────
-
-#[derive(Serialize, ToSchema)]
-pub struct DefaultModelResponse {
-    pub id: String,
-    pub model: WorldBody,
+/// List model metadata belonging to an authorized project.
+#[utoipa::path(get, path = "/api/list_models",
+    params(("project_id" = String, Query, description = "Request filter")),
+    responses((status = 200, body = ListModelsResponseBody)))]
+#[get("/list_models?<project_id>")]
+pub async fn list_models(
+    auth: Authenticated,
+    state: &State<Arc<ApiState>>,
+    project_id: String,
+) -> ApiResult<Json<ListModelsResponseBody>> {
+    state.authorize_project(&auth, &project_id).await?;
+    let mut models = Vec::new();
+    let mut offset = 0;
+    loop {
+        let page = state
+            .postgres
+            .list_simulation_model_refs(
+                &project_id,
+                (500, offset),
+            )
+            .await
+            .map_err(sql_error)?;
+        let count = page.len();
+        models.extend(page.into_iter().map(|r| {
+            SimulationModelRefUser {
+                project_id: r.project_id,
+                simulation_model_id: r.simulation_model_id,
+                name: r.name,
+                model_type: r.model_type,
+                file_type: r.file_type,
+                base_file_name: r.base_file_name,
+            }
+        }));
+        if count < 500 {
+            break;
+        }
+        offset += count as i64;
+    }
+    Ok(Json(ListModelsResponseBody { model_data: models }))
 }
 
-#[derive(Serialize, ToSchema)]
-pub struct ModelsResponse {
-    pub models: Vec<ModelReference>,
+/// Resolve model IDs to authorized temporary app download links.
+#[utoipa::path(get, path = "/api/get_models",
+    params(("model_ids" = Vec<String>, Query, description = "Request filter")),
+    responses((status = 200, body = GetModelsResponseBody)))]
+#[get("/get_models?<model_ids>")]
+pub async fn get_models(
+    auth: Authenticated,
+    state: &State<Arc<ApiState>>,
+    model_ids: Vec<String>,
+) -> ApiResult<Json<GetModelsResponseBody>> {
+    let mut models = Vec::new();
+    for id in model_ids {
+        let model = state.authorize_model(&auth, &id).await?;
+        models.push(model_response(state, &auth, model).await?);
+    }
+    Ok(Json(GetModelsResponseBody { model_refs: models }))
 }
 
-#[derive(Serialize, ToSchema)]
-pub struct SaveModelResponse {
-    pub id: String,
-}
-
-// ── Upload form ──────────────────────────────
-
-#[derive(FromForm)]
-pub struct ModelUploadForm<'r> {
-    pub file: TempFile<'r>,
-}
-
-// ── Handlers ─────────────────────────────────
-
-#[route_doc(tag = "Models", ok = DefaultModelResponse)]
-#[get("/models/default")]
-pub async fn get_default_model() -> Result<Json<DefaultModelResponse>, Status> {
-    let model_path = env::var("TEST_MJCF_MODEL").unwrap_or_default();
-
-    let world_body = rocket::tokio::task::spawn_blocking(move || -> Result<WorldBody, ()> {
-        let sim = MjSimulator::new(model_path).map_err(|e| {
-            println!(
-                "MjSimulator::new \
-                             failed: {:?}",
-                e
-            );
-        })?;
-        sim.get_world_body().ok_or_else(|| {
-            println!("world_body failed");
-        })
+/// Upload a ZIP, then store its project-owned reference.
+#[utoipa::path(post, path = "/api/save_model",
+    request_body = SaveModelRequestBody,
+    responses((status = 200, body = SaveModelResponseBody)))]
+#[post("/save_model", format = "json", data = "<body>")]
+pub async fn save_model(
+    auth: Authenticated,
+    state: &State<Arc<ApiState>>,
+    body: Json<SaveModelRequestBody>,
+) -> ApiResult<Json<SaveModelResponseBody>> {
+    state.authorize_project(&auth, &body.project_id).await?;
+    let body = body.into_inner();
+    let body = tokio::task::spawn_blocking(move || {
+        validate_model_zip(&body)?;
+        Ok::<_, Status>(body)
     })
     .await
-    .map_err(|_| Status::InternalServerError)?
-    .map_err(|_| Status::InternalServerError)?;
-
-    Ok(Json(DefaultModelResponse {
-        id: "default".to_string(),
-        model: world_body,
-    }))
+    .map_err(internal)??;
+    let id = Uuid::new_v4().to_string();
+    let uri = workflows::upload_model(
+        &state.s3,
+        &state.bucket,
+        &body.project_id,
+        &id,
+        body.file_contents,
+    )
+    .await
+    .map_err(internal)?;
+    let now = chrono::Utc::now();
+    state
+        .postgres
+        .create_simulation_model_ref(&SimulationModelRef {
+            project_id: body.project_id,
+            simulation_model_id: id.clone(),
+            created_at: now,
+            updated_at: now,
+            uri_path: uri,
+            name: body.name,
+            base_file_name: body.base_file_name,
+            model_type: body.model_type,
+            file_type: body.file_type,
+        })
+        .await
+        .map_err(sql_error)?;
+    Ok(Json(SaveModelResponseBody { model_id: id }))
 }
 
-#[route_doc(tag = "Models", ok = ModelsResponse)]
-#[get("/models")]
-pub async fn list_models() -> Result<Json<ModelsResponse>, Status> {
-    let models = crate::postgres_orm()
-        .get_all_model_references()
+/// Reject deletion of models referenced by any workload or frame.
+#[utoipa::path(delete, path = "/api/delete_model",
+    request_body = DeleteModelsRequestBody,
+    responses((status = 204), (status = 409)))]
+#[delete("/delete_model", format = "json", data = "<body>")]
+pub async fn delete_model(
+    auth: Authenticated,
+    state: &State<Arc<ApiState>>,
+    body: Json<DeleteModelsRequestBody>,
+) -> ApiResult<Status> {
+    let _delivery = state.delivery.lock().await;
+    for id in &body.model_ids {
+        state.authorize_model(&auth, id).await?;
+        crate::db::validations::validate_model_unreferenced(
+            &state.postgres,
+            &state.mongo,
+            id,
+        )
         .await
-        .map_err(|_| Status::InternalServerError)?;
-    Ok(Json(ModelsResponse { models }))
+        .map_err(|_| Status::Conflict)?;
+    }
+    let mut transaction =
+        state.postgres.pool().begin().await.map_err(sql_error)?;
+    for id in &body.model_ids {
+        sqlx::query("DELETE FROM assets.simulation_model_ref WHERE simulation_model_id = $1")
+            .bind(id).execute(&mut *transaction)
+            .await.map_err(sql_error)?;
+    }
+    transaction.commit().await.map_err(sql_error)?;
+    Ok(Status::NoContent)
 }
 
-#[route_doc(tag = "Models", ok = SaveModelResponse, multipart)]
-#[post("/models/save_model", data = "<form>")]
-pub async fn save_model(
-    mut form: Form<ModelUploadForm<'_>>,
-) -> Result<Json<SaveModelResponse>, Status> {
-    let id = uuid::Uuid::new_v4().to_string();
-
-    let models_dir = env::var("MODELS_DIR").map_err(|_| Status::InternalServerError)?;
-
-    let dest_dir: PathBuf = [models_dir.as_str(), id.as_str()].iter().collect();
-
-    rocket::tokio::fs::create_dir_all(&dest_dir)
+/// Stream an authorized object through the app, never redirecting
+/// to a bucket URL. Download tickets expire after five minutes.
+#[utoipa::path(get, path = "/api/assets/download/{token}",
+    params(("token" = String, Path, description = "Download ticket")),
+    responses((status = 200, body = Vec<u8>), (status = 401)))]
+#[get("/assets/download/<token>")]
+pub async fn download_asset(
+    state: &State<Arc<ApiState>>,
+    token: String,
+) -> ApiResult<
+    impl for<'r> rocket::response::Responder<'r, 'r> + use<>,
+> {
+    let (_, key_id, key) = {
+        let mut links = state.downloads.lock().await;
+        let now = std::time::Instant::now();
+        links.retain(|_, (expiry, _, _)| *expiry > now);
+        links.get(&token).cloned().ok_or(Status::Unauthorized)?
+    };
+    state.authenticate_ticket(&key_id).await?;
+    let response = state
+        .s3
+        .get_object()
+        .bucket(&state.bucket)
+        .key(&key)
+        .send()
         .await
-        .map_err(|_| Status::InternalServerError)?;
-
-    // Persist to a scratch path first; works for
-    // both in-memory and on-disk temp files.
-    let scratch = dest_dir.join("upload.tmp");
-    form.file.persist_to(&scratch).await.map_err(|_| {
-        let _ = std::fs::remove_dir_all(&dest_dir);
-        Status::InternalServerError
-    })?;
-
-    let bytes = rocket::tokio::fs::read(&scratch).await.map_err(|_| {
-        let _ = std::fs::remove_dir_all(&dest_dir);
-        Status::InternalServerError
-    })?;
-
-    let is_zip = bytes.len() >= 4 && bytes[..4] == [0x50, 0x4B, 0x03, 0x04];
-
-    // xml_path: path stored in DB for MuJoCo to load
-    let (xml_path, xml_name) = if is_zip {
-        let cursor = Cursor::new(bytes.as_slice());
-        let mut archive = ZipArchive::new(cursor).map_err(|_| {
-            let _ = std::fs::remove_dir_all(&dest_dir);
-            Status::BadRequest
-        })?;
-
-        // Extract all entries; track root XML path.
-        let mut found_xml: Option<PathBuf> = None;
-        for i in 0..archive.len() {
-            let mut entry = archive.by_index(i).map_err(|_| Status::BadRequest)?;
-            let entry_name = entry.name().to_string();
-            // Skip directory entries
-            if entry_name.ends_with('/') {
-                continue;
-            }
-            let out = dest_dir.join(&entry_name);
-            if let Some(parent) = out.parent() {
-                std::fs::create_dir_all(parent).map_err(|_| Status::InternalServerError)?;
-            }
-            let mut buf = Vec::new();
-            entry
-                .read_to_end(&mut buf)
-                .map_err(|_| Status::BadRequest)?;
-            std::fs::write(&out, &buf).map_err(|_| Status::InternalServerError)?;
-            // A root-level XML is the MJCF entry.
-            if !entry_name.contains('/') && entry_name.ends_with(".xml") && has_mujoco_root(&buf) {
-                found_xml = Some(out);
-            }
-        }
-        let xml = found_xml.ok_or_else(|| {
-            let _ = std::fs::remove_dir_all(&dest_dir);
-            Status::BadRequest
-        })?;
-        let name = xml
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("model.xml")
-            .to_string();
-        let stem = xml.file_stem().and_then(|s| s.to_str()).unwrap_or("model");
-        let zip_dest = dest_dir.join(format!("{stem}.zip"));
-        let _ = rocket::tokio::fs::rename(&scratch, &zip_dest).await;
-        (xml, name)
+        .map_err(internal)?;
+    let content_type = if key.ends_with(".png") {
+        ContentType::PNG
     } else {
-        if !has_mujoco_root(&bytes) {
-            let _ = std::fs::remove_dir_all(&dest_dir);
+        ContentType::ZIP
+    };
+    Ok((
+        content_type,
+        ReaderStream::one(response.body.into_async_read()),
+    ))
+}
+
+pub(super) async fn model_response(
+    state: &ApiState,
+    auth: &Authenticated,
+    model: SimulationModelRef,
+) -> ApiResult<SimulationModelDataUser> {
+    Ok(SimulationModelDataUser {
+        uri_path: state
+            .download_link(auth, &model.uri_path)
+            .await?,
+        project_id: model.project_id,
+        simulation_model_id: model.simulation_model_id,
+        name: model.name,
+        model_type: model.model_type,
+        file_type: model.file_type,
+        base_file_name: model.base_file_name,
+    })
+}
+
+fn validate_model_zip(
+    body: &SaveModelRequestBody,
+) -> ApiResult<()> {
+    let mut archive =
+        ZipArchive::new(Cursor::new(&body.file_contents))
+            .map_err(|_| Status::BadRequest)?;
+    let mut found = false;
+    for i in 0..archive.len() {
+        let entry = archive
+            .by_index(i)
+            .map_err(|_| Status::BadRequest)?;
+        if entry.enclosed_name().is_none() {
             return Err(Status::BadRequest);
         }
-        let original_name = form.file.name().unwrap_or("model").to_string() + ".xml";
-        let dest = dest_dir.join(&original_name);
-        rocket::tokio::fs::rename(&scratch, &dest)
-            .await
-            .map_err(|_| {
-                let _ = std::fs::remove_dir_all(&dest_dir);
-                Status::InternalServerError
-            })?;
-        (dest, original_name)
-    };
-
-    let full_path = xml_path.to_string_lossy().into_owned();
-
-    crate::postgres_orm()
-        .create_model_reference(&id, &xml_name, &full_path, "mjcf")
-        .await
-        .map_err(|_| {
-            let _ = std::fs::remove_dir_all(&dest_dir);
-            Status::InternalServerError
-        })?;
-
-    Ok(Json(SaveModelResponse { id }))
-}
-
-fn has_mujoco_root(content: &[u8]) -> bool {
-    std::str::from_utf8(content)
-        .map(|s| s.contains("<mujoco"))
-        .unwrap_or(false)
+        found |= entry.name() == body.base_file_name
+            && entry.is_file();
+    }
+    if found {
+        Ok(())
+    } else {
+        Err(Status::BadRequest)
+    }
 }

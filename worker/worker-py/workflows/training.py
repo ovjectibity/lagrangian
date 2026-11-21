@@ -356,7 +356,7 @@ class TrainingWorkflow:
         )
 
     def _asset_uri(self, key: str) -> str:
-        return f"s3://{self._s3_bucket}/worker/{self.id}/{key}"
+        return f"s3://{self._s3_bucket}/worker/workloads/{self.id}/{key}"
 
     def _save_checkpoints(self, tx: TrainingTaskSink, coordinate: list[int]) -> None:
         if coordinate == self._last_saved_coordinate:

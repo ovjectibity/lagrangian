@@ -10,28 +10,32 @@
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use aws_config::Region;
 use aws_sdk_ec2::Client as Ec2Client;
 use aws_sdk_ec2::types::{
-    Filter, IamInstanceProfileSpecification, InstanceInterruptionBehavior,
-    InstanceMarketOptionsRequest, InstanceStateName, InstanceType, MarketType, ResourceType,
+    Filter, IamInstanceProfileSpecification,
+    InstanceInterruptionBehavior, InstanceMarketOptionsRequest,
+    InstanceStateName, InstanceType, MarketType, ResourceType,
     SpotInstanceType, SpotMarketOptions, Tag, TagSpecification,
+};
+use aws_sdk_ec2::types::{
+    HttpTokensState, InstanceMetadataOptionsRequest,
 };
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use tokio::time::sleep;
 
-use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
-use crate::commondef::records::workload_graph::{
-    TestGraph, TrainingJobController,
+use crate::commondef::remoteworker::remoteworkermessages::{
+    RemoteWorkerClientMessage, RemoteWorkerServerMessage,
+    StopWorkloadWorker,
 };
-use crate::commondef::training::Checkpoint;
 use crate::workflows::common_worker_controller::{
     CommonWorkerController, CommonWorkerControllerConfig, Result,
 };
+use tokio::sync::{mpsc, oneshot, watch};
 
 fn skip_instance_launch_terminate() -> bool {
     matches!(
@@ -68,15 +72,19 @@ impl Default for RemoteWorkerControllerConfig {
             security_group_ids: Vec::new(),
             key_name: None,
             iam_instance_profile_arn: None,
-            instance_name_tag: "lagrangian-training-worker".to_string(),
+            instance_name_tag: "lagrangian-training-worker"
+                .to_string(),
             spot_max_price_usd: None,
             worker_image_uri: String::new(),
-            worker_container_name: "lagrangian-training-worker".to_string(),
+            worker_container_name: "lagrangian-training-worker"
+                .to_string(),
             worker_port: 8765,
             worker_ws_path: "/".to_string(),
             worker_shared_secret: String::new(),
             instance_boot_timeout: Duration::from_secs(8 * 60),
-            websocket_connect_timeout: Duration::from_secs(2 * 60),
+            websocket_connect_timeout: Duration::from_secs(
+                2 * 60,
+            ),
         }
     }
 }
@@ -90,7 +98,8 @@ impl RemoteWorkerControllerConfig {
             port: self.worker_port,
             ws_path: self.worker_ws_path.clone(),
             shared_secret: self.worker_shared_secret.clone(),
-            websocket_connect_timeout: self.websocket_connect_timeout,
+            websocket_connect_timeout: self
+                .websocket_connect_timeout,
         }
     }
 }
@@ -107,24 +116,35 @@ pub struct RemoteWorkerController {
 impl RemoteWorkerController {
     /// Creates controller, launches a spot instance, waits for worker bootstrap,
     /// and connects to worker WSS.
-    pub async fn initialize(config: RemoteWorkerControllerConfig) -> Result<Self> {
-        let skip_instance_lifecycle = skip_instance_launch_terminate();
+    pub async fn initialize(
+        config: RemoteWorkerControllerConfig,
+    ) -> Result<Self> {
+        let skip_instance_lifecycle =
+            skip_instance_launch_terminate();
         if !skip_instance_lifecycle && config.ami_id.is_empty() {
-            return Err("RemoteWorkerControllerConfig.ami_id is required".into());
+            return Err(
+                "RemoteWorkerControllerConfig.ami_id is required"
+                    .into(),
+            );
         }
-        if !skip_instance_lifecycle && config.worker_image_uri.is_empty() {
+        if !skip_instance_lifecycle
+            && config.worker_image_uri.is_empty()
+        {
             return Err("RemoteWorkerControllerConfig.worker_image_uri is required".into());
         }
         if config.worker_shared_secret.is_empty() {
             return Err("RemoteWorkerControllerConfig.worker_shared_secret is required".into());
         }
 
-        let shared_cfg = aws_config::from_env()
-            .region(Region::new(config.aws_region.clone()))
-            .load()
-            .await;
+        let shared_cfg = aws_config::defaults(
+            aws_config::BehaviorVersion::latest(),
+        )
+        .region(Region::new(config.aws_region.clone()))
+        .load()
+        .await;
         let ec2 = Ec2Client::new(&shared_cfg);
-        let common = CommonWorkerController::new(config.common_config());
+        let common =
+            CommonWorkerController::new(config.common_config());
         let mut controller = Self {
             common,
             ec2,
@@ -135,22 +155,40 @@ impl RemoteWorkerController {
         };
 
         if controller.skip_instance_lifecycle {
-            let (instance_id, public_dns) = controller.resolve_existing_instance().await?;
+            let (instance_id, public_dns) =
+                controller.resolve_existing_instance().await?;
             controller.instance_id = Some(instance_id);
             controller.instance_public_dns = Some(public_dns);
         } else {
-            let instance_id = controller.launch_spot_instance().await?;
-            let public_dns = controller.wait_until_instance_ready(&instance_id).await?;
-            controller.instance_id = Some(instance_id);
-            controller.instance_public_dns = Some(public_dns);
+            let instance_id =
+                controller.launch_spot_instance().await?;
+            controller.instance_id = Some(instance_id.clone());
+            match controller
+                .wait_until_instance_ready(&instance_id)
+                .await
+            {
+                Ok(public_dns) => {
+                    controller.instance_public_dns =
+                        Some(public_dns)
+                }
+                Err(error) => {
+                    let _ = controller.terminate_instance().await;
+                    return Err(error);
+                }
+            }
         }
 
-        let public_dns = controller
-            .instance_public_dns
-            .clone()
-            .ok_or("Missing public dns; instance is not ready")?;
+        let public_dns =
+            controller.instance_public_dns.clone().ok_or(
+                "Missing public dns; instance is not ready",
+            )?;
         controller.common.set_host(public_dns);
-        controller.common.connect_worker_wss().await?;
+        if let Err(error) =
+            controller.common.connect_worker_wss().await
+        {
+            let _ = controller.terminate_instance().await;
+            return Err(error);
+        }
 
         Ok(controller)
     }
@@ -163,44 +201,15 @@ impl RemoteWorkerController {
         self.instance_public_dns.as_deref()
     }
 
-    pub async fn run_training_job<F>(
+    /// Execute the shared worker protocol with cancellation.
+    pub async fn run_job(
         &mut self,
-        training_id: String,
-        training_controller: TrainingJobController,
-        model_path: Option<String>,
-        checkpoints: Vec<Checkpoint>,
-        on_update: F,
-    ) -> Result<()>
-    where
-        F: FnMut(&WorkerTrainingUpdatesMessage) + Send,
-    {
-        self.common
-            .run_training_job(training_id, training_controller, model_path, checkpoints, on_update)
-            .await
-    }
-
-    pub async fn run_test_job<F>(
-        &mut self,
-        test_id: String,
-        test_graph: TestGraph,
-        model_path: Option<String>,
-        on_update: F,
-    ) -> Result<()>
-    where
-        F: FnMut(Vec<u8>) + Send,
-    {
-        self.common
-            .run_test_job(test_id, test_graph, model_path, on_update)
-            .await
-    }
-
-    pub async fn stop_test(&mut self, test_id: &str) -> Result<()> {
-        self.common.stop_test(test_id).await
-    }
-
-    pub async fn stop_training_and_terminate(&mut self, training_id: &str) -> Result<()> {
-        let _ = self.common.stop_training(training_id).await;
-        self.terminate_instance().await
+        start: RemoteWorkerServerMessage,
+        stop: watch::Receiver<bool>,
+        updates: mpsc::Sender<RemoteWorkerClientMessage>,
+        launched: oneshot::Sender<()>,
+    ) -> Result<StopWorkloadWorker> {
+        self.common.run_job(start, stop, updates, launched).await
     }
 
     pub async fn terminate_instance(&mut self) -> Result<()> {
@@ -223,7 +232,9 @@ impl RemoteWorkerController {
         Ok(())
     }
 
-    async fn resolve_existing_instance(&self) -> Result<(String, String)> {
+    async fn resolve_existing_instance(
+        &self,
+    ) -> Result<(String, String)> {
         let response = self
             .ec2
             .describe_instances()
@@ -270,14 +281,21 @@ impl RemoteWorkerController {
 
     async fn launch_spot_instance(&self) -> Result<String> {
         let user_data_plain = self.build_user_data_script()?;
-        let user_data_base64 = BASE64.encode(user_data_plain.as_bytes());
+        let user_data_base64 =
+            BASE64.encode(user_data_plain.as_bytes());
 
         let mut req = self
             .ec2
             .run_instances()
             .image_id(self.config.ami_id.clone())
-            // .instance_type(InstanceType::G4dnXlarge)
-            .instance_type(InstanceType::M7iFlexLarge)
+            .instance_type(InstanceType::G4dnXlarge)
+            .metadata_options(
+                InstanceMetadataOptionsRequest::builder()
+                    .http_tokens(HttpTokensState::Required)
+                    // Containerized boto3 must reach the instance role.
+                    .http_put_response_hop_limit(2)
+                    .build(),
+            )
             .min_count(1)
             .max_count(1)
             .user_data(user_data_base64)
@@ -309,12 +327,16 @@ impl RemoteWorkerController {
             req = req.subnet_id(subnet_id.clone());
         }
         if !self.config.security_group_ids.is_empty() {
-            req = req.set_security_group_ids(Some(self.config.security_group_ids.clone()));
+            req = req.set_security_group_ids(Some(
+                self.config.security_group_ids.clone(),
+            ));
         }
         if let Some(key_name) = &self.config.key_name {
             req = req.key_name(key_name.clone());
         }
-        if let Some(profile_arn) = &self.config.iam_instance_profile_arn {
+        if let Some(profile_arn) =
+            &self.config.iam_instance_profile_arn
+        {
             req = req.iam_instance_profile(
                 IamInstanceProfileSpecification::builder()
                     .arn(profile_arn.clone())
@@ -333,8 +355,12 @@ impl RemoteWorkerController {
         Ok(instance_id)
     }
 
-    async fn wait_until_instance_ready(&self, instance_id: &str) -> Result<String> {
-        let deadline = tokio::time::Instant::now() + self.config.instance_boot_timeout;
+    async fn wait_until_instance_ready(
+        &self,
+        instance_id: &str,
+    ) -> Result<String> {
+        let deadline = tokio::time::Instant::now()
+            + self.config.instance_boot_timeout;
         loop {
             if tokio::time::Instant::now() > deadline {
                 return Err(format!(
@@ -364,7 +390,10 @@ impl RemoteWorkerController {
                         InstanceStateName::Running => true,
                         _ => false,
                     });
-                let public_dns = inst.public_dns_name().unwrap_or_default().to_string();
+                let public_dns = inst
+                    .public_dns_name()
+                    .unwrap_or_default()
+                    .to_string();
                 if is_running && !public_dns.is_empty() {
                     return Ok(public_dns);
                 }
@@ -375,50 +404,162 @@ impl RemoteWorkerController {
     }
 
     fn build_user_data_script(&self) -> Result<String> {
-        let registry = self
-            .config
-            .worker_image_uri
-            .split('/')
-            .next()
-            .unwrap_or_default()
-            .to_string();
-        let is_ecr = registry.contains(".dkr.ecr.");
+        let scripts_root =
+            PathBuf::from(env::var("LAGRANGIAN_SCRIPTS_ROOT")?);
+        render_worker_bootstrap(
+            &self.config,
+            &scripts_root,
+            &env::var("S3_BUCKET")?,
+            &env::var("HF_TOKEN").unwrap_or_default(),
+            &env::var("CUDA_DEBUG_MODE")
+                .unwrap_or_else(|_| "0".into()),
+        )
+    }
+}
 
-        let ecr_login = if is_ecr {
-            format!(
-                "aws ecr get-login-password --region {} | docker login --username AWS --password-stdin {}",
-                self.config.aws_region, registry
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn render_worker_bootstrap(
+    config: &RemoteWorkerControllerConfig,
+    scripts_root: &Path,
+    bucket: &str,
+    hf_token: &str,
+    cuda_debug: &str,
+) -> Result<String> {
+    for value in [hf_token, config.worker_shared_secret.as_str()]
+    {
+        if value.contains(['\n', '\r', '\0']) {
+            return Err(
+                "Worker credentials must be single-line values"
+                    .into(),
+            );
+        }
+    }
+    let directory = scripts_root.join("worker");
+    let template = fs::read_to_string(
+        directory.join("bootstrap_remote_worker.sh"),
+    )?;
+    let downloader = fs::read_to_string(
+        directory.join("download_pi0_model.sh"),
+    )?;
+    let registry = config
+        .worker_image_uri
+        .split('/')
+        .next()
+        .ok_or("Invalid worker image URI")?;
+    let login = if registry.contains(".dkr.ecr.") {
+        format!(
+            "aws ecr get-login-password --region {} | \
+             docker login --username AWS --password-stdin {}",
+            shell_quote(&config.aws_region),
+            shell_quote(registry),
+        )
+    } else {
+        "true".into()
+    };
+    let script =
+        template
+            .replace("set -euxo pipefail", "set -euo pipefail")
+            .replace("__ECR_LOGIN__", &login)
+            .replace(
+                "__IMAGE_URI__",
+                &shell_quote(&config.worker_image_uri),
             )
-        } else {
-            "true".to_string()
-        };
-
-        let scripts_root = env::var("LAGRANGIAN_SCRIPTS_ROOT")
-            .map_err(|_| "Missing required env var LAGRANGIAN_SCRIPTS_ROOT")?;
-        let script_path = PathBuf::from(scripts_root).join("bootstrap_remote_worker.sh");
-        let script_template = fs::read_to_string(&script_path).map_err(|e| {
-            format!(
-                "Couldn't read bootstrap remote worker script at {}: {e}",
-                script_path.display()
+            .replace(
+                "__CONTAINER_NAME__",
+                &shell_quote(&config.worker_container_name),
             )
-        })?;
-
-        Ok(script_template
-            .replace("__ECR_LOGIN__", &ecr_login)
-            .replace("__IMAGE_URI__", &self.config.worker_image_uri)
-            .replace("__CONTAINER_NAME__", &self.config.worker_container_name)
-            .replace("__WORKER_PORT__", &self.config.worker_port.to_string())
+            .replace(
+                "__WORKER_PORT__",
+                &config.worker_port.to_string(),
+            )
             .replace(
                 "__WORKER_SHARED_SECRET__",
-                &self.config.worker_shared_secret,
-            ))
+                &config.worker_shared_secret,
+            )
+            .replace(
+                "export HF_TOKEN=__HF_TOKEN__",
+                &format!(
+                    "export HF_TOKEN={}",
+                    shell_quote(hf_token),
+                ),
+            )
+            .replace("__HF_TOKEN__", hf_token)
+            .replace(
+                "__CUDA_DEBUG_MODE__",
+                if cuda_debug == "1" { "1" } else { "0" },
+            );
+    let script = format!(
+        "#!/bin/bash\nset -euo pipefail\nexport S3_BUCKET={}\n\
+         cat >/tmp/download_pi0_model.sh <<'LAGRANGIAN_PI0_DOWNLOAD'\n\
+         {}\nLAGRANGIAN_PI0_DOWNLOAD\n{}",
+        shell_quote(bucket),
+        downloader,
+        script.strip_prefix("#!/bin/bash\n").unwrap_or(&script),
+    );
+    if script.len() > 16_384 {
+        return Err(
+            "Worker user data exceeds the EC2 size limit".into(),
+        );
+    }
+    Ok(script)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renders_bootstrap_from_the_worker_script_directory() {
+        let config = RemoteWorkerControllerConfig {
+            worker_image_uri: "registry.local/worker:latest"
+                .into(),
+            worker_shared_secret: "test-secret".into(),
+            ..Default::default()
+        };
+        let script = render_worker_bootstrap(
+            &config,
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../scripts"),
+            "test-bucket",
+            "hf_test",
+            "0",
+        )
+        .unwrap();
+        assert!(!script.contains("__WORKER_"));
+        assert!(!script.contains("__HF_TOKEN__"));
+        assert!(!script.contains("__CUDA_DEBUG_MODE__"));
+        assert!(
+            script.contains("export S3_BUCKET='test-bucket'")
+        );
+        assert!(
+            script.contains("cat >/tmp/download_pi0_model.sh")
+        );
+        assert!(!script.contains("set -euxo"));
+        let mut child = std::process::Command::new("bash")
+            .arg("-n")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(script.as_bytes())
+            .unwrap();
+        assert!(child.wait().unwrap().success());
     }
 }
 
 impl Drop for RemoteWorkerController {
     fn drop(&mut self) {
         // Best-effort fail-safe notice; explicit `terminate_instance` should be preferred.
-        if self.instance_id.is_some() && !self.skip_instance_lifecycle {
+        if self.instance_id.is_some()
+            && !self.skip_instance_lifecycle
+        {
             eprintln!(
                 "RemoteWorkerController dropped with live instance. \
                  Call `terminate_instance()` explicitly to avoid leaks."

@@ -5,14 +5,14 @@
 use std::env;
 use std::time::Duration;
 
-use crate::commondef::remoteworkermessages::WorkerTrainingUpdatesMessage;
-use crate::commondef::records::workload_graph::{
-    TestGraph, TrainingJobController,
+use crate::commondef::remoteworker::remoteworkermessages::{
+    RemoteWorkerClientMessage, RemoteWorkerServerMessage,
+    StopWorkloadWorker,
 };
-use crate::commondef::training::Checkpoint;
 use crate::workflows::common_worker_controller::{
     CommonWorkerController, CommonWorkerControllerConfig, Result,
 };
+use tokio::sync::{mpsc, oneshot, watch};
 
 #[derive(Debug, Clone)]
 pub struct LocalWorkerControllerConfig {
@@ -41,13 +41,16 @@ pub struct LocalWorkerController {
 
 impl LocalWorkerController {
     pub fn new(config: LocalWorkerControllerConfig) -> Self {
-        let common = CommonWorkerController::new(CommonWorkerControllerConfig {
-            host: config.host,
-            port: config.port,
-            ws_path: config.ws_path,
-            shared_secret: config.shared_secret,
-            websocket_connect_timeout: config.websocket_connect_timeout,
-        });
+        let common = CommonWorkerController::new(
+            CommonWorkerControllerConfig {
+                host: config.host,
+                port: config.port,
+                ws_path: config.ws_path,
+                shared_secret: config.shared_secret,
+                websocket_connect_timeout: config
+                    .websocket_connect_timeout,
+            },
+        );
         Self { common }
     }
 
@@ -72,47 +75,24 @@ impl LocalWorkerController {
                 cfg.ws_path = v;
             }
         }
-        cfg.shared_secret = env::var("REMOTE_WORKER_SHARED_SECRET")
-            .map_err(|_| "Missing required env var REMOTE_WORKER_SHARED_SECRET".to_string())?;
+        cfg.shared_secret = env::var(
+            "REMOTE_WORKER_SHARED_SECRET",
+        )
+        .map_err(|_| {
+            "Missing required env var REMOTE_WORKER_SHARED_SECRET"
+                .to_string()
+        })?;
         Ok(Self::new(cfg))
     }
 
-    pub async fn run_training_job<F>(
+    /// Execute the shared worker protocol with cancellation.
+    pub async fn run_job(
         &mut self,
-        training_id: String,
-        training_controller: TrainingJobController,
-        model_path: Option<String>,
-        checkpoints: Vec<Checkpoint>,
-        on_update: F,
-    ) -> Result<()>
-    where
-        F: FnMut(&WorkerTrainingUpdatesMessage) + Send,
-    {
-        self.common
-            .run_training_job(training_id, training_controller, model_path, checkpoints, on_update)
-            .await
-    }
-
-    pub async fn run_test_job<F>(
-        &mut self,
-        test_id: String,
-        test_graph: TestGraph,
-        model_path: Option<String>,
-        on_update: F,
-    ) -> Result<()>
-    where
-        F: FnMut(Vec<u8>) + Send,
-    {
-        self.common
-            .run_test_job(test_id, test_graph, model_path, on_update)
-            .await
-    }
-
-    pub async fn stop_test(&mut self, test_id: &str) -> Result<()> {
-        self.common.stop_test(test_id).await
-    }
-
-    pub async fn stop_training(&mut self, training_id: &str) -> Result<()> {
-        self.common.stop_training(training_id).await
+        start: RemoteWorkerServerMessage,
+        stop: watch::Receiver<bool>,
+        updates: mpsc::Sender<RemoteWorkerClientMessage>,
+        launched: oneshot::Sender<()>,
+    ) -> Result<StopWorkloadWorker> {
+        self.common.run_job(start, stop, updates, launched).await
     }
 }

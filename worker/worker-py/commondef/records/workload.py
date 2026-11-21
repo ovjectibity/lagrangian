@@ -58,6 +58,7 @@ class WorkloadStatus(str, Enum):
     LAUNCHFAILED = 'launch_failed'
     SCHEDULED = 'scheduled'
     ONGOING = 'ongoing'
+    USERSTOPPED = 'user_stopped'
 
 class Workload(BaseModel):
     """
@@ -76,7 +77,11 @@ class Workload(BaseModel):
     status: WorkloadStatus
     workload_graph_id: str
     workload_graph: WorkloadGraph
+    simulation_model_ids: List[str]
+    '\n    Uploaded and generated models associated with this workload.\n    '
     tags: List[str]
+    name: str
+    description: str
 
 class LogType(str, Enum):
     """

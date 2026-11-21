@@ -51,6 +51,7 @@ class SimulationModelRef(BaseModel):
     """
     Reference to a stored simulation model.
     """
+    project_id: str
     simulation_model_id: str
     created_at: AwareDatetime
     updated_at: AwareDatetime

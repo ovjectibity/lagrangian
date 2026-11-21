@@ -17,9 +17,6 @@ pub mod db;
 pub mod simulator;
 pub mod workflows;
 
-// ── Project/User constants ──────────────────
-pub const PROJECT_ID: &str = "1";
-
 // ── Globals ─────────────────────────────────
 
 pub type RemoteWorkerSlot = Arc<
@@ -36,36 +33,17 @@ static REMOTE_WORKER_SLOT: OnceLock<RemoteWorkerSlot> =
 static REMOTE_WORKER_SHUTDOWN_TASK_STARTED: OnceLock<()> =
     OnceLock::new();
 
-static POSTGRES_ORM: OnceLock<Arc<PostgresOrm>> =
-    OnceLock::new();
-static MONGO_ORM: OnceLock<Arc<MongoOrm>> =
-    OnceLock::new();
-
 // ── Global accessors ────────────────────────
 
-pub fn remote_worker_slot()
--> &'static RemoteWorkerSlot {
-    REMOTE_WORKER_SLOT.get_or_init(|| {
-        Arc::new(AsyncMutex::new(None))
-    })
-}
-
-pub fn postgres_orm() -> &'static Arc<PostgresOrm> {
-    POSTGRES_ORM.get()
-        .expect("PostgresOrm not initialised")
-}
-
-pub fn mongo_orm() -> &'static Arc<MongoOrm> {
-    MONGO_ORM.get()
-        .expect("MongoOrm not initialised")
+pub fn remote_worker_slot() -> &'static RemoteWorkerSlot {
+    REMOTE_WORKER_SLOT
+        .get_or_init(|| Arc::new(AsyncMutex::new(None)))
 }
 
 // ── Remote worker helpers ────────────────────
 
 pub fn ensure_remote_worker_shutdown_hook() {
-    if REMOTE_WORKER_SHUTDOWN_TASK_STARTED
-        .set(()).is_err()
-    {
+    if REMOTE_WORKER_SHUTDOWN_TASK_STARTED.set(()).is_err() {
         return;
     }
 
@@ -74,9 +52,7 @@ pub fn ensure_remote_worker_shutdown_hook() {
         if tokio::signal::ctrl_c().await.is_ok() {
             let mut guard = slot.lock().await;
             if let Some(worker) = guard.as_mut() {
-                let _ = worker
-                    .terminate_instance()
-                    .await;
+                let _ = worker.terminate_instance().await;
             }
             *guard = None;
         }
@@ -94,41 +70,38 @@ pub fn build_remote_worker_config()
         workflows::remote_worker_controller
         ::RemoteWorkerControllerConfig::default();
 
-    if let Ok(region) =
-        env::var("REMOTE_WORKER_AWS_REGION")
-    {
+    if let Ok(region) = env::var("REMOTE_WORKER_AWS_REGION") {
         if !region.is_empty() {
             cfg.aws_region = region;
         }
     }
-    cfg.ami_id = env::var("REMOTE_WORKER_AMI_ID")
+    cfg.ami_id =
+        env::var("REMOTE_WORKER_AMI_ID").map_err(|_| {
+            "Missing required env var \
+             REMOTE_WORKER_AMI_ID"
+                .to_string()
+        })?;
+    cfg.worker_image_uri = env::var("REMOTE_WORKER_IMAGE_URI")
         .map_err(|_| {
             "Missing required env var \
-             REMOTE_WORKER_AMI_ID".to_string()
+             REMOTE_WORKER_IMAGE_URI"
+                .to_string()
         })?;
-    cfg.worker_image_uri =
-        env::var("REMOTE_WORKER_IMAGE_URI")
-        .map_err(|_| {
-            "Missing required env var \
-             REMOTE_WORKER_IMAGE_URI".to_string()
-        })?;
-    cfg.worker_shared_secret =
-        env::var("REMOTE_WORKER_SHARED_SECRET")
-        .map_err(|_| {
-            "Missing required env var \
-             REMOTE_WORKER_SHARED_SECRET".to_string()
-        })?;
+    cfg.worker_shared_secret = env::var(
+        "REMOTE_WORKER_SHARED_SECRET",
+    )
+    .map_err(|_| {
+        "Missing required env var \
+             REMOTE_WORKER_SHARED_SECRET"
+            .to_string()
+    })?;
 
-    if let Ok(v) =
-        env::var("REMOTE_WORKER_SUBNET_ID")
-    {
+    if let Ok(v) = env::var("REMOTE_WORKER_SUBNET_ID") {
         if !v.is_empty() {
             cfg.subnet_id = Some(v);
         }
     }
-    if let Ok(v) =
-        env::var("REMOTE_WORKER_SECURITY_GROUP_IDS")
-    {
+    if let Ok(v) = env::var("REMOTE_WORKER_SECURITY_GROUP_IDS") {
         let values: Vec<String> = v
             .split(',')
             .map(str::trim)
@@ -139,51 +112,39 @@ pub fn build_remote_worker_config()
             cfg.security_group_ids = values;
         }
     }
-    if let Ok(v) =
-        env::var("REMOTE_WORKER_KEY_NAME")
-    {
+    if let Ok(v) = env::var("REMOTE_WORKER_KEY_NAME") {
         if !v.is_empty() {
             cfg.key_name = Some(v);
         }
     }
-    if let Ok(v) = env::var(
-        "REMOTE_WORKER_IAM_INSTANCE_PROFILE_ARN",
-    ) {
+    if let Ok(v) =
+        env::var("REMOTE_WORKER_IAM_INSTANCE_PROFILE_ARN")
+    {
         if !v.is_empty() {
             cfg.iam_instance_profile_arn = Some(v);
         }
     }
-    if let Ok(v) = env::var(
-        "REMOTE_WORKER_INSTANCE_NAME_TAG",
-    ) {
+    if let Ok(v) = env::var("REMOTE_WORKER_INSTANCE_NAME_TAG") {
         if !v.is_empty() {
             cfg.instance_name_tag = v;
         }
     }
-    if let Ok(v) =
-        env::var("REMOTE_WORKER_SPOT_MAX_PRICE_USD")
-    {
+    if let Ok(v) = env::var("REMOTE_WORKER_SPOT_MAX_PRICE_USD") {
         if !v.is_empty() {
             cfg.spot_max_price_usd = Some(v);
         }
     }
-    if let Ok(v) =
-        env::var("REMOTE_WORKER_CONTAINER_NAME")
-    {
+    if let Ok(v) = env::var("REMOTE_WORKER_CONTAINER_NAME") {
         if !v.is_empty() {
             cfg.worker_container_name = v;
         }
     }
-    if let Ok(v) =
-        env::var("REMOTE_WORKER_PORT")
-    {
+    if let Ok(v) = env::var("REMOTE_WORKER_PORT") {
         if let Ok(port) = v.parse::<u16>() {
             cfg.worker_port = port;
         }
     }
-    if let Ok(v) =
-        env::var("REMOTE_WORKER_WS_PATH")
-    {
+    if let Ok(v) = env::var("REMOTE_WORKER_WS_PATH") {
         if !v.is_empty() {
             cfg.worker_ws_path = v;
         }
@@ -201,82 +162,70 @@ fn api_hello() -> &'static str {
 
 #[launch]
 fn rocket() -> _ {
-    let client_dist_dir =
-        env::var("CLIENT_DIST_DIR")
-        .expect("Expected CLIENT_DIST_DIR to be set");
+    let client_dist_dir = env::var("CLIENT_DIST_DIR")
+        .unwrap_or_else(|_| {
+            format!(
+                "{}/../client/build",
+                env!("CARGO_MANIFEST_DIR")
+            )
+        });
 
     rocket::build()
-        .attach(AdHoc::on_liftoff(
-            "DB Init",
-            |_rocket| Box::pin(async move {
-                match env::var("DATABASE_URL") {
-                    Ok(url) => {
-                        match PostgresOrm::new(&url).await {
-                            Ok(orm) => {
-                                let _ = POSTGRES_ORM
-                                    .set(Arc::new(orm));
-                                println!(
-                                    "PostgresOrm initialised"
-                                );
-                            }
-                            Err(e) => println!(
-                                "WARNING: PostgresOrm \
-                                 init failed: {:?}", e
-                            ),
-                        }
+        .attach(AdHoc::try_on_ignite("API dependencies", |rocket| {
+            Box::pin(async move {
+                let dependencies = async {
+                    let postgres = PostgresOrm::new(
+                        &env::var("DATABASE_URL")?,
+                    ).await?;
+                    let mongo = MongoOrm::new(
+                        &env::var("MONGODB_URI")?,
+                    ).await?;
+                    let bucket = env::var("S3_BUCKET")?;
+                    let config = aws_config::defaults(
+                        aws_config::BehaviorVersion::latest(),
+                    ).load().await;
+                    Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
+                        api::ApiState::new(
+                            Arc::new(postgres), Arc::new(mongo),
+                            aws_sdk_s3::Client::new(&config), bucket,
+                        ),
+                    )
+                }.await;
+                match dependencies {
+                    Ok(state) => Ok(rocket.manage(Arc::new(state))),
+                    Err(error) => {
+                        eprintln!("API initialization failed: {error}");
+                        Err(rocket)
                     }
-                    Err(_) => println!(
-                        "WARNING: DATABASE_URL not set; \
-                         PostgresOrm unavailable"
-                    ),
                 }
-                match env::var("MONGODB_URI") {
-                    Ok(uri) => {
-                        match MongoOrm::new(&uri).await {
-                            Ok(orm) => {
-                                let _ = MONGO_ORM
-                                    .set(Arc::new(orm));
-                                println!(
-                                    "MongoOrm initialised"
-                                );
-                            }
-                            Err(e) => println!(
-                                "WARNING: MongoOrm \
-                                 init failed: {:?}", e
-                            ),
-                        }
+            })
+        }))
+        .attach(AdHoc::on_shutdown("Stop workloads", |rocket| {
+            Box::pin(async move {
+                if let Some(state) = rocket.state::<Arc<api::ApiState>>() {
+                    for (_, stop) in state.jobs.lock().await.values() {
+                        let _ = stop.send(true);
                     }
-                    Err(_) => println!(
-                        "WARNING: MONGODB_URI not set; \
-                         MongoOrm unavailable"
-                    ),
                 }
-            }),
-        ))
-        .manage(Arc::new(api::ApiState::new()))
+            })
+        }))
         .mount("/api", routes![
-            api_hello,
-            api::openapi_json,
-            api::models::get_default_model,
-            api::models::list_models,
-            api::models::save_model,
+            api_hello, api::openapi_json,
+            api::workloads::create_project,
+            api::workloads::list_projects,
+            api::workloads::delete_project,
+            api::workloads::list_workloads,
+            api::workloads::stop_workload,
+            api::workloads::get_workload_updates,
+            api::workloads::live_ticket,
+            api::workloads::live_updates,
+            api::models::list_models, api::models::get_models,
+            api::models::save_model, api::models::delete_model,
+            api::models::download_asset,
             api::checkpoints::list_checkpoints,
-            api::checkpoints::get_checkpoint,
-            api::experiments::list_experiments,
-            api::experiments::create_experiment,
-            api::experiments::list_runs,
-            api::experiments::create_run,
-            api::experiments::get_run,
-            api::experiments::get_run_checkpoints,
+            api::checkpoints::get_workload_checkpoints,
             api::training::start_training,
-            api::training::stop_training,
-            api::training::training_updates,
             api::testing::start_test,
-            api::testing::stop_test,
-            api::testing::test_updates,
         ])
-        .mount(
-            "/",
-            FileServer::from(client_dist_dir).rank(1),
-        )
+        .mount("/", FileServer::from(client_dist_dir).rank(1))
 }

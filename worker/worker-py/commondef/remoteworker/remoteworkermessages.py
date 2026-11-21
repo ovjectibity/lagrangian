@@ -12,12 +12,14 @@ from pydantic import BaseModel
 from typing import List, Literal, Union
 
 class StartTestWorkerMessage(BaseModel):
+    project_id: str
     workload_id: str
     test_graph: TestGraph
     checkpoints: List[CheckpointRef]
     simulation_models: List[SimulationModelRef]
 
 class StartTrainingWorkerMessage(BaseModel):
+    project_id: str
     workload_id: str
     training_graph: TrainingGraph
     checkpoints: List[CheckpointRef]

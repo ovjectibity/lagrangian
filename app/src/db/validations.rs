@@ -670,6 +670,8 @@ pub async fn validate_workload(
         &record.workload_graph,
     )
     .await?;
+    validate_workload_model_associations(postgres, record)
+        .await?;
     validate_graph_checkpoints(postgres, &record.workload_graph)
         .await
 }
@@ -1126,4 +1128,150 @@ fn require(condition: bool, message: &str) -> Result<()> {
 
 fn invalid(message: &str) -> sqlx::Error {
     sqlx::Error::Protocol(message.into())
+}
+
+/// API ownership is checked independently of record integrity.
+pub fn validate_project_owner(
+    owner: &str,
+    authenticated_user: &str,
+) -> Result<()> {
+    require(owner == authenticated_user, "Project access denied")
+}
+
+/// Only active access keys can authorize requests or tickets.
+pub fn validate_active_access_key(
+    key: &crate::commondef::records::product::AccessKey,
+) -> Result<()> {
+    use crate::commondef::records::product::AccessKeyStatus;
+    require(
+        key.status == AccessKeyStatus::Active,
+        "Access key is inactive",
+    )
+}
+
+/// An asset identifier must be safe as one S3 path component.
+pub fn validate_asset_identifier(id: &str) -> Result<()> {
+    require(
+        !id.is_empty()
+            && id.chars().all(|c| {
+                c.is_ascii_alphanumeric() || c == '-' || c == '_'
+            }),
+        "Invalid asset identifier",
+    )
+}
+
+/// Worker references must use the allocated object, not an
+/// arbitrary object the app's credentials can access.
+pub fn validate_worker_asset_uri(
+    actual: &str,
+    bucket: &str,
+    expected_key: &str,
+) -> Result<()> {
+    require(
+        actual == format!("s3://{bucket}/{expected_key}"),
+        "Worker asset is outside its allocated path",
+    )
+}
+
+/// Every record in an update belongs to its workload.
+pub fn validate_update_scope(
+    update: &crate::commondef::remoteworker::remoteworkermessages::WorkloadUpdates,
+    workload: &Workload,
+) -> Result<()> {
+    let id = &workload.workload_id;
+    require(
+        &update.workload_id == id
+            && update.logs.iter().all(|r| &r.workload_id == id)
+            && update
+                .metrics
+                .iter()
+                .all(|r| &r.workload_id == id)
+            && update
+                .camera_frames
+                .iter()
+                .all(|r| &r.workload_id == id)
+            && update
+                .model_states
+                .iter()
+                .all(|r| &r.workload_id == id)
+            && update
+                .checkpoints
+                .iter()
+                .all(|r| r.workload_id.as_ref() == Some(id))
+            && update
+                .simulation_models
+                .iter()
+                .all(|r| r.project_id == workload.project_id),
+        "Worker update scope mismatch",
+    )
+}
+
+/// Referenced models cannot be deleted while their consumers exist.
+pub async fn validate_model_unreferenced(
+    postgres: &PostgresOrm,
+    mongo: &MongoOrm,
+    id: &str,
+) -> Result<()> {
+    let referenced: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM workloads.workload
+         WHERE $1 = ANY(simulation_model_ids)) OR EXISTS(
+         SELECT 1 FROM assets.trajectory_camera_frame_ref
+         WHERE simulation_model_id = $1)",
+    )
+    .bind(id)
+    .fetch_one(postgres.pool())
+    .await?;
+    require(!referenced, "Simulation model is in use")?;
+    let referenced = mongo
+        .simulation_model_is_referenced(id)
+        .await
+        .map_err(|error| invalid(&error.to_string()))?;
+    require(!referenced, "Simulation model is used by a graph")
+}
+
+/// Workload model lists include the graph's model, and every
+/// associated reference exists. Authorization belongs to the API.
+pub async fn validate_workload_model_associations(
+    postgres: &PostgresOrm,
+    record: &Workload,
+) -> Result<()> {
+    if let Some(id) =
+        graph_simulation_model_id(&record.workload_graph)
+    {
+        require(
+            record.simulation_model_ids.iter().any(|m| m == id),
+            "Workload model list omits its graph model",
+        )?;
+    }
+    for id in &record.simulation_model_ids {
+        required(
+            postgres.get_simulation_model_ref(id).await?,
+            "Associated simulation model does not exist",
+        )?;
+    }
+    Ok(())
+}
+
+/// Worker-generated models are owned by the executing project.
+pub async fn validate_generated_model_associations(
+    postgres: &PostgresOrm,
+    id: &str,
+    models: &[String],
+) -> Result<()> {
+    let row = required(
+        postgres.workload_row(id).await?,
+        "Workload does not exist",
+    )?;
+    let project: String = row.try_get("project_id")?;
+    for id in models {
+        let model = required(
+            postgres.get_simulation_model_ref(id).await?,
+            "Generated model does not exist",
+        )?;
+        require(
+            model.project_id == project,
+            "Generated model project mismatch",
+        )?;
+    }
+    Ok(())
 }

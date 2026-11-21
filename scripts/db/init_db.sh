@@ -308,15 +308,19 @@ CREATE TABLE IF NOT EXISTS workloads.workload (
     status TEXT NOT NULL CHECK (
         status IN (
             'completed', 'execution_failed', 'launch_failed',
-            'scheduled', 'ongoing'
+            'scheduled', 'ongoing', 'user_stopped'
         )
     ),
     -- Graph documents live in Mongo; the ORM assembles Workload.
     workload_graph_id TEXT NOT NULL,
-    tags TEXT[] NOT NULL CHECK (array_position(tags, NULL) IS NULL)
+    simulation_model_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    tags TEXT[] NOT NULL CHECK (array_position(tags, NULL) IS NULL),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS assets.simulation_model_ref (
+    project_id TEXT NOT NULL REFERENCES product.project(project_id),
     simulation_model_id TEXT PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
@@ -328,6 +332,25 @@ CREATE TABLE IF NOT EXISTS assets.simulation_model_ref (
     file_type TEXT NOT NULL CHECK (file_type IN ('zip')),
     base_file_name TEXT NOT NULL
 );
+
+-- Upgrade existing workload metadata without inventing ownership.
+ALTER TABLE workloads.workload ADD COLUMN IF NOT EXISTS
+    simulation_model_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+ALTER TABLE workloads.workload ADD COLUMN IF NOT EXISTS
+    name TEXT NOT NULL DEFAULT '';
+ALTER TABLE workloads.workload ADD COLUMN IF NOT EXISTS
+    description TEXT NOT NULL DEFAULT '';
+ALTER TABLE workloads.workload
+    DROP CONSTRAINT IF EXISTS workload_status_check;
+ALTER TABLE workloads.workload ADD CONSTRAINT workload_status_check
+    CHECK (status IN ('completed', 'execution_failed', 'launch_failed',
+                     'scheduled', 'ongoing', 'user_stopped'));
+ALTER TABLE assets.simulation_model_ref ADD COLUMN IF NOT EXISTS
+    project_id TEXT REFERENCES product.project(project_id);
+-- Existing rows must be assigned their real project before upgrading.
+ALTER TABLE assets.simulation_model_ref ALTER COLUMN project_id SET NOT NULL;
+CREATE INDEX IF NOT EXISTS simulation_model_project_idx
+    ON assets.simulation_model_ref(project_id);
 
 CREATE TABLE IF NOT EXISTS assets.checkpoint_ref (
     checkpoint_id TEXT PRIMARY KEY,

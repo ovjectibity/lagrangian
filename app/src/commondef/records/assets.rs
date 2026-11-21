@@ -52,6 +52,7 @@ pub enum SimulationModelFileType {
 )]
 #[typeshare]
 pub struct SimulationModelRef {
+    pub project_id: String,
     pub simulation_model_id: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

@@ -372,7 +372,7 @@ impl PostgresOrm {
         id: &str,
     ) -> sqlx::Result<Option<SimulationModelRef>> {
         sqlx::query_as::<_, SimulationModelRef>(
-            "SELECT simulation_model_id, created_at,
+            "SELECT project_id, simulation_model_id, created_at,
              updated_at, name, uri_path, model_type,
              file_type, base_file_name FROM
              assets.simulation_model_ref WHERE
@@ -396,8 +396,8 @@ impl PostgresOrm {
             "UPDATE assets.simulation_model_ref SET
              created_at = $2, updated_at = $3, name = $4,
              uri_path = $5, model_type = $6, file_type = $7,
-             base_file_name = $8 WHERE simulation_model_id =
-             $1 RETURNING simulation_model_id, created_at,
+             base_file_name = $8, project_id = $9 WHERE simulation_model_id =
+             $1 RETURNING project_id, simulation_model_id, created_at,
              updated_at, name, uri_path, model_type,
              file_type, base_file_name",
         )
@@ -409,6 +409,7 @@ impl PostgresOrm {
         .bind(&record.model_type)
         .bind(&record.file_type)
         .bind(&record.base_file_name)
+        .bind(&record.project_id)
         .fetch_one(&self.pool)
         .await
     }
@@ -729,17 +730,19 @@ impl PostgresOrm {
     /// List matching records; pagination is (limit, offset).
     pub async fn list_simulation_model_refs(
         &self,
-
+        project_id: &str,
         pagination: (i64, i64),
     ) -> sqlx::Result<Vec<SimulationModelRef>> {
         validations::validate_pagination(pagination)?;
         sqlx::query_as::<_, SimulationModelRef>(
-            "SELECT simulation_model_id, created_at,
+            "SELECT project_id, simulation_model_id, created_at,
              updated_at, name, uri_path, model_type,
              file_type, base_file_name FROM
-             assets.simulation_model_ref ORDER BY created_at
-             DESC, simulation_model_id LIMIT $1 OFFSET $2",
+             assets.simulation_model_ref WHERE project_id = $1
+             ORDER BY created_at DESC, simulation_model_id
+             LIMIT $2 OFFSET $3",
         )
+        .bind(project_id)
         .bind(pagination.0)
         .bind(pagination.1)
         .fetch_all(&self.pool)
@@ -766,6 +769,28 @@ impl PostgresOrm {
         )
         .bind(workload_id)
         .bind(model_type)
+        .bind(pagination.0)
+        .bind(pagination.1)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Include globally shared predefined checkpoints alongside
+    /// checkpoints produced by the requested project's workloads.
+    pub async fn list_project_checkpoint_refs(
+        &self,
+        project_id: &str,
+        pagination: (i64, i64),
+    ) -> sqlx::Result<Vec<CheckpointRef>> {
+        validations::validate_pagination(pagination)?;
+        sqlx::query_as::<_, CheckpointRef>(
+            "SELECT c.* FROM assets.checkpoint_ref c LEFT JOIN
+             workloads.workload w ON c.workload_id = w.workload_id
+             WHERE c.workload_id IS NULL OR w.project_id = $1
+             ORDER BY c.created_at, c.checkpoint_id
+             LIMIT $2 OFFSET $3",
+        )
+        .bind(project_id)
         .bind(pagination.0)
         .bind(pagination.1)
         .fetch_all(&self.pool)
@@ -912,8 +937,8 @@ impl PostgresOrm {
              workload_type, project_id, user_id, created_at,
              updated_at, launched_at, launch_origin,
              scheduled_at, completed_at, status,
-             workload_graph_id, tags) VALUES ($1, $2, $3, $4,
-             $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+             workload_graph_id, tags, name, description, simulation_model_ids) VALUES ($1, $2, $3, $4,
+             $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
         )
         .bind(&record.workload_id)
         .bind(&record.workload_type)
@@ -928,6 +953,9 @@ impl PostgresOrm {
         .bind(&record.status)
         .bind(&record.workload_graph_id)
         .bind(&record.tags)
+        .bind(&record.name)
+        .bind(&record.description)
+        .bind(&record.simulation_model_ids)
         .execute(&self.pool)
         .await?;
         validations::validate_affected_rows(
@@ -951,7 +979,8 @@ impl PostgresOrm {
              $5, updated_at = $6, launched_at = $7,
              launch_origin = $8, scheduled_at = $9,
              completed_at = $10, status = $11,
-             workload_graph_id = $12, tags = $13 WHERE
+             workload_graph_id = $12, tags = $13, name = $14,
+             description = $15, simulation_model_ids = $16 WHERE
              workload_id = $1",
         )
         .bind(&record.workload_id)
@@ -967,6 +996,9 @@ impl PostgresOrm {
         .bind(&record.status)
         .bind(&record.workload_graph_id)
         .bind(&record.tags)
+        .bind(&record.name)
+        .bind(&record.description)
+        .bind(&record.simulation_model_ids)
         .execute(&self.pool)
         .await?;
         validations::validate_affected_rows(
@@ -982,7 +1014,7 @@ impl PostgresOrm {
             "SELECT workload_id, workload_type, project_id,
              user_id, created_at, updated_at, launched_at,
              launch_origin, scheduled_at, completed_at,
-             status, workload_graph_id, tags FROM
+             status, workload_graph_id, tags, name, description, simulation_model_ids FROM
              workloads.workload WHERE workload_id = $1",
         )
         .bind(id)
@@ -1003,7 +1035,7 @@ impl PostgresOrm {
             "SELECT workload_id, workload_type, project_id,
              user_id, created_at, updated_at, launched_at,
              launch_origin, scheduled_at, completed_at,
-             status, workload_graph_id, tags FROM
+             status, workload_graph_id, tags, name, description, simulation_model_ids FROM
              workloads.workload WHERE ($1::text IS NULL OR
              project_id = $1) AND ($2::text IS NULL OR
              user_id = $2) AND ($3::text IS NULL OR
@@ -1019,6 +1051,28 @@ impl PostgresOrm {
         .bind(pagination.1)
         .fetch_all(&self.pool)
         .await
+    }
+
+    /// Attach generated model IDs after their references are stored.
+    pub async fn attach_workload_models(
+        &self,
+        id: &str,
+        model_ids: &[String],
+    ) -> sqlx::Result<()> {
+        validations::validate_generated_model_associations(
+            self, id, model_ids,
+        )
+        .await?;
+        sqlx::query(
+            "UPDATE workloads.workload SET simulation_model_ids =
+             ARRAY(SELECT DISTINCT unnest(simulation_model_ids ||
+             $2::text[])), updated_at = now() WHERE workload_id = $1",
+        )
+        .bind(id)
+        .bind(model_ids)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     /// Set lifecycle values without inferring stop reasons.
@@ -1176,8 +1230,8 @@ async fn insert_simulation_model_ref<'e>(
         "INSERT INTO assets.simulation_model_ref
              (simulation_model_id, created_at, updated_at,
              name, uri_path, model_type, file_type,
-             base_file_name) VALUES ($1, $2, $3, $4, $5, $6,
-             $7, $8) RETURNING simulation_model_id,
+             base_file_name, project_id) VALUES ($1, $2, $3, $4, $5, $6,
+             $7, $8, $9) RETURNING project_id, simulation_model_id,
              created_at, updated_at, name, uri_path,
              model_type, file_type, base_file_name",
     )
@@ -1189,6 +1243,7 @@ async fn insert_simulation_model_ref<'e>(
     .bind(&record.model_type)
     .bind(&record.file_type)
     .bind(&record.base_file_name)
+    .bind(&record.project_id)
     .fetch_one(executor)
     .await
 }
@@ -1196,6 +1251,7 @@ async fn insert_simulation_model_ref<'e>(
 impl<'r> FromRow<'r, PgRow> for SimulationModelRef {
     fn from_row(row: &'r PgRow) -> sqlx::Result<Self> {
         Ok(Self {
+            project_id: row.try_get("project_id")?,
             simulation_model_id: row
                 .try_get("simulation_model_id")?,
             created_at: row.try_get("created_at")?,
@@ -1380,6 +1436,10 @@ pub(super) fn workload_from_row(
         status: row.try_get("status")?,
         workload_graph_id: row.try_get("workload_graph_id")?,
         tags: row.try_get("tags")?,
+        simulation_model_ids: row
+            .try_get("simulation_model_ids")?,
+        name: row.try_get("name")?,
+        description: row.try_get("description")?,
         workload_graph: graph,
     })
 }

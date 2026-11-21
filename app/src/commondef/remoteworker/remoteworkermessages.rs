@@ -64,6 +64,7 @@ pub enum WorkloadStopReasonWorker {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct StartTrainingWorkerMessage {
+    pub project_id: String,
     pub workload_id: String,
     pub training_graph: TrainingGraph,
     pub checkpoints: Vec<CheckpointRef>,
@@ -73,6 +74,7 @@ pub struct StartTrainingWorkerMessage {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[typeshare]
 pub struct StartTestWorkerMessage {
+    pub project_id: String,
     pub workload_id: String,
     pub test_graph: TestGraph,
     pub checkpoints: Vec<CheckpointRef>,

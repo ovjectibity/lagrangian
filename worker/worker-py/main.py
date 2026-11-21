@@ -255,7 +255,7 @@ async def handle_connection(
                     return
                 if testing:
                     workflow = TestingWorkflow(
-                        workload_id=workload_id,
+                        workload_id=workload_id, project_id=message.project_id,
                         test_controller=message.test_graph.test_job_controller,
                         model_paths=models, simulation_models=message.simulation_models,
                         checkpoints=checkpoints, rng_key=jax.random.PRNGKey(0),
