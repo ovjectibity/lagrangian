@@ -1,25 +1,33 @@
+"""Direct API training smoke test; requires ACCESS_KEY and MODEL_PATH.
+
+Install tests/requirements.txt. PROJECT_ID reuses a project.
+TEST_DRY_RUN=1 prints the current request without using services.
+The reward is Python; execution uses the remote GPU worker.
 """
-Remote (MLGPUSimulationGPU) training test with a Python reward function.
-Requires a live GPU worker running and reachable by the server.
 
-Usage:
-    MODEL_PATH=assets/trossen_vx300s/vx300s.xml \
-        python tests/test_training_remote_ffn_trossen_arm.py
-    BASE_URL=http://localhost:8000/api MODEL_PATH=... \
-        python tests/test_training_remote_ffn_trossen_arm.py
+from workload_api import positive_integer, prepare_model, run_workload
+
+PYTHON_REWARD = r"""import jax.numpy as jnp
+
+def reward(state_pre, state_post):
+    previous = state_pre.content.states[0].content.state_item
+    current = state_post.content.states[0].content.state_item
+    pre = previous.reshape(-1, 7)[:, :3]
+    post = current.reshape(-1, 7)[:, :3]
+    target = jnp.array([0.35, -0.22])
+    progress = 10.0 * (
+        jnp.linalg.norm(pre[3, :2] - target)
+        - jnp.linalg.norm(post[3, :2] - target)
+    )
+    reach = -2.0 * jnp.linalg.norm(post[10, :2] - post[3, :2])
+    boxes = -20.0 * (
+        jnp.linalg.norm(post[1, :2] - jnp.array([0.35, 0.22]))
+        + jnp.linalg.norm(post[2, :2] - target)
+    )
+    drop = jnp.where(post[3, 2] < 0.10, -20.0, 0.0)
+    return progress + reach + boxes + drop
 """
-import io
-import os
-import zipfile
 
-import requests
-from websockets.exceptions import ConnectionClosed
-from websockets.sync.client import connect
-
-BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000/api")
-MODEL_PATH = os.environ.get("MODEL_PATH", "")
-
-# Full-scene qpos/qvel observations have 29 + 26 = 55 values.
 INPUT_SPEC = {
     "type": "StandardInputSpec",
     "content": {
@@ -30,14 +38,13 @@ INPUT_SPEC = {
                 "content": {
                     "rebase_body_tree": None,
                     "excluded_body_trees": [],
-                    "state_item": {"type": state_type},
+                    "state_item": {"type": kind},
                 },
             }
-            for state_type in ("QPos", "QVel")
+            for kind in ("QPos", "QVel")
         ],
     },
 }
-
 OUTPUT_SPEC = {
     "type": "ProprioceptiveOutputSpec",
     "content": {
@@ -50,106 +57,50 @@ OUTPUT_SPEC = {
     },
 }
 
-PYTHON_REWARD = '''
-import jax.numpy as jnp
 
-def reward(state_pre, state_post):
-    target_cube = 3
-    gripper = 10
-    left_box = 1
-    right_box = 2
-    target_xy = (0.35, -0.22)
-    left_box_start = (0.35, 0.22)
-    right_box_start = (0.35, -0.22)
+def build_training_graph(model_id):
+    reward_states = [
+        {
+            "type": "InputStateControllable",
+            "content": {
+                "rebase_body_tree": None,
+                "excluded_body_trees": [],
+                "state_item": {
+                    "type": "XPose",
+                    "content": {
+                        "frame_spec": "WorldFrame",
+                        "orientation_spec": "Quaternion",
+                    },
+                },
+            },
+        }
+    ]
 
-    # State slot 0 is world-frame XPose: xyz followed by quaternion.
-    curr_xpos = state_post.content.states[0].content.state_item.reshape(-1, 7)[:, :3]
-    prev_xpos = state_pre.content.states[0].content.state_item.reshape(-1, 7)[:, :3]
-
-    def get_pos(xpos, i):
-        return xpos[i, 0], xpos[i, 1], xpos[i, 2]
-
-    nx, ny, nz = get_pos(curr_xpos, target_cube)
-    px, py, _ = get_pos(prev_xpos, target_cube)
-    gx, gy, _ = get_pos(curr_xpos, gripper)
-
-    next_dist = jnp.sqrt((nx - target_xy[0]) ** 2 + (ny - target_xy[1]) ** 2)
-    prev_dist = jnp.sqrt((px - target_xy[0]) ** 2 + (py - target_xy[1]) ** 2)
-    r_prog = (prev_dist - next_dist) * 10.0
-
-    gripper_xy_dist = jnp.sqrt((gx - nx) ** 2 + (gy - ny) ** 2)
-    r_gripper = -2.0 * gripper_xy_dist
-
-    lx, ly, _ = get_pos(curr_xpos, left_box)
-    rx, ry, _ = get_pos(curr_xpos, right_box)
-    left_disp = jnp.sqrt((lx - left_box_start[0]) ** 2 + (ly - left_box_start[1]) ** 2)
-    right_disp = jnp.sqrt((rx - right_box_start[0]) ** 2 + (ry - right_box_start[1]) ** 2)
-    r_box = -20.0 * (left_disp + right_disp)
-
-    cube_drop = jnp.where(nz < 0.10, -20.0, 0.0)
-
-    return r_prog + r_gripper + r_box + cube_drop
-'''
-
-
-SIMULATION_XML = "vx300s.xml"
-
-
-def upload_model() -> str:
-    model_dir = os.path.dirname(os.path.abspath(MODEL_PATH))
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for root, _, files in os.walk(model_dir):
-            rel_root = os.path.relpath(root, model_dir)
-            for fname in files:
-                if rel_root == "." and fname.endswith(".xml") and fname != SIMULATION_XML:
-                    continue
-                fpath = os.path.join(root, fname)
-                arcname = os.path.relpath(fpath, model_dir)
-                zf.write(fpath, arcname=arcname)
-    buf.seek(0)
-    r = requests.post(
-        f"{BASE_URL}/models/save_model",
-        files={"file": ("vx300s.zip", buf, "application/zip")},
-    )
-    assert r.status_code == 200, f"upload model: {r.status_code} {r.text}"
-    model_id = r.json()["id"]
-    print(f"  model_id={model_id}")
-    return model_id
-
-
-def create_experiment() -> str:
-    r = requests.post(
-        f"{BASE_URL}/training/experiments",
-        json={"name": "reward-fn-remote-test"},
-    )
-    assert r.status_code == 200, f"create experiment: {r.status_code} {r.text}"
-    exp_id = r.json()["experiment"]["training_experiment_id"]
-    print(f"  exp_id={exp_id}")
-    return exp_id
-
-
-def create_run(exp_id: str) -> str:
-    r = requests.post(
-        f"{BASE_URL}/training/experiments/{exp_id}/runs",
-        json={},
-    )
-    assert r.status_code == 200, f"create run: {r.status_code} {r.text}"
-    run_id = r.json()["run"]["id"]
-    print(f"  run_id={run_id}")
-    return run_id
-
-
-def build_training_graph(model_id: str) -> dict:
+    policy = {
+        "type": "MLP",
+        "content": {
+            "num_hidden_layers": 2,
+            "hidden_layer_dim": 64,
+            "input_dim": 55,
+            "output_dim": 16,
+        },
+    }
+    value = {
+        "type": "MLP",
+        "content": {
+            **policy["content"],
+            "output_dim": 1,
+        },
+    }
     return {
         "training_job_controller": {
             "training_method": {
                 "type": "PPO",
                 "content": {
-                    "num_trajs": 2,
-                    "num_steps_per_traj": 10,
-                    "num_epochs": 1,
-                    "num_updates": 1,
+                    "num_trajs": positive_integer("NUM_TRAJS", 2),
+                    "num_steps_per_traj": positive_integer("NUM_TIMESTEPS", 10),
+                    "num_rollouts": positive_integer("NUM_ROLLOUTS", 1),
+                    "num_epochs": positive_integer("NUM_EPOCHS", 2),
                     "epsilon": 0.2,
                     "gamma": 0.99,
                     "lambda": 0.95,
@@ -160,52 +111,22 @@ def build_training_graph(model_id: str) -> dict:
                             "type": "StandardInputSpec",
                             "content": {
                                 "base_body_name": None,
-                                "states": [{
-                                    "type": "InputStateControllable",
-                                    "content": {
-                                        "rebase_body_tree": None,
-                                        "excluded_body_trees": [],
-                                        "state_item": {
-                                            "type": "XPose",
-                                            "content": {
-                                                "frame_spec": "WorldFrame",
-                                                "orientation_spec": "Quaternion",
-                                            },
-                                        },
-                                    },
-                                }],
+                                "states": reward_states,
                             },
                         },
                     },
                     "control_model": {
-                        "model": {
-                            "type": "MLP",
-                            "content": {
-                                "model_type": {"type": "New"},
-                                "num_hidden_layers": 2,
-                                "hidden_layer_dim": 64,
-                                # Eight qpos means and eight log-std values.
-                                "output_dim": 16,
-                                "input_dim": 55,
-                            },
-                        },
+                        "model_type": {"type": "New"},
+                        "model": policy,
                         "input_spec": INPUT_SPEC,
                         "output_spec": OUTPUT_SPEC,
                     },
                     "value_model": {
-                        "model": {
-                            "type": "MLP",
-                            "content": {
-                                "model_type": {"type": "New"},
-                                "num_hidden_layers": 2,
-                                "hidden_layer_dim": 64,
-                                "output_dim": 1,
-                                "input_dim": 55,
-                            },
-                        },
+                        "model_type": {"type": "New"},
+                        "model": value,
                         "input_spec": INPUT_SPEC,
                     },
-                    "simulation_model": model_id,
+                    "simulation_model_id": model_id,
                     "control_output_mode": {"type": "ActionMean"},
                 },
             },
@@ -216,46 +137,9 @@ def build_training_graph(model_id: str) -> dict:
     }
 
 
-def stream_updates(exp_id: str, run_id: str, max_events: int = 3) -> None:
-    # Training updates are JSON text frames over a WebSocket (migrated from SSE).
-    http_url = f"{BASE_URL}/training/experiments/{exp_id}/runs/{run_id}/updates"
-    ws_url = http_url.replace("http", "ws", 1)
-    with connect(ws_url, open_timeout=300) as ws:
-        count = 0
-        while count < max_events:
-            try:
-                message = ws.recv(timeout=300)
-            except TimeoutError:
-                print("    (no further events within timeout)")
-                break
-            except ConnectionClosed:
-                break
-            if isinstance(message, (bytes, bytearray)):
-                continue
-            print(f"    WS[{count}]: {message[:120]}")
-            count += 1
-
-
-def main() -> None:
-    print("=== Uploading model ===")
-    model_id = upload_model()
-
-    print("=== Creating experiment ===")
-    exp_id = create_experiment()
-
-    print("\n=== Remote training | MLP control model | Python reward ===")
-    run_id = create_run(exp_id)
-    graph = build_training_graph(model_id)
-    r = requests.post(
-        f"{BASE_URL}/training/experiments/{exp_id}/runs/{run_id}/start",
-        json={"training_graph": graph},
-    )
-    print(f"  start_training status: {r.status_code}")
-    assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
-    print("  Streaming WS events:")
-    stream_updates(exp_id, run_id, max_events=3)
-
-    print("\n=== All tests passed ===")
+def main():
+    project, model = prepare_model("remote-ffn-training")
+    run_workload(project, build_training_graph(model), "remote-ffn-training")
 
 
 if __name__ == "__main__":

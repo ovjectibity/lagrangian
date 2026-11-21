@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Transfers a Python test script to an EC2 instance and runs it inside the worker container.
 #
-# Usage: run_remote_test.sh <test-script.py> <remote-ip>
+# Usage: run_remote_test.sh <test-script.py> <remote-ip> [test arguments...]
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
-  echo "usage: $0 <test-script.py> <remote-ip>" >&2
+  echo "usage: $0 <test-script.py> <remote-ip> [test arguments...]" >&2
   exit 1
 fi
 
 TEST_SCRIPT="$1"
 REMOTE_IP="$2"
+shift 2
 
 if [[ ! -f "${TEST_SCRIPT}" ]]; then
   echo "error: test script not found: ${TEST_SCRIPT}" >&2
@@ -49,6 +50,7 @@ fi
 SCRIPT_BASENAME="$(basename "${TEST_SCRIPT}")"
 REMOTE_TMP="/tmp/${SCRIPT_BASENAME}"
 CONTAINER_PATH="/tmp/${SCRIPT_BASENAME}"
+printf -v TEST_COMMAND '%q ' python3 "${CONTAINER_PATH}" "$@"
 REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
 REMOTE_REQUIREMENTS_TMP="/tmp/requirements.txt"
 CONTAINER_REQUIREMENTS_PATH="/tmp/requirements.txt"
@@ -86,7 +88,7 @@ ssh "${SSH_ARGS[@]}" "${SSH_USER}@${REMOTE_IP}" \
   -w ${CONTAINER_ARTIFACT_DIR} \
   -e PYTHONPATH=/opt/lagrangian/worker \
    -e XLA_PYTHON_CLIENT_PREALLOCATE=false \
-  ${CONTAINER_NAME} python3 ${CONTAINER_PATH}"
+  ${CONTAINER_NAME} ${TEST_COMMAND}"
 TEST_EXIT=$?
 set -e
 

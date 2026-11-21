@@ -158,8 +158,43 @@ def main() -> None:
             flush=True,
         )
 
-    if model.nu != 9:
-        raise AssertionError(f"Expected 9 Panda actuators, got nu={model.nu}")
+    for body_name in (
+        "robot0_base",
+        "gripper0_right_eef",
+        "gripper0_right_right_gripper",
+    ):
+        if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name) < 0:
+            raise AssertionError(f"Expected Panda body {body_name!r}")
+
+    if model.nu != 8:
+        raise AssertionError(f"Expected 8 coupled Panda actuators, got nu={model.nu}")
+    first_finger = mujoco.mj_name2id(
+        model, mujoco.mjtObj.mjOBJ_JOINT, "gripper0_right_finger_joint1"
+    )
+    second_finger = mujoco.mj_name2id(
+        model, mujoco.mjtObj.mjOBJ_JOINT, "gripper0_right_finger_joint2"
+    )
+    if first_finger < 0 or second_finger < 0:
+        raise AssertionError("Expected both Panda finger joints to remain")
+    finger_targets = [
+        int(model.actuator_trnid[index, 0])
+        for index in range(model.nu)
+        if mujoco.mjtTrn(int(model.actuator_trntype[index])) in joint_transmissions
+        and model.actuator_trnid[index, 0] in (first_finger, second_finger)
+    ]
+    if finger_targets != [first_finger]:
+        raise AssertionError("Expected only finger_joint1 to have an actuator")
+    coupled_equalities = [
+        index
+        for index in range(model.neq)
+        if model.eq_type[index] == mujoco.mjtEq.mjEQ_JOINT
+        and model.eq_obj1id[index] == second_finger
+        and model.eq_obj2id[index] == first_finger
+        and model.eq_active0[index]
+        and tuple(model.eq_data[index, :5]) == (0, -1, 0, 0, 0)
+    ]
+    if len(coupled_equalities) != 1:
+        raise AssertionError("Expected one active Panda equality: q2 = -q1")
     if not model.nq >= model.nv > 0:
         raise AssertionError(
             f"Invalid model dimensions: nq={model.nq}, nv={model.nv}"

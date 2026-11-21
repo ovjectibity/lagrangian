@@ -1,25 +1,40 @@
+"""Direct API training smoke test; requires ACCESS_KEY and MODEL_PATH.
+
+Install tests/requirements.txt. PROJECT_ID reuses a project.
+TEST_DRY_RUN=1 prints the current request without using services.
+The reward is Python; local execution uses the Python CPU worker.
 """
-Local (AllOnServer) training test with a Rust reward function.
-AllOnServer also requires the Rust backend IO migration.
 
-Usage:
-    MODEL_PATH=assets/trossen_vx300s/vx300s.xml \
-        python tests/test_training_local_ffn_trossen_arm.py
-    BASE_URL=http://localhost:8000/api MODEL_PATH=... \
-        python tests/test_training_local_ffn_trossen_arm.py
+from workload_api import positive_integer, prepare_model, run_workload
+
+PYTHON_REWARD = r"""import jax.numpy as jnp
+
+def reward(state_pre, state_post):
+    previous = state_pre.content.states[0].content.state_item
+    current = state_post.content.states[0].content.state_item
+    pre = previous.reshape(-1, 7)[:, :3]
+    post = current.reshape(-1, 7)[:, :3]
+    target = jnp.array([0.35, -0.22])
+    progress = 10.0 * (
+        jnp.linalg.norm(pre[3, :2] - target)
+        - jnp.linalg.norm(post[3, :2] - target)
+    )
+    reach = -2.0 * jnp.linalg.norm(post[10, :2] - post[3, :2])
+    boxes = -20.0 * (
+        jnp.linalg.norm(post[1, :2] - jnp.array([0.35, 0.22]))
+        + jnp.linalg.norm(post[2, :2] - target)
+    )
+    drop = jnp.where(post[3, 2] < 0.10, -20.0, 0.0)
+    pairs = state_post.content.states[1].content.reshape(-1, 2)
+    finger_a = (pairs[:, 0] == 12) | (pairs[:, 0] == 13)
+    finger_b = (pairs[:, 1] == 12) | (pairs[:, 1] == 13)
+    touching = ((pairs[:, 0] == 3) & finger_b) | (
+        (pairs[:, 1] == 3) & finger_a
+    )
+    grip = 20.0 * jnp.sum(touching)
+    return progress + reach + boxes + drop + grip
 """
-import io
-import os
-import zipfile
 
-import requests
-from websockets.exceptions import ConnectionClosed
-from websockets.sync.client import connect
-
-BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000/api")
-MODEL_PATH = os.environ.get("MODEL_PATH", "")
-
-# Full-scene qpos/qvel observations have 29 + 26 = 55 values.
 INPUT_SPEC = {
     "type": "StandardInputSpec",
     "content": {
@@ -30,14 +45,13 @@ INPUT_SPEC = {
                 "content": {
                     "rebase_body_tree": None,
                     "excluded_body_trees": [],
-                    "state_item": {"type": state_type},
+                    "state_item": {"type": kind},
                 },
             }
-            for state_type in ("QPos", "QVel")
+            for kind in ("QPos", "QVel")
         ],
     },
 }
-
 OUTPUT_SPEC = {
     "type": "ProprioceptiveOutputSpec",
     "content": {
@@ -50,228 +64,89 @@ OUTPUT_SPEC = {
     },
 }
 
-RUST_REWARD = '''
-use std::collections::HashMap;
 
-pub fn reward(
-    parts_pre: &HashMap<&str, &[f64]>,
-    parts_post: &HashMap<&str, &[f64]>,
-) -> f64 {
-    let target_cube: usize = 3;
-    let gripper: usize = 10;
-    let left_finger: usize = 12;
-    let right_finger: usize = 13;
-    let left_box: usize = 1;
-    let right_box: usize = 2;
-
-    let empty: &[f64] = &[];
-    let prev_xpos = parts_pre.get("xpos").copied().unwrap_or(empty);
-    let curr_xpos = parts_post.get("xpos").copied().unwrap_or(empty);
-    let contact_flat = parts_post.get("contact_pairs").copied().unwrap_or(empty);
-
-    let get_pos = |xpos: &[f64], i: usize| -> (f64, f64, f64) {
-        (xpos[i * 3], xpos[i * 3 + 1], xpos[i * 3 + 2])
-    };
-
-    let target_xy = (0.35_f64, -0.22_f64);
-    let left_box_start = (0.35_f64, 0.22_f64);
-    let right_box_start = (0.35_f64, -0.22_f64);
-
-    let (nx, ny, nz) = get_pos(curr_xpos, target_cube);
-    let (px, py, _) = get_pos(prev_xpos, target_cube);
-    let (gx, gy, _) = get_pos(curr_xpos, gripper);
-
-    let next_dist = ((nx - target_xy.0).powi(2) + (ny - target_xy.1).powi(2)).sqrt();
-    let prev_dist = ((px - target_xy.0).powi(2) + (py - target_xy.1).powi(2)).sqrt();
-    let r_prog = (prev_dist - next_dist) * 10.0;
-
-    let gripper_xy_dist = ((gx - nx).powi(2) + (gy - ny).powi(2)).sqrt();
-    let r_gripper = -2.0 * gripper_xy_dist;
-
-    let (lx, ly, _) = get_pos(curr_xpos, left_box);
-    let (rx, ry, _) = get_pos(curr_xpos, right_box);
-    let left_disp = ((lx - left_box_start.0).powi(2) + (ly - left_box_start.1).powi(2)).sqrt();
-    let right_disp = ((rx - right_box_start.0).powi(2) + (ry - right_box_start.1).powi(2)).sqrt();
-    let r_box = -20.0 * (left_disp + right_disp);
-
-    let cube_drop = if nz < 0.10 { -20.0 } else { 0.0 };
-
-    let grip_contact: f64 = contact_flat.chunks(2).filter(|c| {
-        let a = c[0] as usize;
-        let b = c[1] as usize;
-        (a == target_cube && (b == left_finger || b == right_finger))
-            || (b == target_cube && (a == left_finger || a == right_finger))
-    }).count() as f64 * 20.0;
-
-    r_prog + r_gripper + r_box + cube_drop + grip_contact
-}
-'''
-
-
-def upload_model() -> str:
-    model_dir = os.path.dirname(os.path.abspath(MODEL_PATH))
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for root, _, files in os.walk(model_dir):
-            for fname in files:
-                fpath = os.path.join(root, fname)
-                arcname = os.path.relpath(fpath, model_dir)
-                zf.write(fpath, arcname=arcname)
-    buf.seek(0)
-    r = requests.post(
-        f"{BASE_URL}/models/save_model",
-        files={"file": ("vx300s.zip", buf, "application/zip")},
-    )
-    assert r.status_code == 200, f"upload model: {r.status_code} {r.text}"
-    model_id = r.json()["id"]
-    print(f"  model_id={model_id}")
-    return model_id
-
-
-def create_experiment() -> str:
-    r = requests.post(
-        f"{BASE_URL}/training/experiments",
-        json={"name": "reward-fn-test"},
-    )
-    assert r.status_code == 200, f"create experiment: {r.status_code} {r.text}"
-    exp_id = r.json()["experiment"]["training_experiment_id"]
-    print(f"  exp_id={exp_id}")
-    return exp_id
-
-
-def create_run(exp_id: str) -> str:
-    r = requests.post(
-        f"{BASE_URL}/training/experiments/{exp_id}/runs",
-        json={},
-    )
-    assert r.status_code == 200, f"create run: {r.status_code} {r.text}"
-    run_id = r.json()["run"]["id"]
-    print(f"  run_id={run_id}")
-    return run_id
-
-
-def build_training_graph(model_id: str) -> dict:
+def build_training_graph(model_id):
+    reward_states = [
+        {
+            "type": "InputStateControllable",
+            "content": {
+                "rebase_body_tree": None,
+                "excluded_body_trees": [],
+                "state_item": {
+                    "type": "XPose",
+                    "content": {
+                        "frame_spec": "WorldFrame",
+                        "orientation_spec": "Quaternion",
+                    },
+                },
+            },
+        }
+    ]
+    reward_states.append({"type": "InputStateSensors", "content": "ContactPairs"})
+    policy = {
+        "type": "MLP",
+        "content": {
+            "num_hidden_layers": 2,
+            "hidden_layer_dim": 64,
+            "input_dim": 55,
+            "output_dim": 16,
+        },
+    }
+    value = {
+        "type": "MLP",
+        "content": {
+            **policy["content"],
+            "output_dim": 1,
+        },
+    }
     return {
         "training_job_controller": {
             "training_method": {
                 "type": "PPO",
                 "content": {
-                    "num_trajs": 2,
-                    "num_steps_per_traj": 10,
-                    "num_epochs": 1,
-                    "num_updates": 1,
+                    "num_trajs": positive_integer("NUM_TRAJS", 2),
+                    "num_steps_per_traj": positive_integer("NUM_TIMESTEPS", 10),
+                    "num_rollouts": positive_integer("NUM_ROLLOUTS", 1),
+                    "num_epochs": positive_integer("NUM_EPOCHS", 2),
                     "epsilon": 0.2,
                     "gamma": 0.99,
                     "lambda": 0.95,
                     "reward_function": {
-                        "language": "Rust",
-                        "reward_function_code": RUST_REWARD,
+                        "language": "Python",
+                        "reward_function_code": PYTHON_REWARD,
                         "input_spec": {
                             "type": "StandardInputSpec",
                             "content": {
                                 "base_body_name": None,
-                                "states": [
-                                    {
-                                        "type": "InputStateControllable",
-                                        "content": {
-                                            "rebase_body_tree": None,
-                                            "excluded_body_trees": [],
-                                            "state_item": {
-                                                "type": "XPose",
-                                                "content": {
-                                                    "frame_spec": "WorldFrame",
-                                                    "orientation_spec": "Quaternion",
-                                                },
-                                            },
-                                        },
-                                    },
-                                    {
-                                        "type": "InputStateSensors",
-                                        "content": "ContactPairs",
-                                    },
-                                ],
+                                "states": reward_states,
                             },
                         },
                     },
                     "control_model": {
-                        "model": {
-                            "type": "MLP",
-                            "content": {
-                                "model_type": {"type": "New"},
-                                "num_hidden_layers": 2,
-                                "hidden_layer_dim": 64,
-                                # Eight qpos means and eight log-std values.
-                                "output_dim": 16,
-                                "input_dim": 55,
-                            },
-                        },
+                        "model_type": {"type": "New"},
+                        "model": policy,
                         "input_spec": INPUT_SPEC,
                         "output_spec": OUTPUT_SPEC,
                     },
                     "value_model": {
-                        "model": {
-                            "type": "MLP",
-                            "content": {
-                                "model_type": {"type": "New"},
-                                "num_hidden_layers": 2,
-                                "hidden_layer_dim": 64,
-                                "output_dim": 1,
-                                "input_dim": 55,
-                            },
-                        },
+                        "model_type": {"type": "New"},
+                        "model": value,
                         "input_spec": INPUT_SPEC,
                     },
-                    "simulation_model": model_id,
+                    "simulation_model_id": model_id,
                     "control_output_mode": {"type": "ActionMean"},
                 },
             },
-            "acceleration_mode": "AllOnServer",
+            "acceleration_mode": "MLCPUSimulationCPU",
             "compute_instance": "AWSG4dn",
             "checkpoint_frequency": {"type": "LastOnly"},
         }
     }
 
 
-def stream_updates(exp_id: str, run_id: str, max_events: int = 3) -> None:
-    # Training updates are JSON text frames over a WebSocket (migrated from SSE).
-    http_url = f"{BASE_URL}/training/experiments/{exp_id}/runs/{run_id}/updates"
-    ws_url = http_url.replace("http", "ws", 1)
-    with connect(ws_url, open_timeout=120) as ws:
-        count = 0
-        while count < max_events:
-            try:
-                message = ws.recv(timeout=120)
-            except TimeoutError:
-                print("    (no further events within timeout)")
-                break
-            except ConnectionClosed:
-                break
-            if isinstance(message, (bytes, bytearray)):
-                continue
-            print(f"    WS[{count}]: {message[:120]}")
-            count += 1
-
-
-def main() -> None:
-    print("=== Uploading model ===")
-    model_id = upload_model()
-
-    print("=== Creating experiment ===")
-    exp_id = create_experiment()
-
-    print("\n=== Local training | MLP control model | Rust reward ===")
-    run_id = create_run(exp_id)
-    graph = build_training_graph(model_id)
-    r = requests.post(
-        f"{BASE_URL}/training/experiments/{exp_id}/runs/{run_id}/start",
-        json={"training_graph": graph},
-    )
-    print(f"  start_training status: {r.status_code}")
-    assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
-    print("  Streaming WS events:")
-    stream_updates(exp_id, run_id, max_events=3)
-
-    print("\n=== All tests passed ===")
+def main():
+    project, model = prepare_model("local-ffn-training")
+    run_workload(project, build_training_graph(model), "local-ffn-training")
 
 
 if __name__ == "__main__":

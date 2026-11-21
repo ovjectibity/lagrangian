@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Copies a Python test into the local worker container, runs it, and collects artifacts.
 #
-# Usage: run_local_test.sh <test-script.py>
+# Usage: run_local_test.sh <test-script.py> [test arguments...]
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <test-script.py>" >&2
+if [[ $# -lt 1 ]]; then
+  echo "usage: $0 <test-script.py> [test arguments...]" >&2
   exit 1
 fi
 
 TEST_SCRIPT="$1"
+shift
 if [[ ! -f "${TEST_SCRIPT}" ]]; then
   echo "error: test script not found: ${TEST_SCRIPT}" >&2
   exit 1
@@ -56,7 +57,7 @@ docker exec \
   -w "${CONTAINER_ARTIFACT_DIR}" \
   -e PYTHONPATH=/opt/lagrangian/worker \
   -e XLA_PYTHON_CLIENT_PREALLOCATE=false \
-  "${CONTAINER_NAME}" python3 "${CONTAINER_PATH}"
+  "${CONTAINER_NAME}" python3 "${CONTAINER_PATH}" "$@"
 TEST_EXIT=$?
 set -e
 
