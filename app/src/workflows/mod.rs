@@ -1221,6 +1221,17 @@ async fn cleanup_scope(
             let Some(key) = object.key() else {
                 continue;
             };
+            let uri = format!("s3://{}/{key}", state.bucket);
+            if state
+                .assets_inflight
+                .lock()
+                .await
+                .get(&uri)
+                .is_some_and(|lease| lease.strong_count() != 0)
+            {
+                deferred = true;
+                continue;
+            }
             let old_enough =
                 object.last_modified().is_some_and(|time| {
                     Utc::now().timestamp() - time.secs() >= 300
@@ -1476,13 +1487,15 @@ mod runtime_tests {
      {
         let (state, _, mut workload) = fixture().await;
         let id = workload.workload_id.clone();
+        let admin = sqlx::PgPool::connect(
+            &std::env::var("API_TEST_ADMIN_DATABASE_URL").expect(
+                "fault injection requires the disposable DB owner URL",
+            ),
+        ).await.unwrap();
         let trigger = format!(
             "CREATE OR REPLACE FUNCTION workloads.reject_terminal_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.workload_id = '{id}' AND NEW.status = 'completed' THEN RAISE EXCEPTION 'Injected terminal write failure'; END IF; RETURN NEW; END $$; DROP TRIGGER IF EXISTS reject_terminal_test ON workloads.workload; CREATE TRIGGER reject_terminal_test BEFORE UPDATE ON workloads.workload FOR EACH ROW EXECUTE FUNCTION workloads.reject_terminal_test();"
         );
-        sqlx::raw_sql(&trigger)
-            .execute(state.postgres.pool())
-            .await
-            .unwrap();
+        sqlx::raw_sql(&trigger).execute(&admin).await.unwrap();
         let (stop, _) = watch::channel(false);
         let (finished_tx, finished) = watch::channel(false);
         state.jobs.lock().await.insert(
@@ -1509,11 +1522,17 @@ mod runtime_tests {
         ).bind(&id).fetch_one(state.postgres.pool()).await.unwrap();
         assert_eq!(status, WorkloadStatus::Ongoing);
         sqlx::query("DROP TRIGGER reject_terminal_test ON workloads.workload")
-            .execute(state.postgres.pool()).await.unwrap();
+            .execute(&admin).await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), runner)
             .await
             .unwrap()
             .unwrap();
+        sqlx::query(
+            "DROP FUNCTION workloads.reject_terminal_test()",
+        )
+        .execute(&admin)
+        .await
+        .unwrap();
         assert!(!state.jobs.lock().await.contains_key(&id));
         assert!(matches!(
             events.try_recv().unwrap().1,

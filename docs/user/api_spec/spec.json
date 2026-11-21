@@ -9,143 +9,773 @@
     "version": "0.1.0"
   },
   "paths": {
-    "/checkpoints": {
+    "/api/assets/download/{token}": {
       "get": {
         "tags": [
-          "Checkpoints"
+          "Assets"
         ],
-        "operationId": "list_checkpoints",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CheckpointsResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/checkpoints/{checkpoint_id}": {
-      "get": {
-        "tags": [
-          "Checkpoints"
-        ],
-        "operationId": "get_checkpoint",
+        "summary": "Stream an authorized object through the app, never redirecting",
+        "description": "to a bucket URL. Download tickets expire after five minutes.",
+        "operationId": "download_asset",
         "parameters": [
           {
-            "name": "checkpoint_id",
+            "name": "token",
             "in": "path",
-            "description": "Checkpoint UUID",
-            "required": true
+            "description": "Download ticket; expires in 5 minutes",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Asset bytes",
             "content": {
-              "application/json": {
+              "image/png": {
                 "schema": {
-                  "$ref": "#/components/schemas/CheckpointResponse"
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
                 }
               }
             }
+          },
+          "401": {
+            "description": "Ticket or access key is invalid"
+          },
+          "500": {
+            "description": "Persistence or storage failed"
+          }
+        }
+      }
+    },
+    "/api/create_project": {
+      "post": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Create a named project for the authenticated user.",
+        "operationId": "create_project",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateProjectResponseBody"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "409": {
+            "description": "Resource conflict or workload active"
+          },
+          "413": {
+            "description": "JSON body exceeds the size limit"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
+          "500": {
+            "description": "Persistence or storage failed"
+          }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
+      }
+    },
+    "/api/delete_model": {
+      "delete": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Reject deletion of models referenced by any workload or frame.",
+        "operationId": "delete_model",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteModelsRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
           },
           "404": {
-            "description": "Not found"
+            "description": "Resource not found"
+          },
+          "409": {
+            "description": "Resource conflict or workload active"
+          },
+          "413": {
+            "description": "JSON body exceeds the size limit"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
           },
           "500": {
-            "description": "Internal server error"
+            "description": "Persistence or storage failed"
           }
-        }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
       }
     },
-    "/models": {
+    "/api/delete_project": {
+      "delete": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Foreign-key references prevent deleting nonempty projects.",
+        "operationId": "delete_project",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteProjectsRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "409": {
+            "description": "Resource conflict or workload active"
+          },
+          "413": {
+            "description": "JSON body exceeds the size limit"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
+          "500": {
+            "description": "Persistence or storage failed"
+          }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
+      }
+    },
+    "/api/get_models": {
       "get": {
         "tags": [
           "Models"
         ],
+        "summary": "Resolve model IDs to authorized temporary app download links.",
+        "operationId": "get_models",
+        "parameters": [
+          {
+            "name": "model_ids",
+            "in": "query",
+            "description": "Repeat model_ids; omit for no models",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetModelsResponseBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
+          "500": {
+            "description": "Persistence or storage failed"
+          }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
+      }
+    },
+    "/api/get_workload_checkpoints": {
+      "get": {
+        "tags": [
+          "Checkpoints"
+        ],
+        "summary": "Check every workload's project before returning checkpoints.",
+        "operationId": "get_workload_checkpoints",
+        "parameters": [
+          {
+            "name": "workload_ids",
+            "in": "query",
+            "description": "Repeat workload_ids for each ID",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetWorkloadCheckpointsResponseBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
+          "500": {
+            "description": "Persistence or storage failed"
+          }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
+      }
+    },
+    "/api/get_workload_live_ticket": {
+      "post": {
+        "tags": [
+          "Workloads"
+        ],
+        "summary": "Issue a one-minute, single-use browser WebSocket ticket.",
+        "operationId": "live_ticket",
+        "parameters": [
+          {
+            "name": "workload_id",
+            "in": "query",
+            "description": "Workload for this single-use ticket",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkloadLiveTicketResponseBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
+          "500": {
+            "description": "Persistence or storage failed"
+          }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
+      }
+    },
+    "/api/get_workload_live_updates": {
+      "get": {
+        "tags": [
+          "Workloads"
+        ],
+        "summary": "Replay persisted updates, then stream new events for one workload.",
+        "operationId": "live_updates",
+        "parameters": [
+          {
+            "name": "workload_id",
+            "in": "query",
+            "description": "Workload associated with the ticket",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ticket",
+            "in": "query",
+            "description": "Single-use WebSocket ticket",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket upgrade to JSON messages"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Ticket or access key is invalid"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
+          "500": {
+            "description": "Persistence or storage failed"
+          }
+        }
+      }
+    },
+    "/api/get_workload_updates": {
+      "get": {
+        "tags": [
+          "Workloads"
+        ],
+        "summary": "Read a bounded, independently ordered page with fresh links.",
+        "description": "A 409 means concurrent ingestion invalidated the cursor.",
+        "operationId": "get_workload_updates",
+        "parameters": [
+          {
+            "name": "workload_id",
+            "in": "query",
+            "description": "Workload whose history is requested",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Use next_cursor; restart after a 409",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum records per page; default 200",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 200,
+              "nullable": true,
+              "maximum": 500,
+              "minimum": 1
+            },
+            "example": 200
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkloadUpdatesResponseBody"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "409": {
+            "description": "Cursor invalidated; restart history"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
+          "500": {
+            "description": "Persistence or storage failed"
+          }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
+      }
+    },
+    "/api/list_checkpoints": {
+      "get": {
+        "tags": [
+          "Checkpoints"
+        ],
+        "summary": "List project checkpoints and globally shared predefined ones.",
+        "operationId": "list_checkpoints",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "description": "Project; includes global checkpoints",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCheckpointsResponseBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
+          "500": {
+            "description": "Persistence or storage failed"
+          }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
+      }
+    },
+    "/api/list_models": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "List model metadata belonging to an authorized project.",
         "operationId": "list_models",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "description": "Project owning the models",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ModelsResponse"
+                  "$ref": "#/components/schemas/ListModelsResponseBody"
                 }
               }
             }
           },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
           "500": {
-            "description": "Internal server error"
+            "description": "Persistence or storage failed"
           }
-        }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
       }
     },
-    "/models/default": {
+    "/api/list_projects": {
       "get": {
         "tags": [
-          "Models"
+          "Projects"
         ],
-        "operationId": "get_default_model",
+        "summary": "List only the authenticated user's projects.",
+        "operationId": "list_projects",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DefaultModelResponse"
+                  "$ref": "#/components/schemas/GetProjectsResponseBody"
                 }
               }
             }
           },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
           "500": {
-            "description": "Internal server error"
+            "description": "Persistence or storage failed"
           }
-        }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
       }
     },
-    "/models/save_model": {
+    "/api/list_workloads": {
+      "get": {
+        "tags": [
+          "Workloads"
+        ],
+        "summary": "Assemble workload metadata and graphs through the ORM.",
+        "operationId": "list_workloads",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "description": "Project owning the workloads",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWorkloadsResponseBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
+          "500": {
+            "description": "Persistence or storage failed"
+          }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
+      }
+    },
+    "/api/save_model": {
       "post": {
         "tags": [
           "Models"
         ],
+        "summary": "Upload a ZIP, then store its project-owned reference.",
         "operationId": "save_model",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveModelRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SaveModelResponse"
+                  "$ref": "#/components/schemas/SaveModelResponseBody"
                 }
               }
             }
           },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "409": {
+            "description": "Resource conflict or workload active"
+          },
+          "413": {
+            "description": "JSON body exceeds the size limit"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
           "500": {
-            "description": "Internal server error"
+            "description": "Persistence or storage failed"
           }
-        }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
       }
     },
-    "/testing/start": {
+    "/api/start_test": {
       "post": {
         "tags": [
-          "Testing"
+          "Workloads"
         ],
+        "summary": "Start custom or dataset testing with referenced checkpoints.",
         "operationId": "start_test",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StartTestBody"
+                "$ref": "#/components/schemas/StartTestRequestBody"
               }
             }
           },
@@ -153,292 +783,62 @@
         },
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TestStartedResponse"
+                  "$ref": "#/components/schemas/StartTestResponseBody"
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request"
+            "description": "Invalid request"
           },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/testing/{test_id}/stop": {
-      "post": {
-        "tags": [
-          "Testing"
-        ],
-        "operationId": "stop_test",
-        "parameters": [
-          {
-            "name": "test_id",
-            "in": "path",
-            "description": "Test run UUID",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TestStoppedResponse"
-                }
-              }
-            }
+          "401": {
+            "description": "Invalid or revoked access key"
           },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/testing/{test_id}/updates": {
-      "get": {
-        "tags": [
-          "Testing"
-        ],
-        "operationId": "test_updates",
-        "parameters": [
-          {
-            "name": "test_id",
-            "in": "path",
-            "description": "Test run UUID",
-            "required": true
-          }
-        ],
-        "responses": {
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/training/experiments": {
-      "get": {
-        "tags": [
-          "Training"
-        ],
-        "operationId": "list_experiments",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExperimentsResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Training"
-        ],
-        "operationId": "create_experiment",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateExperimentBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExperimentResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/training/experiments/{experiment_id}/runs": {
-      "get": {
-        "tags": [
-          "Training"
-        ],
-        "operationId": "list_runs",
-        "parameters": [
-          {
-            "name": "experiment_id",
-            "in": "path",
-            "description": "Experiment UUID",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunsResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Training"
-        ],
-        "operationId": "create_run",
-        "parameters": [
-          {
-            "name": "experiment_id",
-            "in": "path",
-            "description": "Experiment UUID",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/training/experiments/{experiment_id}/runs/{run_id}": {
-      "get": {
-        "tags": [
-          "Training"
-        ],
-        "operationId": "get_run",
-        "parameters": [
-          {
-            "name": "experiment_id",
-            "in": "path",
-            "description": "Experiment UUID",
-            "required": true
-          },
-          {
-            "name": "run_id",
-            "in": "path",
-            "description": "Run UUID",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunResponse"
-                }
-              }
-            }
+          "403": {
+            "description": "Resource belongs to another user"
           },
           "404": {
-            "description": "Not found"
+            "description": "Resource not found"
+          },
+          "409": {
+            "description": "Resource conflict or workload active"
+          },
+          "413": {
+            "description": "JSON body exceeds the size limit"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
           },
           "500": {
-            "description": "Internal server error"
+            "description": "Persistence or storage failed"
+          },
+          "503": {
+            "description": "App server is shutting down"
           }
-        }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
       }
     },
-    "/training/experiments/{experiment_id}/runs/{run_id}/checkpoints": {
-      "get": {
-        "tags": [
-          "Training"
-        ],
-        "operationId": "get_run_checkpoints",
-        "parameters": [
-          {
-            "name": "experiment_id",
-            "in": "path",
-            "description": "Experiment UUID",
-            "required": true
-          },
-          {
-            "name": "run_id",
-            "in": "path",
-            "description": "Run UUID",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CheckpointsResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/training/experiments/{experiment_id}/runs/{run_id}/start": {
+    "/api/start_training": {
       "post": {
         "tags": [
-          "Training"
+          "Workloads"
         ],
+        "summary": "Start training with project-scoped assets and checkpoints.",
         "operationId": "start_training",
-        "parameters": [
-          {
-            "name": "experiment_id",
-            "in": "path",
-            "description": "Experiment UUID",
-            "required": true
-          },
-          {
-            "name": "run_id",
-            "in": "path",
-            "description": "Run UUID",
-            "required": true
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StartTrainingBody"
+                "$ref": "#/components/schemas/StartTrainingRequestBody"
               }
             }
           },
@@ -446,89 +846,101 @@
         },
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TrainingStartedResponse"
+                  "$ref": "#/components/schemas/StartTrainingResponseBody"
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request"
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "409": {
+            "description": "Resource conflict or workload active"
+          },
+          "413": {
+            "description": "JSON body exceeds the size limit"
           },
           "422": {
-            "description": "Unprocessable entity"
+            "description": "Request fields missing or malformed"
           },
           "500": {
-            "description": "Internal server error"
+            "description": "Persistence or storage failed"
+          },
+          "503": {
+            "description": "App server is shutting down"
           }
-        }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
       }
     },
-    "/training/experiments/{experiment_id}/runs/{run_id}/stop": {
+    "/api/stop_workload": {
       "post": {
         "tags": [
-          "Training"
+          "Workloads"
         ],
-        "operationId": "stop_training",
-        "parameters": [
-          {
-            "name": "experiment_id",
-            "in": "path",
-            "description": "Experiment UUID",
-            "required": true
-          },
-          {
-            "name": "run_id",
-            "in": "path",
-            "description": "Run UUID",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TrainingStoppedResponse"
-                }
+        "summary": "Signal the executing job without waiting for the worker lock.",
+        "operationId": "stop_workload",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StopWorkloadRequestBody"
               }
             }
           },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/training/experiments/{experiment_id}/runs/{run_id}/updates": {
-      "get": {
-        "tags": [
-          "Training"
-        ],
-        "operationId": "training_updates",
-        "parameters": [
-          {
-            "name": "experiment_id",
-            "in": "path",
-            "description": "Experiment UUID",
-            "required": true
-          },
-          {
-            "name": "run_id",
-            "in": "path",
-            "description": "Run UUID",
-            "required": true
-          }
-        ],
+          "required": true
+        },
         "responses": {
+          "202": {
+            "description": "Stop requested asynchronously"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or revoked access key"
+          },
+          "403": {
+            "description": "Resource belongs to another user"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "409": {
+            "description": "Resource conflict or workload active"
+          },
+          "413": {
+            "description": "JSON body exceeds the size limit"
+          },
+          "422": {
+            "description": "Request fields missing or malformed"
+          },
           "500": {
-            "description": "Internal server error"
+            "description": "Persistence or storage failed"
           }
-        }
+        },
+        "security": [
+          {
+            "access_key": []
+          }
+        ]
       }
     }
   },
@@ -586,43 +998,6 @@
           }
         }
       },
-      "CameraFrames": {
-        "type": "object",
-        "required": [
-          "frames",
-          "nenv",
-          "ncam",
-          "t",
-          "h",
-          "w"
-        ],
-        "properties": {
-          "frames": {
-            "type": "string",
-            "format": "binary"
-          },
-          "h": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "ncam": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "nenv": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "t": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "w": {
-            "type": "integer",
-            "format": "int32"
-          }
-        }
-      },
       "CheckpointFrequency": {
         "oneOf": [
           {
@@ -635,6 +1010,26 @@
               "content": {
                 "type": "integer",
                 "format": "int32"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "PostRollout"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "type": "integer",
+                "format": "int32",
+                "description": "Every N optimization epochs across all rollouts."
               },
               "type": {
                 "type": "string",
@@ -653,7 +1048,8 @@
             "properties": {
               "content": {
                 "type": "integer",
-                "format": "int32"
+                "format": "int32",
+                "description": "Every N updates; currently one full-batch update per epoch."
               },
               "type": {
                 "type": "string",
@@ -682,61 +1078,65 @@
           "propertyName": "type"
         }
       },
-      "CheckpointReference": {
-        "type": "object",
-        "required": [
-          "created_at",
-          "id",
-          "path",
-          "training_experiment_id",
-          "training_run_id",
-          "checkpoint_type"
-        ],
-        "properties": {
-          "checkpoint_type": {
-            "type": "string"
-          },
-          "control_model_params": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/MLPModel"
-              }
-            ],
-            "nullable": true
-          },
-          "created_at": {
-            "$ref": "#/components/schemas/Timestamp"
-          },
-          "id": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "training_experiment_id": {
-            "type": "string"
-          },
-          "training_run_id": {
-            "type": "string"
-          },
-          "value_model_params": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/MLPModel"
-              }
-            ],
-            "nullable": true
-          }
-        }
+      "CheckpointModelType": {
+        "type": "string",
+        "enum": [
+          "policy",
+          "value",
+          "flow_noise"
+        ]
       },
-      "CheckpointResponse": {
+      "CheckpointRefUser": {
         "type": "object",
         "required": [
-          "checkpoint"
+          "checkpoint_id",
+          "name",
+          "na_indices",
+          "model_type",
+          "model_spec"
         ],
         "properties": {
-          "checkpoint": {
-            "$ref": "#/components/schemas/CheckpointReference"
+          "checkpoint_id": {
+            "type": "string"
+          },
+          "model_spec": {
+            "$ref": "#/components/schemas/MLModel"
+          },
+          "model_type": {
+            "$ref": "#/components/schemas/CheckpointModelType"
+          },
+          "na_indices": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Zero-based LUT positions omitted from coordinates.\nEmpty when no dimensions are excluded."
+          },
+          "name": {
+            "type": "string"
+          },
+          "workload_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "workload_structure_index_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "workload_structure_state": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Coordinates in LUT order, excluding na_indices positions.",
+            "nullable": true
           }
         }
       },
@@ -773,100 +1173,7 @@
               "type": {
                 "type": "string",
                 "enum": [
-                  "Checkpoint"
-                ]
-              }
-            }
-          }
-        ],
-        "discriminator": {
-          "propertyName": "type"
-        }
-      },
-      "CheckpointsResponse": {
-        "type": "object",
-        "required": [
-          "checkpoints"
-        ],
-        "properties": {
-          "checkpoints": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CheckpointReference"
-            }
-          }
-        }
-      },
-      "ClientMessage": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/TrainingUpdatesMessage"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "TrainingUpdatesMessage"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/StopTrainingMessage"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "StopTrainingMessage"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/TestUpdateMessage"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "TestUpdatesMessage"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/StopTestMessage"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "StopTestMessage"
+                  "CheckpointID"
                 ]
               }
             }
@@ -883,46 +1190,26 @@
         ]
       },
       "ControlModel": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/MLPModel"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "MLP"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/VLAModel"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "VLA"
-                ]
-              }
-            }
-          }
+        "type": "object",
+        "required": [
+          "model_type",
+          "model",
+          "input_spec",
+          "output_spec"
         ],
-        "discriminator": {
-          "propertyName": "type"
+        "properties": {
+          "input_spec": {
+            "$ref": "#/components/schemas/PolicyInputSpec"
+          },
+          "model": {
+            "$ref": "#/components/schemas/MLModel"
+          },
+          "model_type": {
+            "$ref": "#/components/schemas/ModelType"
+          },
+          "output_spec": {
+            "$ref": "#/components/schemas/PolicyOutputSpec"
+          }
         }
       },
       "ControlOutputMode": {
@@ -964,98 +1251,26 @@
           "propertyName": "type"
         }
       },
-      "ControlPolicyInputSpec": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/OrdinaryIOStateConfiguration"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "OrdinaryConfiguration"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/EEFOnlyIOStateConfiguration"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "EEFOnlyConfiguration"
-                ]
-              }
-            }
-          }
-        ],
-        "discriminator": {
-          "propertyName": "type"
-        }
-      },
-      "ControlPolicyOutputSpec": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/OrdinaryIOStateConfiguration"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "OrdinaryConfiguration"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/EEFOnlyIOStateConfiguration"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "EEFOnlyConfiguration"
-                ]
-              }
-            }
-          }
-        ],
-        "discriminator": {
-          "propertyName": "type"
-        }
-      },
-      "CreateExperimentBody": {
+      "CreateProjectRequestBody": {
         "type": "object",
+        "description": "Name of a new project owned by the authenticated user.",
+        "required": [
+          "name"
+        ],
         "properties": {
           "name": {
-            "type": "string",
-            "nullable": true
+            "type": "string"
+          }
+        }
+      },
+      "CreateProjectResponseBody": {
+        "type": "object",
+        "required": [
+          "project_id"
+        ],
+        "properties": {
+          "project_id": {
+            "type": "string"
           }
         }
       },
@@ -1064,13 +1279,17 @@
         "required": [
           "test_params",
           "control_model",
-          "simulation_model"
+          "simulation_model_id",
+          "reward_function"
         ],
         "properties": {
           "control_model": {
             "$ref": "#/components/schemas/ControlModel"
           },
-          "simulation_model": {
+          "reward_function": {
+            "$ref": "#/components/schemas/RewardSystem"
+          },
+          "simulation_model_id": {
             "type": "string"
           },
           "test_params": {
@@ -1136,82 +1355,50 @@
           }
         }
       },
-      "DefaultModelResponse": {
+      "DeleteModelsRequestBody": {
         "type": "object",
         "required": [
-          "id",
-          "model"
+          "model_ids"
         ],
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "model": {
-            "$ref": "#/components/schemas/WorldBody"
-          }
-        }
-      },
-      "EEFOnlyIOStateConfiguration": {
-        "type": "object",
-        "required": [
-          "robot_base_body_name",
-          "gripper_body_name",
-          "end_effector_body_name",
-          "xpos_state",
-          "xquat_state",
-          "eef_state_orientation_type",
-          "qpos_gripper",
-          "is_diff"
-        ],
-        "properties": {
-          "eef_state_orientation_type": {
-            "$ref": "#/components/schemas/IOStateOrientationType"
-          },
-          "end_effector_body_name": {
-            "type": "string"
-          },
-          "gripper_body_name": {
-            "type": "string"
-          },
-          "is_diff": {
-            "type": "boolean"
-          },
-          "qpos_gripper": {
-            "type": "boolean"
-          },
-          "robot_base_body_name": {
-            "type": "string"
-          },
-          "xpos_state": {
-            "type": "boolean"
-          },
-          "xquat_state": {
-            "type": "boolean"
-          }
-        }
-      },
-      "ExperimentResponse": {
-        "type": "object",
-        "required": [
-          "experiment"
-        ],
-        "properties": {
-          "experiment": {
-            "$ref": "#/components/schemas/TrainingExperiment"
-          }
-        }
-      },
-      "ExperimentsResponse": {
-        "type": "object",
-        "required": [
-          "experiments"
-        ],
-        "properties": {
-          "experiments": {
+          "model_ids": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/TrainingExperiment"
+              "type": "string"
             }
+          }
+        }
+      },
+      "DeleteProjectsRequestBody": {
+        "type": "object",
+        "required": [
+          "project_ids"
+        ],
+        "properties": {
+          "project_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "EEFOutputSpec": {
+        "type": "object",
+        "required": [
+          "eef_state",
+          "gripper"
+        ],
+        "properties": {
+          "base_body_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "eef_state": {
+            "$ref": "#/components/schemas/OutputState"
+          },
+          "gripper": {
+            "$ref": "#/components/schemas/OutputState"
           }
         }
       },
@@ -1243,11 +1430,15 @@
       "FlowNoiseConfig": {
         "type": "object",
         "required": [
-          "noise_model"
+          "noise_model",
+          "model_type"
         ],
         "properties": {
+          "model_type": {
+            "$ref": "#/components/schemas/ModelType"
+          },
           "noise_model": {
-            "$ref": "#/components/schemas/MLPModel"
+            "$ref": "#/components/schemas/MLPModelSpec"
           }
         }
       },
@@ -1322,12 +1513,205 @@
           "Mesh"
         ]
       },
-      "IOStateOrientationType": {
+      "GetModelsResponseBody": {
+        "type": "object",
+        "required": [
+          "model_refs"
+        ],
+        "properties": {
+          "model_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SimulationModelDataUser"
+            }
+          }
+        }
+      },
+      "GetProjectsResponseBody": {
+        "type": "object",
+        "required": [
+          "project_ids"
+        ],
+        "properties": {
+          "project_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "GetWorkloadCheckpointsResponseBody": {
+        "type": "object",
+        "required": [
+          "checkpoints"
+        ],
+        "properties": {
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CheckpointRefUser"
+            }
+          }
+        }
+      },
+      "IOStateXFrame": {
+        "type": "string",
+        "enum": [
+          "WorldFrame"
+        ]
+      },
+      "IOStateXOrientationType": {
         "type": "string",
         "enum": [
           "Quaternion",
-          "AxisAngle",
-          "TaitBryan"
+          "AxisAngle"
+        ]
+      },
+      "InputState": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/InputStateControllable"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "InputStateControllable"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/InputStateItemSensors"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "InputStateSensors"
+                ]
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        }
+      },
+      "InputStateControllable": {
+        "type": "object",
+        "required": [
+          "excluded_body_trees",
+          "state_item"
+        ],
+        "properties": {
+          "excluded_body_trees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rebase_body_tree": {
+            "type": "string",
+            "nullable": true
+          },
+          "state_item": {
+            "$ref": "#/components/schemas/InputStateItemControllable"
+          }
+        }
+      },
+      "InputStateItemControllable": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "QPos"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "QVel"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "GeneralisedForces"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/XPoseSpec"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "XPose"
+                ]
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        }
+      },
+      "InputStateItemSensors": {
+        "type": "string",
+        "enum": [
+          "Cameras",
+          "ContactPairs"
+        ]
+      },
+      "LaunchOrigin": {
+        "type": "string",
+        "description": "Origin from which a workload was launched.",
+        "enum": [
+          "api"
         ]
       },
       "LiberoDatasetParams": {
@@ -1369,13 +1753,103 @@
           "LiberoSpatial"
         ]
       },
-      "MLPModel": {
+      "ListCheckpointsResponseBody": {
         "type": "object",
         "required": [
-          "model_type",
+          "checkpoints"
+        ],
+        "properties": {
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CheckpointRefUser"
+            }
+          }
+        }
+      },
+      "ListModelsResponseBody": {
+        "type": "object",
+        "required": [
+          "model_data"
+        ],
+        "properties": {
+          "model_data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SimulationModelRefUser"
+            }
+          }
+        }
+      },
+      "ListWorkloadsResponseBody": {
+        "type": "object",
+        "required": [
+          "workloads"
+        ],
+        "properties": {
+          "workloads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkloadUser"
+            }
+          }
+        }
+      },
+      "LogType": {
+        "type": "string",
+        "description": "Severity of a workload log entry.",
+        "enum": [
+          "info",
+          "debug",
+          "trace",
+          "error",
+          "warning"
+        ]
+      },
+      "MLModel": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/MLPModelSpec"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "MLP"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "VLA"
+                ]
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        }
+      },
+      "MLPModelSpec": {
+        "type": "object",
+        "required": [
           "num_hidden_layers",
           "hidden_layer_dim",
-          "input_spec",
           "output_dim",
           "input_dim"
         ],
@@ -1388,12 +1862,6 @@
             "type": "integer",
             "format": "int32"
           },
-          "input_spec": {
-            "$ref": "#/components/schemas/ControlPolicyInputSpec"
-          },
-          "model_type": {
-            "$ref": "#/components/schemas/ModelType"
-          },
           "num_hidden_layers": {
             "type": "integer",
             "format": "int32"
@@ -1401,79 +1869,6 @@
           "output_dim": {
             "type": "integer",
             "format": "int32"
-          }
-        }
-      },
-      "MetricsData": {
-        "type": "object",
-        "required": [
-          "x_axis",
-          "y_axis"
-        ],
-        "properties": {
-          "x_axis": {
-            "type": "array",
-            "items": {
-              "type": "number",
-              "format": "double"
-            }
-          },
-          "y_axis": {
-            "type": "array",
-            "items": {
-              "type": "number",
-              "format": "double"
-            }
-          }
-        }
-      },
-      "ModelForward": {
-        "type": "object",
-        "required": [
-          "xpos",
-          "xquat"
-        ],
-        "properties": {
-          "xpos": {
-            "type": "array",
-            "items": {
-              "type": "number",
-              "format": "double"
-            }
-          },
-          "xquat": {
-            "type": "array",
-            "items": {
-              "type": "number",
-              "format": "double"
-            }
-          }
-        }
-      },
-      "ModelReference": {
-        "type": "object",
-        "required": [
-          "created_at",
-          "id",
-          "name",
-          "path",
-          "model_type"
-        ],
-        "properties": {
-          "created_at": {
-            "$ref": "#/components/schemas/Timestamp"
-          },
-          "id": {
-            "type": "string"
-          },
-          "model_type": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
           }
         }
       },
@@ -1516,62 +1911,90 @@
           "propertyName": "type"
         }
       },
-      "ModelsResponse": {
+      "OutputState": {
         "type": "object",
         "required": [
-          "models"
+          "is_delta",
+          "rebase_body",
+          "state_item"
         ],
         "properties": {
-          "models": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ModelReference"
-            }
+          "is_delta": {
+            "type": "boolean"
+          },
+          "rebase_body": {
+            "type": "string"
+          },
+          "state_item": {
+            "$ref": "#/components/schemas/OutputStateItem"
           }
         }
       },
-      "OrdinaryIOStateConfiguration": {
-        "type": "object",
-        "required": [
-          "all_cameras",
-          "qpos_state",
-          "qvel_state",
-          "genforces_state",
-          "xpos_state",
-          "xquat_state",
-          "contact_pairs",
-          "is_diff"
-        ],
-        "properties": {
-          "all_cameras": {
-            "type": "boolean"
+      "OutputStateItem": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "QPos"
+                ]
+              }
+            }
           },
-          "contact_pairs": {
-            "type": "boolean",
-            "description": "Only valid in reward_function.input_spec; forbidden in control/value model specs."
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "QVel"
+                ]
+              }
+            }
           },
-          "genforces_state": {
-            "type": "boolean"
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "GeneralisedForces"
+                ]
+              }
+            }
           },
-          "is_diff": {
-            "type": "boolean"
-          },
-          "qpos_state": {
-            "type": "boolean"
-          },
-          "qvel_state": {
-            "type": "boolean"
-          },
-          "robot_base_body_name": {
-            "type": "string",
-            "nullable": true
-          },
-          "xpos_state": {
-            "type": "boolean"
-          },
-          "xquat_state": {
-            "type": "boolean"
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/XPoseSpec"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "XPose"
+                ]
+              }
+            }
           }
+        ],
+        "discriminator": {
+          "propertyName": "type"
         }
       },
       "PPOTrainingMethod": {
@@ -1579,15 +2002,15 @@
         "required": [
           "num_trajs",
           "num_steps_per_traj",
+          "num_rollouts",
           "num_epochs",
-          "num_updates",
           "epsilon",
           "gamma",
           "lambda",
           "reward_function",
           "control_model",
           "value_model",
-          "simulation_model",
+          "simulation_model_id",
           "control_output_mode"
         ],
         "properties": {
@@ -1611,7 +2034,13 @@
           },
           "num_epochs": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "Full-batch optimization epochs per rollout (one update each)."
+          },
+          "num_rollouts": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Independent trajectory collections performed during training."
           },
           "num_steps_per_traj": {
             "type": "integer",
@@ -1621,14 +2050,10 @@
             "type": "integer",
             "format": "int32"
           },
-          "num_updates": {
-            "type": "integer",
-            "format": "int32"
-          },
           "reward_function": {
             "$ref": "#/components/schemas/RewardSystem"
           },
-          "simulation_model": {
+          "simulation_model_id": {
             "type": "string"
           },
           "value_model": {
@@ -1636,21 +2061,72 @@
           }
         }
       },
-      "PPOTrainingRunState": {
-        "type": "object",
-        "required": [
-          "epoch_index",
-          "update_index"
-        ],
-        "properties": {
-          "epoch_index": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "update_index": {
-            "type": "integer",
-            "format": "int32"
+      "PolicyInputSpec": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/StandardInputSpec"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "StandardInputSpec"
+                ]
+              }
+            }
           }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        }
+      },
+      "PolicyOutputSpec": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/ProprioceptiveOutputSpec"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ProprioceptiveOutputSpec"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "$ref": "#/components/schemas/EEFOutputSpec"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "EEFOutputSpec"
+                ]
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
         }
       },
       "Pretrained": {
@@ -1658,6 +2134,21 @@
         "enum": [
           "Pi0"
         ]
+      },
+      "ProprioceptiveOutputSpec": {
+        "type": "object",
+        "required": [
+          "base_body_name",
+          "state"
+        ],
+        "properties": {
+          "base_body_name": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/OutputState"
+          }
+        }
       },
       "RewardLanguage": {
         "type": "string",
@@ -1675,7 +2166,7 @@
         ],
         "properties": {
           "input_spec": {
-            "$ref": "#/components/schemas/ControlPolicyInputSpec"
+            "$ref": "#/components/schemas/PolicyInputSpec"
           },
           "language": {
             "$ref": "#/components/schemas/RewardLanguage"
@@ -1685,82 +2176,242 @@
           }
         }
       },
-      "RunResponse": {
+      "SaveModelRequestBody": {
         "type": "object",
         "required": [
-          "run"
+          "project_id",
+          "name",
+          "model_type",
+          "file_type",
+          "base_file_name",
+          "file_contents"
         ],
         "properties": {
-          "run": {
-            "$ref": "#/components/schemas/TrainingExperimentRun"
-          }
-        }
-      },
-      "RunsResponse": {
-        "type": "object",
-        "required": [
-          "runs"
-        ],
-        "properties": {
-          "runs": {
+          "base_file_name": {
+            "type": "string"
+          },
+          "file_contents": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/TrainingExperimentRun"
+              "type": "integer",
+              "maximum": 255,
+              "minimum": 0
             }
-          }
-        }
-      },
-      "SaveModelResponse": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
+          },
+          "file_type": {
+            "$ref": "#/components/schemas/SimulationModelFileType"
+          },
+          "model_type": {
+            "$ref": "#/components/schemas/SimulationModelType"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
             "type": "string"
           }
         }
       },
-      "StartTestBody": {
+      "SaveModelResponseBody": {
         "type": "object",
         "required": [
-          "test_graph"
+          "model_id"
         ],
         "properties": {
+          "model_id": {
+            "type": "string"
+          }
+        }
+      },
+      "SimulationModelDataUser": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "simulation_model_id",
+          "name",
+          "uri_path",
+          "model_type",
+          "file_type",
+          "base_file_name"
+        ],
+        "properties": {
+          "base_file_name": {
+            "type": "string"
+          },
+          "file_type": {
+            "$ref": "#/components/schemas/SimulationModelFileType"
+          },
+          "model_type": {
+            "$ref": "#/components/schemas/SimulationModelType"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "simulation_model_id": {
+            "type": "string"
+          },
+          "uri_path": {
+            "type": "string"
+          }
+        }
+      },
+      "SimulationModelFileType": {
+        "type": "string",
+        "description": "Model file format recorded for an asset.",
+        "enum": [
+          "zip"
+        ]
+      },
+      "SimulationModelRefUser": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "simulation_model_id",
+          "name",
+          "model_type",
+          "file_type",
+          "base_file_name"
+        ],
+        "properties": {
+          "base_file_name": {
+            "type": "string"
+          },
+          "file_type": {
+            "$ref": "#/components/schemas/SimulationModelFileType"
+          },
+          "model_type": {
+            "$ref": "#/components/schemas/SimulationModelType"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "simulation_model_id": {
+            "type": "string"
+          }
+        }
+      },
+      "SimulationModelType": {
+        "type": "string",
+        "description": "Model file format recorded for an asset.",
+        "enum": [
+          "mjcf",
+          "urdf",
+          "usd"
+        ]
+      },
+      "StandardInputSpec": {
+        "type": "object",
+        "required": [
+          "states"
+        ],
+        "properties": {
+          "base_body_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "states": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InputState"
+            }
+          }
+        }
+      },
+      "StartTestRequestBody": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "test_graph",
+          "name",
+          "description",
+          "tags"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "test_graph": {
             "$ref": "#/components/schemas/TestGraph"
           }
         }
       },
-      "StartTrainingBody": {
+      "StartTestResponseBody": {
         "type": "object",
         "required": [
-          "training_graph"
+          "workload_id"
         ],
         "properties": {
+          "workload_id": {
+            "type": "string"
+          }
+        }
+      },
+      "StartTrainingRequestBody": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "training_graph",
+          "name",
+          "description",
+          "tags"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "training_graph": {
             "$ref": "#/components/schemas/TrainingGraph"
           }
         }
       },
-      "StopTestMessage": {
+      "StartTrainingResponseBody": {
         "type": "object",
         "required": [
-          "id"
+          "workload_id"
         ],
         "properties": {
-          "id": {
+          "workload_id": {
             "type": "string"
           }
         }
       },
-      "StopTrainingMessage": {
+      "StopWorkloadRequestBody": {
         "type": "object",
         "required": [
-          "id"
+          "workload_id"
         ],
         "properties": {
-          "id": {
+          "workload_id": {
             "type": "string"
           }
         }
@@ -1838,59 +2489,6 @@
           "propertyName": "type"
         }
       },
-      "TestStartedResponse": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        }
-      },
-      "TestStoppedResponse": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        }
-      },
-      "TestUpdateMessage": {
-        "type": "object",
-        "required": [
-          "id",
-          "simulation_state",
-          "frames"
-        ],
-        "properties": {
-          "frames": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/CameraFrames"
-            }
-          },
-          "id": {
-            "type": "string"
-          },
-          "simulation_state": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "array",
-              "items": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/ModelForward"
-                }
-              }
-            }
-          }
-        }
-      },
       "TrainingAccelerationMode": {
         "type": "string",
         "enum": [
@@ -1899,105 +2497,6 @@
           "MLCPUSimulationCPU",
           "AllOnServer"
         ]
-      },
-      "TrainingExperiment": {
-        "type": "object",
-        "required": [
-          "project_id",
-          "experiment_name",
-          "training_experiment_id",
-          "created_at",
-          "training_run_ids"
-        ],
-        "properties": {
-          "created_at": {
-            "$ref": "#/components/schemas/Timestamp"
-          },
-          "experiment_name": {
-            "type": "string"
-          },
-          "project_id": {
-            "type": "string"
-          },
-          "training_experiment_id": {
-            "type": "string"
-          },
-          "training_run_ids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "TrainingExperimentRun": {
-        "type": "object",
-        "required": [
-          "project_id",
-          "training_experiment_id",
-          "id",
-          "created_at",
-          "run_status",
-          "logs_id",
-          "metrics_id",
-          "training_graph_id",
-          "checkpoints_refs",
-          "model_refs"
-        ],
-        "properties": {
-          "checkpoints_refs": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "created_at": {
-            "$ref": "#/components/schemas/Timestamp"
-          },
-          "id": {
-            "type": "string"
-          },
-          "logs_id": {
-            "type": "string"
-          },
-          "metrics_id": {
-            "type": "string"
-          },
-          "model_refs": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "project_id": {
-            "type": "string"
-          },
-          "run_end_at": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/Timestamp"
-              }
-            ],
-            "nullable": true
-          },
-          "run_start_at": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/Timestamp"
-              }
-            ],
-            "nullable": true
-          },
-          "run_status": {
-            "$ref": "#/components/schemas/TrainingRunStatus"
-          },
-          "training_experiment_id": {
-            "type": "string"
-          },
-          "training_graph_id": {
-            "type": "string"
-          }
-        }
       },
       "TrainingGraph": {
         "type": "object",
@@ -2058,269 +2557,490 @@
           "propertyName": "type"
         }
       },
-      "TrainingMetrics": {
+      "TrajectoryCameraFrameRefUser": {
+        "type": "object",
+        "required": [
+          "camera_frame_id",
+          "workload_id",
+          "workload_structure_state",
+          "camera_id",
+          "model_camera_name",
+          "uri_path",
+          "simulation_model_id"
+        ],
+        "properties": {
+          "camera_frame_id": {
+            "type": "string"
+          },
+          "camera_id": {
+            "type": "string"
+          },
+          "model_camera_name": {
+            "type": "string"
+          },
+          "simulation_model_id": {
+            "type": "string"
+          },
+          "uri_path": {
+            "type": "string"
+          },
+          "workload_id": {
+            "type": "string"
+          },
+          "workload_structure_index_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "workload_structure_state": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Numeric coordinates in the structure LUT's declared order."
+          }
+        }
+      },
+      "ValueModel": {
+        "type": "object",
+        "required": [
+          "model_type",
+          "input_spec",
+          "model"
+        ],
+        "properties": {
+          "input_spec": {
+            "$ref": "#/components/schemas/PolicyInputSpec"
+          },
+          "model": {
+            "$ref": "#/components/schemas/MLModel"
+          },
+          "model_type": {
+            "$ref": "#/components/schemas/ModelType"
+          }
+        }
+      },
+      "WorkloadGraph": {
         "oneOf": [
           {
             "type": "object",
             "required": [
-              "type",
-              "content"
+              "TestGraph"
             ],
             "properties": {
-              "content": {
-                "$ref": "#/components/schemas/MetricsData"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "MeanReward"
-                ]
+              "TestGraph": {
+                "$ref": "#/components/schemas/TestGraph"
               }
             }
           },
           {
             "type": "object",
             "required": [
-              "type",
-              "content"
+              "TrainingGraph"
             ],
             "properties": {
-              "content": {
-                "$ref": "#/components/schemas/MetricsData"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "MeanPolicyLoss"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/MetricsData"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "ValueLoss"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/MetricsData"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "MeanEntropy"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/MetricsData"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "PolicyGradientNorm"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/MetricsData"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "ValueGradientNorm"
-                ]
+              "TrainingGraph": {
+                "$ref": "#/components/schemas/TrainingGraph"
               }
             }
           }
         ],
-        "discriminator": {
-          "propertyName": "type"
-        }
+        "description": "Execution graph for a training or testing workload."
       },
-      "TrainingRunState": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "type",
-              "content"
-            ],
-            "properties": {
-              "content": {
-                "$ref": "#/components/schemas/PPOTrainingRunState"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "PPOTrainingRunState"
-                ]
-              }
-            }
-          }
+      "WorkloadLiveTicketResponseBody": {
+        "type": "object",
+        "description": "Short-lived, single-use browser WebSocket credential.",
+        "required": [
+          "ticket",
+          "expires_at"
         ],
-        "discriminator": {
-          "propertyName": "type"
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ticket": {
+            "type": "string"
+          }
         }
       },
-      "TrainingRunStatus": {
+      "WorkloadLogsUser": {
+        "type": "object",
+        "required": [
+          "workload_id",
+          "created_at",
+          "log_timestamp",
+          "log_id",
+          "log_line_text",
+          "log_type"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "log_id": {
+            "type": "string"
+          },
+          "log_line_text": {
+            "type": "string"
+          },
+          "log_timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "log_type": {
+            "$ref": "#/components/schemas/LogType"
+          },
+          "workload_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkloadSimulationModelTrajectoryStateUser": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "sim_model_state_entry_id",
+          "workload_id",
+          "workload_structure_state",
+          "simulation_model_id",
+          "state"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sim_model_state_entry_id": {
+            "type": "string"
+          },
+          "simulation_model_id": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/WorldBody"
+          },
+          "workload_id": {
+            "type": "string"
+          },
+          "workload_structure_index_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "workload_structure_state": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Coordinates in the structure LUT's declared order."
+          }
+        }
+      },
+      "WorkloadStatus": {
         "type": "string",
+        "description": "Lifecycle status of a workload.",
         "enum": [
-          "Ongoing",
-          "Completed",
-          "StoppedByUser",
-          "NotStarted"
+          "completed",
+          "execution_failed",
+          "launch_failed",
+          "scheduled",
+          "ongoing",
+          "user_stopped"
         ]
       },
-      "TrainingStartedResponse": {
+      "WorkloadStopped": {
         "type": "object",
         "required": [
-          "id"
+          "workload_id",
+          "reason"
         ],
         "properties": {
-          "id": {
+          "reason": {
+            "$ref": "#/components/schemas/WorkloadStoppedReasonUser"
+          },
+          "workload_id": {
             "type": "string"
           }
         }
       },
-      "TrainingStoppedResponse": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
+      "WorkloadStoppedReasonUser": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "CompletedSuccess"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "WorkerFailure"
+            ],
+            "properties": {
+              "WorkerFailure": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "string",
+            "enum": [
+              "RequestedByUser"
+            ]
           }
-        }
+        ]
       },
-      "TrainingUpdate": {
+      "WorkloadType": {
+        "type": "string",
+        "description": "Kind of workload executed by the platform.",
+        "enum": [
+          "training",
+          "testing"
+        ]
+      },
+      "WorkloadUpdateUser": {
         "type": "object",
         "required": [
-          "training_run_state",
+          "workload_id",
           "logs",
           "metrics",
-          "checkpoints"
+          "checkpoints",
+          "simulation_models",
+          "camera_frames",
+          "model_states"
         ],
         "properties": {
+          "camera_frames": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrajectoryCameraFrameRefUser"
+            }
+          },
           "checkpoints": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/CheckpointReference"
+              "$ref": "#/components/schemas/CheckpointRefUser"
             }
           },
           "logs": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/WorkloadLogsUser"
             }
           },
           "metrics": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/TrainingMetrics"
+              "$ref": "#/components/schemas/WorkloadUserMetricsUser"
             }
           },
-          "training_run_state": {
-            "$ref": "#/components/schemas/TrainingRunState"
+          "model_states": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkloadSimulationModelTrajectoryStateUser"
+            }
+          },
+          "simulation_models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SimulationModelDataUser"
+            }
+          },
+          "workload_id": {
+            "type": "string"
           }
         }
       },
-      "TrainingUpdatesMessage": {
+      "WorkloadUpdatesClient": {
+        "type": "string",
+        "enum": [
+          "RequestAllUpdatesMessage"
+        ]
+      },
+      "WorkloadUpdatesResponseBody": {
         "type": "object",
         "required": [
-          "id",
+          "workload_id",
           "updates"
         ],
         "properties": {
-          "id": {
-            "type": "string"
+          "next_cursor": {
+            "type": "string",
+            "description": "Opaque position for the next bounded history page.",
+            "nullable": true
           },
           "updates": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/TrainingUpdate"
+              "$ref": "#/components/schemas/WorkloadUpdateUser"
             }
+          },
+          "workload_id": {
+            "type": "string"
           }
         }
       },
-      "VLAModel": {
-        "type": "object",
-        "required": [
-          "model_type",
-          "input_spec",
-          "output"
-        ],
-        "properties": {
-          "input_spec": {
-            "$ref": "#/components/schemas/ControlPolicyInputSpec"
-          },
-          "model_type": {
-            "$ref": "#/components/schemas/ModelType"
-          },
-          "output": {
-            "$ref": "#/components/schemas/ControlPolicyOutputSpec"
-          }
-        }
-      },
-      "ValueModel": {
+      "WorkloadUpdatesServer": {
         "oneOf": [
           {
             "type": "object",
             "required": [
-              "type",
-              "content"
+              "WorkloadStoppedMessage"
             ],
             "properties": {
-              "content": {
-                "$ref": "#/components/schemas/MLPModel"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "MLP"
-                ]
+              "WorkloadStoppedMessage": {
+                "$ref": "#/components/schemas/WorkloadStopped"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "WorkloadUpdatesMessage"
+            ],
+            "properties": {
+              "WorkloadUpdatesMessage": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkloadUpdateUser"
+                }
               }
             }
           }
+        ]
+      },
+      "WorkloadUser": {
+        "type": "object",
+        "required": [
+          "workload_id",
+          "workload_type",
+          "project_id",
+          "user_id",
+          "launch_origin",
+          "status",
+          "workload_graph_id",
+          "workload_graph",
+          "simulation_model_ids",
+          "tags",
+          "name",
+          "description"
         ],
-        "discriminator": {
-          "propertyName": "type"
+        "properties": {
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "description": {
+            "type": "string"
+          },
+          "launch_origin": {
+            "$ref": "#/components/schemas/LaunchOrigin"
+          },
+          "launched_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "scheduled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "simulation_model_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Uploaded and generated models associated with this workload."
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkloadStatus"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "workload_graph": {
+            "$ref": "#/components/schemas/WorkloadGraph"
+          },
+          "workload_graph_id": {
+            "type": "string"
+          },
+          "workload_id": {
+            "type": "string"
+          },
+          "workload_type": {
+            "$ref": "#/components/schemas/WorkloadType"
+          }
+        }
+      },
+      "WorkloadUserMetricsUser": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "workload_id",
+          "workload_structure_state_values",
+          "metric_values",
+          "metric_name"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "metric_name": {
+            "type": "string"
+          },
+          "metric_values": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "workload_id": {
+            "type": "string"
+          },
+          "workload_structure_index_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "workload_structure_state_values": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          }
         }
       },
       "WorldBody": {
@@ -2336,25 +3056,28 @@
             }
           }
         }
+      },
+      "XPoseSpec": {
+        "type": "object",
+        "required": [
+          "frame_spec",
+          "orientation_spec"
+        ],
+        "properties": {
+          "frame_spec": {
+            "$ref": "#/components/schemas/IOStateXFrame"
+          },
+          "orientation_spec": {
+            "$ref": "#/components/schemas/IOStateXOrientationType"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "access_key": {
+        "type": "http",
+        "scheme": "bearer"
       }
     }
-  },
-  "tags": [
-    {
-      "name": "Models",
-      "description": "Simulation model management"
-    },
-    {
-      "name": "Checkpoints",
-      "description": "Training checkpoint management"
-    },
-    {
-      "name": "Training",
-      "description": "Training experiments and runs"
-    },
-    {
-      "name": "Testing",
-      "description": "Simulation testing workloads"
-    }
-  ]
+  }
 }

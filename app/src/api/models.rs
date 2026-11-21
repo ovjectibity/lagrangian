@@ -18,9 +18,39 @@ use crate::commondef::records::assets::SimulationModelRef;
 use crate::workflows;
 
 /// List model metadata belonging to an authorized project.
-#[utoipa::path(get, path = "/api/list_models",
-    params(("project_id" = String, Query, description = "Request filter")),
-    responses((status = 200, body = ListModelsResponseBody)))]
+#[utoipa::path(
+    get, path = "/api/list_models",
+    tag = "Models",
+    params(
+        (
+            "project_id" = String, Query,
+            description = "Project owning the models",
+        ),
+    ),
+    responses(
+        (status = 200, body = ListModelsResponseBody),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[get("/list_models?<project_id>")]
 pub async fn list_models(
     auth: Authenticated,
@@ -59,9 +89,42 @@ pub async fn list_models(
 }
 
 /// Resolve model IDs to authorized temporary app download links.
-#[utoipa::path(get, path = "/api/get_models",
-    params(("model_ids" = Vec<String>, Query, description = "Request filter")),
-    responses((status = 200, body = GetModelsResponseBody)))]
+#[utoipa::path(
+    get, path = "/api/get_models",
+    tag = "Models",
+    params(
+        (
+            "model_ids" = Option<Vec<String>>, Query,
+            description = "Repeat model_ids; omit for no models",
+            style = Form,
+            explode = true,
+            nullable = false,
+        ),
+    ),
+    responses(
+        (status = 200, body = GetModelsResponseBody),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[get("/get_models?<model_ids>")]
 pub async fn get_models(
     auth: Authenticated,
@@ -77,9 +140,46 @@ pub async fn get_models(
 }
 
 /// Upload a ZIP, then store its project-owned reference.
-#[utoipa::path(post, path = "/api/save_model",
+#[utoipa::path(
+    post, path = "/api/save_model",
+    tag = "Models",
     request_body = SaveModelRequestBody,
-    responses((status = 200, body = SaveModelResponseBody)))]
+    responses(
+        (status = 200, body = SaveModelResponseBody),
+        (
+            status = 400,
+            description = "Invalid request",
+        ),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 409,
+            description = "Resource conflict or workload active",
+        ),
+        (
+            status = 413,
+            description = "JSON body exceeds the size limit",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[post("/save_model", format = "json", data = "<body>")]
 pub async fn save_model(
     auth: Authenticated,
@@ -170,9 +270,46 @@ pub async fn save_model(
 }
 
 /// Reject deletion of models referenced by any workload or frame.
-#[utoipa::path(delete, path = "/api/delete_model",
+#[utoipa::path(
+    delete, path = "/api/delete_model",
+    tag = "Models",
     request_body = DeleteModelsRequestBody,
-    responses((status = 204), (status = 409)))]
+    responses(
+        (status = 204, description = "Deleted"),
+        (
+            status = 400,
+            description = "Invalid request",
+        ),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 409,
+            description = "Resource conflict or workload active",
+        ),
+        (
+            status = 413,
+            description = "JSON body exceeds the size limit",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[delete("/delete_model", format = "json", data = "<body>")]
 pub async fn delete_model(
     auth: Authenticated,
@@ -219,9 +356,31 @@ pub async fn delete_model(
 
 /// Stream an authorized object through the app, never redirecting
 /// to a bucket URL. Download tickets expire after five minutes.
-#[utoipa::path(get, path = "/api/assets/download/{token}",
-    params(("token" = String, Path, description = "Download ticket")),
-    responses((status = 200, body = Vec<u8>), (status = 401)))]
+#[utoipa::path(
+    get, path = "/api/assets/download/{token}",
+    tag = "Assets",
+    params(
+        (
+            "token" = String, Path,
+            description = "Download ticket; expires in 5 minutes",
+        ),
+    ),
+    responses(
+        (
+            status = 200, description = "Asset bytes",
+            body = Vec<u8>,
+            content_type = ["image/png", "application/zip"],
+        ),
+        (
+            status = 401,
+            description = "Ticket or access key is invalid",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[get("/assets/download/<token>")]
 pub async fn download_asset(
     state: &State<Arc<ApiState>>,

@@ -1,6 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde;
 use typeshare::typeshare;
+use utoipa::openapi::{
+    ArrayBuilder, ObjectBuilder, RefOr, Schema, SchemaType,
+};
 use utoipa::ToSchema;
 
 use crate::commondef::records::{
@@ -90,9 +93,22 @@ simulation_model_ref_variant! {
     pub struct SaveModelRequestBody {
         remove: [created_at, updated_at, uri_path, simulation_model_id],
         add: {
+            /// ZIP bytes as JSON integers between 0 and 255.
+            #[schema(schema_with = json_bytes_schema)]
             pub file_contents: Vec<u8>
         }
     }
+}
+
+fn json_bytes_schema() -> RefOr<Schema> {
+    ArrayBuilder::new()
+        .items(
+            ObjectBuilder::new()
+                .schema_type(SchemaType::Integer)
+                .minimum(Some(0.0))
+                .maximum(Some(255.0)),
+        )
+        .into()
 }
 
 #[derive(

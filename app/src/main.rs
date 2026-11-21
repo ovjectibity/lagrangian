@@ -147,8 +147,33 @@ fn api_hello() -> &'static str {
     "Hello from Rocket!"
 }
 
-#[launch]
-fn rocket() -> _ {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut arguments = env::args().skip(1);
+    if let Some(argument) = arguments.next() {
+        if argument != "--export-openapi"
+            || arguments.next().is_some()
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Usage: lagrangian [--export-openapi]",
+            )
+            .into());
+        }
+        // Export before constructing Rocket or its dependencies.
+        let stdout = std::io::stdout();
+        let mut output = stdout.lock();
+        serde_json::to_writer_pretty(
+            &mut output,
+            &api::openapi_document(),
+        )?;
+        std::io::Write::write_all(&mut output, b"\n")?;
+        return Ok(());
+    }
+    rocket::execute(async { rocket().launch().await })?;
+    Ok(())
+}
+
+fn rocket() -> rocket::Rocket<rocket::Build> {
     let client_dist_dir = env::var("CLIENT_DIST_DIR")
         .unwrap_or_else(|_| {
             format!(
@@ -194,23 +219,7 @@ fn rocket() -> _ {
                 }
             })
         }))
-        .mount("/api", routes![
-            api_hello, api::openapi_json,
-            api::workloads::create_project,
-            api::workloads::list_projects,
-            api::workloads::delete_project,
-            api::workloads::list_workloads,
-            api::workloads::stop_workload,
-            api::workloads::get_workload_updates,
-            api::workloads::live_ticket,
-            api::workloads::live_updates,
-            api::models::list_models, api::models::get_models,
-            api::models::save_model, api::models::delete_model,
-            api::models::download_asset,
-            api::checkpoints::list_checkpoints,
-            api::checkpoints::get_workload_checkpoints,
-            api::training::start_training,
-            api::testing::start_test,
-        ])
+        .mount("/api", routes![api_hello, api::openapi_json])
+        .mount("/api", api::routes())
         .mount("/", FileServer::from(client_dist_dir).rank(1))
 }

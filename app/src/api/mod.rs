@@ -358,6 +358,29 @@ pub(super) fn internal(error: impl std::fmt::Display) -> Status {
     Status::InternalServerError
 }
 
+/// The application API routes, shared with coverage checks.
+pub fn routes() -> Vec<rocket::Route> {
+    routes![
+        workloads::create_project,
+        workloads::list_projects,
+        workloads::delete_project,
+        workloads::list_workloads,
+        workloads::stop_workload,
+        workloads::get_workload_updates,
+        workloads::live_ticket,
+        workloads::live_updates,
+        models::list_models,
+        models::get_models,
+        models::save_model,
+        models::delete_model,
+        models::download_asset,
+        checkpoints::list_checkpoints,
+        checkpoints::get_workload_checkpoints,
+        training::start_training,
+        testing::start_test,
+    ]
+}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -385,18 +408,13 @@ pub(super) fn internal(error: impl std::fmt::Display) -> Status {
         DeleteProjectsRequestBody,
         CreateProjectResponseBody,
         GetProjectsResponseBody,
-        ListModelsRequestBody,
-        GetModelsRequestBody,
         SaveModelRequestBody,
         DeleteModelsRequestBody,
         ListModelsResponseBody,
         GetModelsResponseBody,
         SaveModelResponseBody,
-        ListCheckpointsRequestBody,
-        GetWorkloadCheckpointsRequestBody,
         ListCheckpointsResponseBody,
         GetWorkloadCheckpointsResponseBody,
-        ListWorkloadsRequestBody,
         ListWorkloadsResponseBody,
         WorkloadUser,
         StartTrainingRequestBody,
@@ -462,23 +480,11 @@ pub(super) fn internal(error: impl std::fmt::Display) -> Status {
         CheckpointFrequency,
         SimulationModelType,
         SimulationModelFileType,
-        SimulationModelRef,
         CheckpointModelType,
-        CheckpointRef,
-        TrajectoryCameraFrameRef,
         WorkloadType,
         LaunchOrigin,
         WorkloadStatus,
-        Workload,
-        AggregationFunction,
-        WorkloadMethod,
-        UserMetricsLut,
-        WorkloadStructureLut,
         LogType,
-        LogStream,
-        WorkloadLogs,
-        WorkloadUserMetrics,
-        WorkloadSimulationModelTrajectoryState,
         GeomType,
         Geom,
         Body,
@@ -490,6 +496,12 @@ pub struct ApiDoc;
 /// Serve the schema generated from the actual API handlers.
 #[get("/openapi.json")]
 pub fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
+    Json(openapi_document())
+}
+
+/// Build the same document for HTTP serving and offline export.
+pub fn openapi_document() -> utoipa::openapi::OpenApi {
+    use utoipa::openapi::{RefOr, Schema};
     use utoipa::openapi::security::{
         Http, HttpAuthScheme, SecurityRequirement, SecurityScheme,
     };
@@ -514,63 +526,324 @@ pub fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
                     "access_key",
                     Vec::<String>::new(),
                 )]);
+            // Utoipa 4 path parameters cannot declare defaults.
+            if path == "/api/get_workload_updates"
+                && let Some(parameters) =
+                    operation.parameters.as_mut()
+            {
+                for parameter in parameters {
+                    if parameter.name == "limit"
+                        && let Some(RefOr::T(
+                            Schema::Object(schema),
+                        )) = parameter.schema.as_mut()
+                    {
+                        schema.default =
+                            Some(serde_json::json!(200));
+                    }
+                }
+            }
         }
     }
-    Json(document)
+    document
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
+    use serde_json::{Value, json};
+
     use super::*;
 
+    fn document() -> Value {
+        serde_json::to_value(openapi_document()).unwrap()
+    }
+
+    fn check_refs(value: &Value, root: &Value) {
+        match value {
+            Value::Object(fields) => {
+                if let Some(reference) =
+                    fields.get("$ref").and_then(Value::as_str)
+                {
+                    assert!(
+                        reference.starts_with("#/"),
+                        "External schema reference: {reference}"
+                    );
+                    assert!(
+                        root.pointer(&reference[1..]).is_some(),
+                        "Missing schema: {reference}"
+                    );
+                }
+                for field in fields.values() {
+                    check_refs(field, root);
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    check_refs(value, root);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn schema_refs(value: &Value, pending: &mut Vec<String>) {
+        match value {
+            Value::Object(fields) => {
+                if let Some(name) = fields
+                    .get("$ref")
+                    .and_then(Value::as_str)
+                    .and_then(|r| {
+                        r.strip_prefix("#/components/schemas/")
+                    })
+                {
+                    pending.push(name.to_owned());
+                }
+                for field in fields.values() {
+                    schema_refs(field, pending);
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    schema_refs(value, pending);
+                }
+            }
+            _ => {}
+        }
+    }
+
     #[test]
-    fn openapi_contains_all_routes_and_resolves_schema_refs() {
-        fn check_refs(
-            value: &serde_json::Value,
-            root: &serde_json::Value,
-        ) {
-            match value {
-                serde_json::Value::Object(fields) => {
-                    if let Some(reference) = fields
-                        .get("$ref")
-                        .and_then(|v| v.as_str())
-                    {
-                        assert!(
-                            root.pointer(
-                                reference.trim_start_matches('#')
-                            )
-                            .is_some(),
-                            "Missing schema: {reference}"
-                        );
-                    }
-                    for field in fields.values() {
-                        check_refs(field, root);
-                    }
-                }
-                serde_json::Value::Array(values) => {
-                    for value in values {
-                        check_refs(value, root);
-                    }
-                }
-                _ => {}
+    fn openapi_matches_registered_routes_and_resolves_refs() {
+        let document = document();
+        let registered: BTreeSet<_> = routes()
+            .into_iter()
+            .map(|route| {
+                let path = format!("/api{}", route.uri.path())
+                    .replace('<', "{")
+                    .replace('>', "}");
+                (path, route.method.to_string().to_lowercase())
+            })
+            .collect();
+        let mut documented = BTreeSet::new();
+        for (path, item) in document["paths"].as_object().unwrap()
+        {
+            for method in item.as_object().unwrap().keys() {
+                documented.insert((path.clone(), method.clone()));
             }
         }
-        let document =
-            serde_json::to_value(openapi_json().into_inner())
-                .unwrap();
-        assert_eq!(
-            document["paths"].as_object().unwrap().len(),
-            17
-        );
-        assert!(
-            document["paths"]["/api/start_training"]["post"]
-                .is_object()
-        );
-        assert!(
-            document["paths"]["/api/delete_model"]["delete"]
-                .is_object()
-        );
-        assert!(document["paths"]["/api/list_projects"]["get"]["security"].is_array());
+        assert_eq!(registered, documented);
         check_refs(&document, &document);
+    }
+
+    #[test]
+    fn openapi_contains_only_reachable_contract_schemas() {
+        let document = document();
+        let schemas = document["components"]["schemas"]
+            .as_object()
+            .unwrap();
+        // WebSocket messages are roots outside HTTP body schemas.
+        let mut pending = vec![
+            "WorkloadUpdatesServer".to_owned(),
+            "WorkloadUpdatesClient".to_owned(),
+        ];
+        schema_refs(&document["paths"], &mut pending);
+        let mut reachable = BTreeSet::new();
+        while let Some(name) = pending.pop() {
+            if reachable.insert(name.clone()) {
+                schema_refs(&schemas[&name], &mut pending);
+            }
+        }
+        let registered = schemas.keys().cloned().collect();
+        assert_eq!(reachable, registered);
+    }
+
+    #[test]
+    fn openapi_security_errors_and_statuses_match_handlers() {
+        let document = document();
+        for (path, item) in document["paths"].as_object().unwrap()
+        {
+            let ticket_auth = matches!(
+                path.as_str(),
+                "/api/assets/download/{token}"
+                    | "/api/get_workload_live_updates"
+            );
+            for operation in item.as_object().unwrap().values() {
+                if ticket_auth {
+                    assert!(operation.get("security").is_none());
+                } else {
+                    assert_eq!(
+                        operation["security"],
+                        json!([{"access_key": []}])
+                    );
+                }
+                for code in ["401", "500"] {
+                    assert!(
+                        operation["responses"][code].is_object(),
+                        "Missing {code} response on {path}"
+                    );
+                }
+            }
+        }
+        let paths = &document["paths"];
+        for path in ["/api/start_training", "/api/start_test"] {
+            for code in ["400", "403", "404", "409", "503"] {
+                assert!(
+                    paths[path]["post"]["responses"][code]
+                        .is_object()
+                );
+            }
+        }
+        assert!(paths["/api/stop_workload"]["post"]["responses"]
+            ["202"]
+            .is_object());
+        for path in ["/api/delete_project", "/api/delete_model"] {
+            let response = &paths[path]["delete"]["responses"];
+            assert!(response["204"].is_object());
+            assert!(response["204"].get("content").is_none());
+        }
+    }
+
+    #[test]
+    fn openapi_upload_and_download_representations_match_wire() {
+        let document = document();
+        let schemas = &document["components"]["schemas"];
+        let bytes = &schemas["SaveModelRequestBody"]
+            ["properties"]["file_contents"];
+        assert_eq!(bytes["type"], "array");
+        assert_eq!(bytes["items"]["type"], "integer");
+        assert_eq!(bytes["items"]["minimum"], 0.0);
+        assert_eq!(bytes["items"]["maximum"], 255.0);
+        let input = json!({
+            "project_id": "project-1",
+            "name": "Example model",
+            "model_type": "mjcf",
+            "file_type": "zip",
+            "base_file_name": "model.xml",
+            "file_contents": [0, 255]
+        });
+        let model: SaveModelRequestBody =
+            serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(model.file_contents, [0, 255]);
+        assert_eq!(serde_json::to_value(model).unwrap(), input);
+        for invalid in [json!([-1]), json!([256]), json!("zip")] {
+            let mut invalid_input = input.clone();
+            invalid_input["file_contents"] = invalid;
+            assert!(
+                serde_json::from_value::<SaveModelRequestBody>(
+                    invalid_input
+                )
+                .is_err()
+            );
+        }
+        let download_path = "/api/assets/download/{token}";
+        let content = &document["paths"][download_path]["get"]
+            ["responses"]["200"]["content"];
+        assert_eq!(content.as_object().unwrap().len(), 2);
+        for media in ["image/png", "application/zip"] {
+            assert_eq!(
+                content[media]["schema"]["type"],
+                "string"
+            );
+            assert_eq!(
+                content[media]["schema"]["format"],
+                "binary"
+            );
+        }
+    }
+
+    #[test]
+    fn openapi_history_and_array_parameters_match_handlers() {
+        let document = document();
+        let history_path = "/api/get_workload_updates";
+        let history = &document["paths"][history_path]["get"];
+        let parameters =
+            history["parameters"].as_array().unwrap();
+        let limit = parameters
+            .iter()
+            .find(|p| p["name"] == "limit")
+            .unwrap();
+        assert_eq!(limit["required"], false);
+        assert_eq!(limit["schema"]["minimum"], 1.0);
+        assert_eq!(limit["schema"]["maximum"], 500.0);
+        assert_eq!(limit["schema"]["default"], 200);
+        assert!(history["responses"]["409"].is_object());
+        for (path, name) in [
+            ("/api/get_models", "model_ids"),
+            ("/api/get_workload_checkpoints", "workload_ids"),
+        ] {
+            let parameter =
+                &document["paths"][path]["get"]["parameters"][0];
+            assert_eq!(parameter["name"], name);
+            assert_eq!(parameter["style"], "form");
+            assert_eq!(parameter["explode"], true);
+            assert_eq!(parameter["required"], false);
+        }
+        assert!(document["components"]["schemas"]
+            ["WorkloadUpdatesResponseBody"]["properties"]
+            .get("next_cursor")
+            .is_some());
+    }
+
+    #[test]
+    fn openapi_preserves_enum_and_timestamp_representations() {
+        let document = document();
+        let schemas = &document["components"]["schemas"];
+        assert_eq!(
+            schemas["CheckpointModelType"]["enum"],
+            json!(["policy", "value", "flow_noise"])
+        );
+        let ticket = &schemas["WorkloadLiveTicketResponseBody"];
+        let expires_at = &ticket["properties"]["expires_at"];
+        assert_eq!(expires_at["format"], "date-time");
+        assert_eq!(
+            serde_json::to_value(
+                WorkloadUpdatesClient::RequestAllUpdatesMessage
+            )
+            .unwrap(),
+            "RequestAllUpdatesMessage"
+        );
+        let message =
+            WorkloadUpdatesServer::WorkloadStoppedMessage(
+                WorkloadStopped {
+                    workload_id: "workload-1".into(),
+                    reason:
+                        WorkloadStoppedReasonUser::WorkerFailure(
+                            "Example failure".into(),
+                        ),
+                },
+            );
+        assert_eq!(
+            serde_json::to_value(message).unwrap(),
+            json!({"WorkloadStoppedMessage": {
+                "workload_id": "workload-1",
+                "reason": {"WorkerFailure": "Example failure"}
+            }})
+        );
+        assert!(
+            schemas["WorkloadUpdatesServer"]["oneOf"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["properties"]
+                    .get("WorkloadStoppedMessage")
+                    .is_some())
+        );
+    }
+
+    #[test]
+    fn committed_openapi_matches_current_document() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../docs/user/api_spec/spec.json"
+        );
+        let saved: Value = serde_json::from_str(
+            &std::fs::read_to_string(path).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            saved,
+            document(),
+            "Regenerate with scripts/typegen/gen_api_spec.sh"
+        );
     }
 }

@@ -1,21 +1,8 @@
-//! Procedural macros for API docs and struct variants.
+//! Procedural macros for struct variants.
 
 use proc_macro::TokenStream;
 
-mod route_doc;
 mod struct_variants;
-
-/// Generates OpenAPI documentation from a Rocket route.
-///
-/// Accepts `tag`, `ok`, `body`, `multipart`, `sse`, `errors`,
-/// and `params`; see the route documentation helper.
-#[proc_macro_attribute]
-pub fn route_doc(
-    args: TokenStream,
-    item: TokenStream,
-) -> TokenStream {
-    route_doc::route_doc(args, item)
-}
 
 /// Retains a struct and creates a `<snake_name>_variant!`
 /// helper, or uses the helper name supplied as an argument.

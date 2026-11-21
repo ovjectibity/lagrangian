@@ -8,9 +8,39 @@ use rocket::serde::json::Json;
 use std::sync::Arc;
 
 /// List project checkpoints and globally shared predefined ones.
-#[utoipa::path(get, path = "/api/list_checkpoints",
-    params(("project_id" = String, Query, description = "Request filter")),
-    responses((status = 200, body = ListCheckpointsResponseBody)))]
+#[utoipa::path(
+    get, path = "/api/list_checkpoints",
+    tag = "Checkpoints",
+    params(
+        (
+            "project_id" = String, Query,
+            description = "Project; includes global checkpoints",
+        ),
+    ),
+    responses(
+        (status = 200, body = ListCheckpointsResponseBody),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[get("/list_checkpoints?<project_id>")]
 pub async fn list_checkpoints(
     auth: Authenticated,
@@ -43,9 +73,42 @@ pub async fn list_checkpoints(
 }
 
 /// Check every workload's project before returning checkpoints.
-#[utoipa::path(get, path = "/api/get_workload_checkpoints",
-    params(("workload_ids" = Vec<String>, Query, description = "Request filter")),
-    responses((status = 200, body = GetWorkloadCheckpointsResponseBody)))]
+#[utoipa::path(
+    get, path = "/api/get_workload_checkpoints",
+    tag = "Checkpoints",
+    params(
+        (
+            "workload_ids" = Option<Vec<String>>, Query,
+            description = "Repeat workload_ids for each ID",
+            style = Form,
+            explode = true,
+            nullable = false,
+        ),
+    ),
+    responses(
+        (status = 200, body = GetWorkloadCheckpointsResponseBody),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[get("/get_workload_checkpoints?<workload_ids>")]
 pub async fn get_workload_checkpoints(
     auth: Authenticated,

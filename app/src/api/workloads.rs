@@ -1,4 +1,4 @@
-//! Workload lifecycle, update ingestion, replay and subscriptions.
+//! Workload API projections, history and live subscriptions.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -31,9 +31,38 @@ use crate::workflows;
 use crate::workflows::{final_record_id, ingest_update};
 
 /// Create a named project for the authenticated user.
-#[utoipa::path(post, path = "/api/create_project",
+#[utoipa::path(
+    post, path = "/api/create_project",
+    tag = "Projects",
     request_body = CreateProjectRequestBody,
-    responses((status = 200, body = CreateProjectResponseBody)))]
+    responses(
+        (status = 200, body = CreateProjectResponseBody),
+        (
+            status = 400,
+            description = "Invalid request",
+        ),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 409,
+            description = "Resource conflict or workload active",
+        ),
+        (
+            status = 413,
+            description = "JSON body exceeds the size limit",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[post("/create_project", format = "json", data = "<body>")]
 pub async fn create_project(
     auth: Authenticated,
@@ -57,8 +86,21 @@ pub async fn create_project(
 }
 
 /// List only the authenticated user's projects.
-#[utoipa::path(get, path = "/api/list_projects",
-    responses((status = 200, body = GetProjectsResponseBody)))]
+#[utoipa::path(
+    get, path = "/api/list_projects",
+    tag = "Projects",
+    responses(
+        (status = 200, body = GetProjectsResponseBody),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[get("/list_projects")]
 pub async fn list_projects(
     auth: Authenticated,
@@ -83,9 +125,46 @@ pub async fn list_projects(
 }
 
 /// Foreign-key references prevent deleting nonempty projects.
-#[utoipa::path(delete, path = "/api/delete_project",
+#[utoipa::path(
+    delete, path = "/api/delete_project",
+    tag = "Projects",
     request_body = DeleteProjectsRequestBody,
-    responses((status = 204), (status = 409)))]
+    responses(
+        (status = 204, description = "Deleted"),
+        (
+            status = 400,
+            description = "Invalid request",
+        ),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 409,
+            description = "Resource conflict or workload active",
+        ),
+        (
+            status = 413,
+            description = "JSON body exceeds the size limit",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[delete("/delete_project", format = "json", data = "<body>")]
 pub async fn delete_project(
     auth: Authenticated,
@@ -112,9 +191,39 @@ pub async fn delete_project(
 }
 
 /// Assemble workload metadata and graphs through the ORM.
-#[utoipa::path(get, path = "/api/list_workloads",
-    params(("project_id" = String, Query, description = "Request filter")),
-    responses((status = 200, body = ListWorkloadsResponseBody)))]
+#[utoipa::path(
+    get, path = "/api/list_workloads",
+    tag = "Workloads",
+    params(
+        (
+            "project_id" = String, Query,
+            description = "Project owning the workloads",
+        ),
+    ),
+    responses(
+        (status = 200, body = ListWorkloadsResponseBody),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[get("/list_workloads?<project_id>")]
 pub async fn list_workloads(
     auth: Authenticated,
@@ -147,9 +256,49 @@ pub async fn list_workloads(
 }
 
 /// Signal the executing job without waiting for the worker lock.
-#[utoipa::path(post, path = "/api/stop_workload",
+#[utoipa::path(
+    post, path = "/api/stop_workload",
+    tag = "Workloads",
     request_body = StopWorkloadRequestBody,
-    responses((status = 202), (status = 409)))]
+    responses(
+        (
+            status = 202,
+            description = "Stop requested asynchronously",
+        ),
+        (
+            status = 400,
+            description = "Invalid request",
+        ),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 409,
+            description = "Resource conflict or workload active",
+        ),
+        (
+            status = 413,
+            description = "JSON body exceeds the size limit",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[post("/stop_workload", format = "json", data = "<body>")]
 pub async fn stop_workload(
     auth: Authenticated,
@@ -423,14 +572,58 @@ fn workload_response(r: Workload) -> WorkloadUser {
 
 /// Read a bounded, independently ordered page with fresh links.
 /// A 409 means concurrent ingestion invalidated the cursor.
-#[utoipa::path(get, path = "/api/get_workload_updates",
+#[utoipa::path(
+    get, path = "/api/get_workload_updates",
+    tag = "Workloads",
     params(
-        ("workload_id" = String, Query, description = "Workload ID"),
-        ("cursor" = Option<String>, Query, description = "Opaque next-page cursor"),
-        ("limit" = Option<usize>, Query, description = "Records per page, 1 to 500; default 200")
+        (
+            "workload_id" = String, Query,
+            description = "Workload whose history is requested",
+        ),
+        (
+            "cursor" = Option<String>, Query,
+            description = "Use next_cursor; restart after a 409",
+        ),
+        (
+            "limit" = Option<usize>, Query,
+            description = "Maximum records per page; default 200",
+            minimum = 1,
+            maximum = 500,
+            example = 200,
+        ),
     ),
-    responses((status = 200, body = WorkloadUpdatesResponseBody),
-        (status = 409, description = "Start a fresh history snapshot")))]
+    responses(
+        (status = 200, body = WorkloadUpdatesResponseBody),
+        (
+            status = 400,
+            description = "Invalid request",
+        ),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 409,
+            description = "Cursor invalidated; restart history",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[get("/get_workload_updates?<workload_id>&<cursor>&<limit>")]
 pub async fn get_workload_updates(
     auth: Authenticated,
@@ -519,9 +712,39 @@ async fn history(
 }
 
 /// Issue a one-minute, single-use browser WebSocket ticket.
-#[utoipa::path(post, path = "/api/get_workload_live_ticket",
-    params(("workload_id" = String, Query, description = "Request filter")),
-    responses((status = 200, body = WorkloadLiveTicketResponseBody)))]
+#[utoipa::path(
+    post, path = "/api/get_workload_live_ticket",
+    tag = "Workloads",
+    params(
+        (
+            "workload_id" = String, Query,
+            description = "Workload for this single-use ticket",
+        ),
+    ),
+    responses(
+        (status = 200, body = WorkloadLiveTicketResponseBody),
+        (
+            status = 401,
+            description = "Invalid or revoked access key",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[post("/get_workload_live_ticket?<workload_id>")]
 pub async fn live_ticket(
     auth: Authenticated,
@@ -544,9 +767,50 @@ pub async fn live_ticket(
 }
 
 /// Replay persisted updates, then stream new events for one workload.
-#[utoipa::path(get, path = "/api/get_workload_live_updates",
-    params(("workload_id" = String, Query, description = "Request filter"), ("ticket" = String, Query, description = "Request filter")),
-    responses((status = 101), (status = 401)))]
+#[utoipa::path(
+    get, path = "/api/get_workload_live_updates",
+    tag = "Workloads",
+    params(
+        (
+            "workload_id" = String, Query,
+            description = "Workload associated with the ticket",
+        ),
+        (
+            "ticket" = String, Query,
+            description = "Single-use WebSocket ticket",
+        ),
+    ),
+    responses(
+        (
+            status = 101,
+            description = "WebSocket upgrade to JSON messages",
+        ),
+        (
+            status = 400,
+            description = "Invalid request",
+        ),
+        (
+            status = 401,
+            description = "Ticket or access key is invalid",
+        ),
+        (
+            status = 403,
+            description = "Resource belongs to another user",
+        ),
+        (
+            status = 404,
+            description = "Resource not found",
+        ),
+        (
+            status = 422,
+            description = "Request fields missing or malformed",
+        ),
+        (
+            status = 500,
+            description = "Persistence or storage failed",
+        ),
+    )
+)]
 #[get("/get_workload_live_updates?<workload_id>&<ticket>")]
 pub async fn live_updates(
     state: &State<Arc<ApiState>>,
@@ -646,6 +910,8 @@ fn validate_live_ticket(
     }
 }
 
+// Rocket fixes the WebSocket error type used by these helpers.
+#[allow(clippy::result_large_err)]
 async fn send_message<S>(
     socket: &mut S,
     message: WorkloadUpdatesServer,
@@ -659,6 +925,7 @@ where
     socket.send(ws::Message::Text(text)).await
 }
 
+#[allow(clippy::result_large_err)]
 async fn replay<S>(
     socket: &mut S,
     state: &ApiState,
