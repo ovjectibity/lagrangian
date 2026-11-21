@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import base64
-import functools
 import io
 import logging
-import math
 import os
 import zipfile
 from typing import Any, Callable
@@ -25,7 +23,7 @@ from commondef.records.workload_graph import (
 )
 from workflows.ppo_trainer import PPOTrainer
 from models.mlp import MLPModel
-from models.model import PPOTrainedModel, load_checkpoint
+from models.model import PPOTrainedModel, load_checkpoint, load_reward_function
 from models.pi0.pi0 import Pi0Model
 from simulator.simulator import MjxSimulator, MujocoSimulator
 from simulator.state import SimulatorState
@@ -71,9 +69,7 @@ class TrainingWorkflow:
             model_rng, workflow_rng = jax.random.split(root_rng)
             self._rng_key, trainer_key = jax.random.split(workflow_rng)
 
-            reward_fn = self._load_user_reward_fn(
-                self.params.reward_function.reward_function_code
-            )
+            reward_fn = load_reward_function(self.params.reward_function)
             self.model = self._build_model_for_training(
                 self.params,
                 reward_fn,
@@ -229,26 +225,6 @@ class TrainingWorkflow:
                 )
                 return
         logger.info("Training render context released: training_id=%s", self.id)
-
-    @staticmethod
-    def _load_user_reward_fn(
-        code: str,
-    ) -> Callable[[PolicyInputState, PolicyInputState], float]:
-        namespace: dict[str, Any] = {
-            "jax": jax,
-            "jnp": jnp,
-            "numpy": np,
-            "np": np,
-            "math": math,
-            "functools": functools,
-            "PolicyInputState": PolicyInputState,
-            "__builtins__": {"__import__": __import__},
-        }
-        exec(compile(code, "<reward_fn>", "exec"), namespace)
-        reward_fn = namespace.get("reward")
-        if reward_fn is None or not callable(reward_fn):
-            raise ValueError("reward function not found in code")
-        return reward_fn
 
     @staticmethod
     def _build_model_for_training(
@@ -432,8 +408,11 @@ class TrainingWorkflow:
                     control_wstates, value_wstates, model_outputs, action_samples, rewards
                 )
                 logger.info("Trained the epoch=%s. ",i)
-                mean_entropy = 0.0  # entropy not computed in GPU path yet
-                mean_reward = float(jax.numpy.mean(rewards))
+                mean_entropy = (
+                    float(jnp.mean(model_outputs["policy_entropy"]))
+                    if "policy_entropy" in model_outputs else None
+                )
+                mean_reward = float(jnp.mean(jnp.sum(rewards, axis=-1)))
                 # PostUpdate on GPU: save after the scan completes if num_updates is a multiple of n
                 if (
                     freq.type == CheckpointFrequencyTypes.POST_UPDATE
@@ -479,7 +458,7 @@ class TrainingWorkflow:
                     update_index=self.params.num_updates - 1,
                 )
             logger.info(
-                "Epoch completed: id=%s epoch=%s mean_reward=%.6f mean_entropy=%.6f",
+                "Epoch completed: id=%s epoch=%s mean_reward=%.6f mean_entropy=%s",
                 self.id,
                 i,
                 mean_reward,
@@ -492,7 +471,6 @@ class TrainingWorkflow:
             metrics = [
                 {"type": name, "content": {"x_axis": xs, "y_axis": ys}}
                 for name, xs, ys in (
-                    ("MeanEntropy", [float(i)], [mean_entropy]),
                     ("MeanReward", [float(i)], [mean_reward]),
                     ("MeanPolicyLoss", update_steps, list(runtime_info.mean_policy_loss())),
                     ("ValueLoss", update_steps, list(runtime_info.mean_value_loss())),
@@ -500,6 +478,11 @@ class TrainingWorkflow:
                     ("ValueGradientNorm", update_steps, list(runtime_info.value_gradient_norm())),
                 )
             ]
+            if mean_entropy is not None:
+                metrics.insert(0, {
+                    "type": "MeanEntropy",
+                    "content": {"x_axis": [float(i)], "y_axis": [mean_entropy]},
+                })
             tx.send_training_updates({
                 "id": self.id,
                 "updates": [{

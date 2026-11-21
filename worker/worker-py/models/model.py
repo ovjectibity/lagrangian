@@ -3,11 +3,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Callable
 from pathlib import Path
+import functools
+import math
 from commondef.records.assets import CheckpointModelType, CheckpointRef
 from commondef.records.workload_graph import (
     PolicyInputSpec, PolicyOutputSpec, ModelType, ModelTypeNew,
     CheckpointTypePretrained, CheckpointTypeCheckpointID, Pretrained,
-    MLModel, MLModelVLA,
+    MLModel, MLModelVLA, RewardSystem, RewardLanguage,
 )
 from commondef.ioadapter import PolicyInputState
 import jax
@@ -17,6 +19,32 @@ import orbax.checkpoint as ocp
 
 Array = jax.Array
 Params = Any
+
+
+def load_reward_function(
+    reward: RewardSystem,
+) -> Callable[[PolicyInputState, PolicyInputState], Any]:
+    """Compile the supplied Python reward for CPU or JAX-traced execution."""
+    if reward.language != RewardLanguage.PYTHON:
+        raise ValueError("Worker reward functions currently support Python only")
+    namespace = {
+        "jax": jax, "jnp": jnp, "numpy": np, "np": np,
+        "math": math, "functools": functools,
+        "PolicyInputState": PolicyInputState,
+        "__builtins__": {"__import__": __import__},
+    }
+    exec(compile(reward.reward_function_code, "<reward_fn>", "exec"), namespace)
+    function = namespace.get("reward")
+    if not callable(function):
+        raise ValueError("Reward code must define a callable reward(state_pre, state_post)")
+
+    def evaluate(pre: PolicyInputState, post: PolicyInputState) -> Array:
+        value = jnp.asarray(function(pre, post))
+        if value.ndim != 0:
+            raise ValueError("Reward function must return a scalar")
+        return value
+
+    return evaluate
 
 
 def load_checkpoint(
@@ -111,6 +139,12 @@ class TestingModel(ABC):
     def get_control_input_spec(self) -> PolicyInputSpec:
         """Input spec the simulator uses for control-policy inference."""
         ...
+
+    def get_test_entropy_fn(
+        self,
+    ) -> Callable[[Params, PolicyInputState], Array] | None:
+        """Return an available policy-entropy calculation; otherwise omit it."""
+        return None
 
     @abstractmethod
     def get_test_action(self, policy_input: PolicyInputState) -> Array:

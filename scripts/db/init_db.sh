@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS workloads.user_metrics_lut (
         workload_type IN ('training', 'testing')
     ),
     aggregation_functions TEXT[] NOT NULL CHECK (
-        aggregation_functions <@ ARRAY['mean']::TEXT[]
+        aggregation_functions <@ ARRAY['mean', 'sum']::TEXT[]
         AND array_position(aggregation_functions, NULL) IS NULL
     ),
     aggregation_indices BIGINT[] NOT NULL CHECK (
@@ -227,6 +227,15 @@ CREATE TABLE IF NOT EXISTS workloads.user_metrics_lut (
             workload_structure_id, workload_type
         )
 );
+
+-- Permit the sum reduction when upgrading an already initialized DB.
+ALTER TABLE workloads.user_metrics_lut
+    DROP CONSTRAINT IF EXISTS user_metrics_lut_aggregation_functions_check;
+ALTER TABLE workloads.user_metrics_lut
+    ADD CONSTRAINT user_metrics_lut_aggregation_functions_check CHECK (
+        aggregation_functions <@ ARRAY['mean', 'sum']::TEXT[]
+        AND array_position(aggregation_functions, NULL) IS NULL
+    );
 
 -- Bounds depend on another table, so enforce them with triggers.
 CREATE OR REPLACE FUNCTION workloads.validate_metric_indices()

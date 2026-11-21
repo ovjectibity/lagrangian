@@ -63,10 +63,20 @@ class CustomTestMethodTestParams(BaseModel):
     num_timesteps: int
     num_parallel_envs: int
 
+class RewardLanguage(str, Enum):
+    RUST = 'Rust'
+    PYTHON = 'Python'
+
+class RewardSystem(BaseModel):
+    language: RewardLanguage
+    reward_function_code: str
+    input_spec: PolicyInputSpec
+
 class CustomTestMethod(BaseModel):
     test_params: CustomTestMethodTestParams
     control_model: ControlModel
     simulation_model_id: str
+    reward_function: RewardSystem
 
 class DatasetTypes(str, Enum):
     LIBERO = 'Libero'
@@ -157,15 +167,6 @@ class LiberoDatasetParams(BaseModel):
     libero_dataset_type: LiberoDatasetType
     num_envs_per_task: int
     num_timesteps: int
-
-class RewardLanguage(str, Enum):
-    RUST = 'Rust'
-    PYTHON = 'Python'
-
-class RewardSystem(BaseModel):
-    language: RewardLanguage
-    reward_function_code: str
-    input_spec: PolicyInputSpec
 
 class ValueModel(BaseModel):
     model_type: ModelType
@@ -340,6 +341,7 @@ PolicyOutputSpecProprioceptiveOutputSpec.model_rebuild()
 PolicyOutputSpecEEFOutputSpec.model_rebuild()
 ControlModel.model_rebuild()
 CustomTestMethodTestParams.model_rebuild()
+RewardSystem.model_rebuild()
 CustomTestMethod.model_rebuild()
 DatasetLibero.model_rebuild()
 DatasetMethod.model_rebuild()
@@ -357,7 +359,6 @@ InputStateItemControllableGeneralisedForces.model_rebuild()
 InputStateItemControllableXPose.model_rebuild()
 InputStateControllable.model_rebuild()
 LiberoDatasetParams.model_rebuild()
-RewardSystem.model_rebuild()
 ValueModel.model_rebuild()
 ControlOutputModeActionMean.model_rebuild()
 ControlOutputModeFlowMatchingAction.model_rebuild()

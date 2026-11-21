@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Seed the static LUT definitions from the Notion data model.
-# Existing IDs are immutable: repeated runs leave them untouched.
+# IDs remain stable; explicit definition revisions are applied below.
 # Run init_db.sh first to create the schemas and tables.
 
 set -euo pipefail
@@ -71,8 +71,8 @@ INSERT INTO workloads.user_metrics_lut (
     na_indices
 ) VALUES
     (
-        1, 'training', 'Mean rollout trajectory reward', 1,
-        ARRAY['mean'], ARRAY[2]::BIGINT[], ARRAY[]::BIGINT[]
+        1, 'training', 'Mean rollout reward', 1,
+        ARRAY['mean', 'sum'], ARRAY[1, 2]::BIGINT[], ARRAY[]::BIGINT[]
     ),
     (
         2, 'training', 'PPO clip objective', 2,
@@ -80,11 +80,11 @@ INSERT INTO workloads.user_metrics_lut (
         ARRAY[]::BIGINT[]
     ),
     (
-        3, 'training', 'Mean policy gradient norm', 2,
+        3, 'training', 'Policy gradient norm', 2,
         ARRAY[]::TEXT[], ARRAY[]::BIGINT[], ARRAY[3, 4]::BIGINT[]
     ),
     (
-        4, 'training', 'Mean value gradient norm', 2,
+        4, 'training', 'Value gradient norm', 2,
         ARRAY[]::TEXT[], ARRAY[]::BIGINT[], ARRAY[3, 4]::BIGINT[]
     ),
     (
@@ -124,6 +124,17 @@ INSERT INTO workloads.user_metrics_lut (
         ARRAY[]::BIGINT[]
     )
 ON CONFLICT (metric_id) DO NOTHING;
+
+-- Deliberate revisions of existing definitions, preserving published IDs.
+UPDATE workloads.user_metrics_lut
+SET name = 'Mean rollout reward',
+    aggregation_functions = ARRAY['mean', 'sum'],
+    aggregation_indices = ARRAY[1, 2]::BIGINT[]
+WHERE metric_id = 1;
+UPDATE workloads.user_metrics_lut
+SET name = 'Policy gradient norm' WHERE metric_id = 3;
+UPDATE workloads.user_metrics_lut
+SET name = 'Value gradient norm' WHERE metric_id = 4;
 
 COMMIT;
 SQL

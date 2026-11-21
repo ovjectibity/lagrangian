@@ -70,7 +70,8 @@ pub struct DatasetMethod {
 pub struct CustomTestMethod {
     pub test_params: CustomTestMethodTestParams,
     pub control_model: ControlModel,
-    pub simulation_model_id: String
+    pub simulation_model_id: String,
+    pub reward_function: RewardSystem,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]

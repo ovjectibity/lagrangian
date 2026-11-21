@@ -242,6 +242,9 @@ class MLPModel(PPOTrainedModel, TestingModel):
             return ({
                 "action_mean": action_mean,
                 "action_log_std_dev": action_log_std,
+                "policy_entropy": jnp.sum(
+                    action_log_std + 0.5 * (1.0 + log_two_pi), axis=-1,
+                ),
                 "sampled_action_log_prob": log_prob,
                 "sampled_action": sampled_action
             })
@@ -336,3 +339,16 @@ class MLPModel(PPOTrainedModel, TestingModel):
 
     def get_test_params(self) -> Params:
         return self.policy_store
+
+    def get_test_entropy_fn(
+        self,
+    ) -> Callable[[Params, PolicyInputState], Array]:
+        policy = self.policy
+        input_spec = self._control_input_spec
+
+        def entropy(store: Params, state: PolicyInputState) -> Array:
+            gaussian = policy(store, MLPModel._assemble_input(state, input_spec))
+            _, log_std = jnp.split(gaussian, 2, axis=-1)
+            return jnp.sum(log_std + 0.5 * (1.0 + jnp.log(2.0 * jnp.pi)), axis=-1)
+
+        return entropy

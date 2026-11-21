@@ -522,26 +522,18 @@ class PPOTrainer:
             total_norm_sq += float(jnp.sum(grad**2))
         return total_norm_sq**0.5
 
-    def get_rollout_mean_entropy(self, trajs: Sequence[Trajectory]) -> float:
-        if not trajs:
-            return 0.0
-        # traj.policy_outputs is a time-leading dict; use the per-dim log-std.
-        # Diagonal-Gaussian differential entropy = sum_i (log_std_i + 0.5*(1+log 2pi)).
-        log_stds = jnp.stack(
-            [traj.policy_outputs["action_log_std_dev"] for traj in trajs]
-        )  # [num_trajs, T, nu]
-        log_two_pi = jnp.log(2.0 * jnp.pi)
-        entropy = jnp.mean(
-            jnp.sum(log_stds + 0.5 * (1.0 + log_two_pi), axis=-1)
-        )
-        return float(entropy)
+    def get_rollout_mean_entropy(self, trajs: Sequence[Trajectory]) -> float | None:
+        # VLA denoising-path entropy is deliberately not reported as action entropy.
+        if not trajs or "policy_entropy" not in trajs[0].policy_outputs:
+            return None
+        values = [jnp.ravel(traj.policy_outputs["policy_entropy"]) for traj in trajs]
+        return float(jnp.mean(jnp.concatenate(values)))
 
     def get_rollout_mean_reward(self, trajs: Sequence[Trajectory]) -> float:
-        reward_count = sum(len(traj.rewards) for traj in trajs)
-        if reward_count == 0:
+        if not trajs:
             return 0.0
-        reward_sum = sum(sum(traj.rewards) for traj in trajs)
-        return reward_sum / reward_count
+        # Metric 1: sum timesteps within each trajectory, then mean trajectories.
+        return sum(sum(traj.rewards) for traj in trajs) / len(trajs)
 
     def gen_trajectory_step_gpu(
         self,

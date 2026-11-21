@@ -105,6 +105,7 @@ pub struct Workload {
 #[typeshare]
 pub enum AggregationFunction {
     Mean,
+    Sum,
 }
 
 /// Method to which a workload structure applies.

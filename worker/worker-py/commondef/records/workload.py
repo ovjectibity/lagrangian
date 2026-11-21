@@ -22,6 +22,7 @@ class AggregationFunction(str, Enum):
     Reduction already computed by the worker for a metric.
     """
     MEAN = 'mean'
+    SUM = 'sum'
 
 class UserMetricsLut(BaseModel):
     """

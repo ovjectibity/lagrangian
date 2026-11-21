@@ -3,6 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import copy
 from dataclasses import replace
+from datetime import datetime, timezone
+from uuid import uuid4
 import logging
 from typing import Any, Callable
 from pathlib import Path
@@ -14,6 +16,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from commondef import testing_updates_pb2 as pb
+from commondef.luts import USER_METRICS_LUT, WORKLOAD_STRUCTURE_LUT
+from commondef.records.workload import WorkloadUserMetrics
+from commondef.remoteworker.remoteworkermessages import (
+    WorkloadUpdates, RemoteWorkerClientMessageTestUpdatesMessage,
+)
 from commondef.ioadapter import PolicyInputState
 from commondef.records.workload_graph import (
     TrainingAccelerationMode,
@@ -32,7 +39,7 @@ from commondef.records.workload_graph import (
 )
 from datasets.libero.libero import get_task_mjcfs
 from models.mlp import MLPModel
-from models.model import TestingModel, load_checkpoint
+from models.model import TestingModel, load_checkpoint, load_reward_function
 from models.pi0.pi0 import Pi0Model
 from simulator.simulator import MjxSimulator, MujocoSimulator
 from simulator.state import SimulatorState
@@ -109,15 +116,19 @@ def _build_stream_bytes(
 
 class TestingTaskSink(ABC):
     @abstractmethod
-    def send_test_updates(self, payload: bytes) -> None:
+    def send_test_updates(self, payload: bytes | WorkloadUpdates) -> None:
         pass
 
 class CallbackTestingTaskSink(TestingTaskSink):
     def __init__(self, send_message: Callable[[dict[str, Any] | bytes], None]) -> None:
         self._send_message = send_message
 
-    def send_test_updates(self, payload: bytes) -> None:
-        self._send_message(payload)
+    def send_test_updates(self, payload: bytes | WorkloadUpdates) -> None:
+        if isinstance(payload, WorkloadUpdates):
+            message = RemoteWorkerClientMessageTestUpdatesMessage(content=payload)
+            self._send_message(message.model_dump(mode="json"))
+        else:
+            self._send_message(payload)
 
 class TestingWorkflow:
     def __init__(
@@ -134,6 +145,27 @@ class TestingWorkflow:
 
         try:
             test_method = test_controller.test_method
+            custom = isinstance(test_method, TestMethodCustom)
+            method = "custom" if custom else "dataset"
+            structures = [
+                row for row in WORKLOAD_STRUCTURE_LUT.values()
+                if row["workload_type"] == "testing" and row["method_applicability"] == method
+            ]
+            if len(structures) != 1:
+                raise ValueError(f"Expected one testing structure LUT for {method}")
+            structure_id = structures[0]["workload_structure_id"]
+            self._metric_definitions = {
+                row["name"]: row for row in USER_METRICS_LUT.values()
+                if row["workload_structure_id"] == structure_id
+            }
+            reward = test_method.content.reward_function if custom else None
+            self._reward_input_spec = reward.input_spec if reward is not None else None
+            self._reward_fn = load_reward_function(reward) if reward is not None else None
+            self._reward_camera_indices = tuple(
+                index for index, state in enumerate(reward.input_spec.content.states)
+                if state.type == InputStateTypes.INPUT_STATE_SENSORS
+                and state.content == InputStateItemSensors.CAMERAS
+            ) if reward is not None else ()
             task_mjcfs: dict[int, str] = {}
             if isinstance(test_method, TestMethodCustom):
                 if model_path is None:
@@ -169,6 +201,8 @@ class TestingWorkflow:
                 raise ValueError("Unsupported testing method")
             if self.num_envs_per_task < 1:
                 raise ValueError("num_envs_per_task must be at least 1")
+            if self.num_timesteps < 1:
+                raise ValueError("num_timesteps must be at least 1")
 
             root_rng = rng_key if rng_key is not None else jax.random.PRNGKey(0)
             model_rng, self._rng_key = jax.random.split(root_rng)
@@ -182,6 +216,7 @@ class TestingWorkflow:
                 CheckpointModelType.POLICY, checkpoints or {},
             )
 
+            self._entropy_fn = self.model.get_test_entropy_fn()
             control_spec = self.model.get_control_input_spec()
             # The spec and this layout stay fixed throughout the rollout.
             self._camera_state_indices: tuple[int, ...] = tuple(
@@ -275,7 +310,7 @@ class TestingWorkflow:
                     source_model_path=model_path,
                 )
                 self.simulator_states[None] = simulator_state
-                if self._camera_state_indices:
+                if self._camera_state_indices or self._reward_camera_indices:
                     initialize_render_context(
                         simulator_state,
                         nworld=self.num_envs_per_task,
@@ -284,7 +319,7 @@ class TestingWorkflow:
                 for task_index, mjcf in task_mjcfs.items():
                     simulator_state = initialize_simulator_state(mjcf=mjcf)
                     self.simulator_states[task_index] = simulator_state
-                    if self._camera_state_indices:
+                    if self._camera_state_indices or self._reward_camera_indices:
                         initialize_render_context(
                             simulator_state,
                             nworld=self.num_envs_per_task,
@@ -358,6 +393,7 @@ class TestingWorkflow:
         self,
         state: PolicyInputState,
         camera_frames: Array | np.ndarray,
+        indices: tuple[int, ...] | None = None,
     ) -> PolicyInputState:
         """Replace every camera placeholder with the same rendered frame array.
 
@@ -366,9 +402,34 @@ class TestingWorkflow:
         Rendering happens once per timestep, outside the environment vmap.
         """
         states = list(state.content.states)
-        for index in self._camera_state_indices:
+        for index in (self._camera_state_indices if indices is None else indices):
             states[index] = replace(states[index], content=camera_frames)
         return replace(state, content=replace(state.content, states=states))
+
+    def _send_metric(
+        self, tx: TestingTaskSink, name: str,
+        coordinates: list[list[int]], values: list[float],
+    ) -> None:
+        if not values:
+            return
+        definition = self._metric_definitions[name]
+        structure = WORKLOAD_STRUCTURE_LUT[definition["workload_structure_id"]]
+        dimensions = structure["number_of_state_indices"] - len(
+            set(definition["aggregation_indices"]) | set(definition["na_indices"])
+        )
+        if len(coordinates) != len(values) or any(len(c) != dimensions for c in coordinates):
+            raise ValueError(f"Metric {name} does not match its LUT coordinates")
+        if not np.isfinite(values).all():
+            raise ValueError(f"Metric {name} contains non-finite values")
+        metric = WorkloadUserMetrics(
+            metrics_entry_id=str(uuid4()), created_at=datetime.now(timezone.utc),
+            workload_id=self.id, metric_id=definition["metric_id"],
+            workload_structure_state_values=coordinates, metric_values=values,
+        )
+        tx.send_test_updates(WorkloadUpdates(
+            workload_id=self.id, logs=[], metrics=[metric], checkpoints=[],
+            camera_frames=[], model_states=[],
+        ))
 
     def close(self) -> None:
         """Release caller-owned rendering resources, if any."""
@@ -487,7 +548,11 @@ class TestingWorkflow:
             render_ctx = simulator_state.render_ctx_pytree
             contact_sensor_addresses = simulator_state.contact_sensor_addresses
             contact_body_pairs = simulator_state.contact_body_pairs
-            has_cameras = bool(self._camera_state_indices)
+            has_cameras = bool(self._camera_state_indices or self._reward_camera_indices)
+            task_id = 0 if task_index is None else task_index
+            reward_totals = np.zeros(num_envs, dtype=np.float64)
+            entropy_total = 0.0
+            samples = 0
 
             def state_fn(data: Any) -> PolicyInputState:
                 return simulator_class.get_model_state_pure(
@@ -498,9 +563,15 @@ class TestingWorkflow:
                     contact_body_pairs,
                 )
 
+            def reward_state_fn(data: Any) -> PolicyInputState:
+                return simulator_class.get_model_state_pure(
+                    self._reward_input_spec, data, mjx_model,
+                    contact_sensor_addresses, contact_body_pairs,
+                )
+
             def scan_body(
                 carry: tuple[Any, Array], _: None
-            ) -> tuple[tuple[Any, Array], tuple[Array, Array, Array, Array]]:
+            ) -> tuple[tuple[Any, Array], tuple[Array, ...]]:
                 bd, rng = carry
                 rng, step_key = jax.random.split(rng)
                 env_keys = jax.random.split(step_key, num_envs)
@@ -514,6 +585,17 @@ class TestingWorkflow:
                     camera_frames = jnp.empty(
                         (num_envs, 0, 0, 0, 3), dtype=jnp.float32
                     )
+                reward_pre = None
+                if self._reward_fn is not None:
+                    reward_pre = jax.vmap(reward_state_fn)(bd)
+                    if self._reward_camera_indices:
+                        reward_pre = self._with_camera_frames(
+                            reward_pre, camera_frames, self._reward_camera_indices,
+                        )
+                entropy = (
+                    jax.vmap(self._entropy_fn, in_axes=(None, 0))(params, input_state)
+                    if self._entropy_fn is not None else jnp.empty((num_envs, 0))
+                )
                 actions = jax.vmap(
                     test_policy_fn, in_axes=(None, 0, 0)
                 )(params, input_state, env_keys)
@@ -542,11 +624,24 @@ class TestingWorkflow:
                     )
 
                 bd_next, controls_valid = jax.vmap(step)(bd, actions)
+                rewards = jnp.empty((num_envs, 0))
+                if self._reward_fn is not None:
+                    reward_post = jax.vmap(reward_state_fn)(bd_next)
+                    if self._reward_camera_indices:
+                        reward_cameras, bd_next = simulator_class.get_model_render(
+                            bd_next, mjx_model, render_ctx,
+                        )
+                        reward_post = self._with_camera_frames(
+                            reward_post, reward_cameras, self._reward_camera_indices,
+                        )
+                    rewards = jax.vmap(
+                        lambda pre, post: jnp.asarray(self._reward_fn(pre, post)).reshape(())
+                    )(reward_pre, reward_post)
                 return (bd_next, rng), (
                     camera_frames,
                     bd_next.xpos[:, :nbody],
                     bd_next.xquat[:, :nbody],
-                    controls_valid,
+                    controls_valid, rewards, entropy,
                 )
 
             remaining = num_timesteps
@@ -562,7 +657,7 @@ class TestingWorkflow:
                 chunk = min(UPDATE_CHUNK_SIZE, remaining)
                 (
                     (batched_data, self._rng_key),
-                    (camera_frames, chunk_xpos, chunk_xquat, controls_valid),
+                    (camera_frames, chunk_xpos, chunk_xquat, controls_valid, rewards, entropies),
                 ) = jax.lax.scan(
                     scan_body,
                     (batched_data, self._rng_key),
@@ -578,6 +673,21 @@ class TestingWorkflow:
                         f"task_index={task_index} env_index={int(env_index)} "
                         f"timestep={timestep}"
                     )
+                start_timestep = num_timesteps - remaining
+                if self._reward_fn is not None:
+                    reward_values = np.asarray(rewards)
+                    reward_totals += reward_values.sum(axis=0)
+                    self._send_metric(
+                        tx, "Reward",
+                        [[task_id, env, start_timestep + t] for t in range(chunk) for env in range(num_envs)],
+                        reward_values.reshape(-1).tolist(),
+                    )
+                if self._entropy_fn is not None:
+                    entropy_values = np.asarray(entropies)
+                    if not np.isfinite(entropy_values).all():
+                        raise ValueError("Policy entropy contains non-finite values")
+                    entropy_total += float(entropy_values.sum())
+                samples += chunk
                 xpos_np = chunk_xpos.reshape(chunk, num_envs, -1).tolist()
                 xquat_np = chunk_xquat.reshape(chunk, num_envs, -1).tolist()
                 sim_state = [
@@ -599,6 +709,18 @@ class TestingWorkflow:
                     )
                 )
                 remaining -= chunk
+            if samples == num_timesteps:
+                if self._reward_fn is not None:
+                    self._send_metric(
+                        tx, "Mean trajectory reward",
+                        [[task_id, env] for env in range(num_envs)],
+                        (reward_totals / num_timesteps).tolist(),
+                    )
+                if self._entropy_fn is not None:
+                    self._send_metric(
+                        tx, "Mean policy entropy", [[task_id]],
+                        [entropy_total / (num_envs * num_timesteps)],
+                    )
 
     def _run_sequential(
         self,
@@ -640,6 +762,9 @@ class TestingWorkflow:
                 task_index,
             )
 
+            task_id = 0 if task_index is None else task_index
+            entropy_total = 0.0
+            entropy_count = 0
             for env_index in range(num_envs):
                 if should_stop is not None and should_stop():
                     logger.info(
@@ -654,6 +779,8 @@ class TestingWorkflow:
                 # template. The renderer is reused sequentially and update_scene
                 # replaces its previous scene on every render.
                 data = copy.copy(initial_data)
+                reward_total = 0.0
+                completed = 0
                 for timestep in range(num_timesteps):
                     if should_stop is not None and should_stop():
                         logger.info(
@@ -687,6 +814,26 @@ class TestingWorkflow:
                             data, model, render_ctx
                         )
                         input_state = self._with_camera_frames(input_state, cameras)
+                    reward_pre = None
+                    if self._reward_fn is not None:
+                        reward_pre = simulator_class.get_model_state_pure(
+                            self._reward_input_spec, data, model,
+                            contact_sensor_addresses, contact_body_pairs,
+                        )
+                        if self._reward_camera_indices:
+                            # Rendering may be needed only by the reward input.
+                            if cameras is None:
+                                cameras, data = simulator_class.get_model_render(data, model, render_ctx)
+                            reward_pre = self._with_camera_frames(
+                                reward_pre, cameras, self._reward_camera_indices,
+                            )
+                        reward_pre = jax.tree_util.tree_map(lambda x: np.array(x, copy=True), reward_pre)
+                    entropy = (
+                        float(np.asarray(self._entropy_fn(params, input_state)).reshape(()))
+                        if self._entropy_fn is not None else None
+                    )
+                    if entropy is not None and not np.isfinite(entropy):
+                        raise ValueError("Policy entropy contains non-finite values")
                     self._rng_key, step_key = jax.random.split(self._rng_key)
                     action = test_policy_fn(params, input_state, step_key)
                     # Chunked policies such as Pi0 return
@@ -709,6 +856,23 @@ class TestingWorkflow:
                             f"timestep={timestep}"
                         )
                     data = simulator_class.forward_dyn_pure(data, model, controls)
+                    if self._reward_fn is not None:
+                        reward_post = simulator_class.get_model_state_pure(
+                            self._reward_input_spec, data, model,
+                            contact_sensor_addresses, contact_body_pairs,
+                        )
+                        if self._reward_camera_indices:
+                            reward_cameras, data = simulator_class.get_model_render(data, model, render_ctx)
+                            reward_post = self._with_camera_frames(
+                                reward_post, reward_cameras, self._reward_camera_indices,
+                            )
+                        reward = float(np.asarray(self._reward_fn(reward_pre, reward_post)).reshape(()))
+                        self._send_metric(tx, "Reward", [[task_id, env_index, timestep]], [reward])
+                        reward_total += reward
+                    if entropy is not None:
+                        entropy_total += entropy
+                        entropy_count += 1
+                    completed += 1
                     xpos = data.xpos[: model.nbody].reshape(-1).tolist()
                     xquat = data.xquat[: model.nbody].reshape(-1).tolist()
                     frames_u8 = (
@@ -728,3 +892,14 @@ class TestingWorkflow:
                             ],
                         )
                     )
+
+                if completed == num_timesteps and self._reward_fn is not None:
+                    self._send_metric(
+                        tx, "Mean trajectory reward", [[task_id, env_index]],
+                        [reward_total / num_timesteps],
+                    )
+            if self._entropy_fn is not None and entropy_count == num_envs * num_timesteps:
+                self._send_metric(
+                    tx, "Mean policy entropy", [[task_id]],
+                    [entropy_total / entropy_count],
+                )
