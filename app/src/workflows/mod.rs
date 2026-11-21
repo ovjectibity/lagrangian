@@ -4,8 +4,30 @@ pub mod common_worker_controller;
 pub mod local_worker_controller;
 pub mod remote_worker_controller;
 
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use serde::{Deserialize, Serialize};
+
 use aws_sdk_s3::Client;
+use chrono::Utc;
+use rocket::http::Status;
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio::task::{JoinHandle, JoinSet};
+
+use crate::api::{ApiResult, ApiState, internal};
+use crate::commondef::records::assets::*;
+use crate::commondef::records::workload::*;
+use crate::commondef::records::workload_graph::*;
+use crate::commondef::remoteworker::remoteworkermessages::*;
+use crate::db;
 use aws_sdk_s3::primitives::ByteStream;
+use local_worker_controller::LocalWorkerController;
+use remote_worker_controller::RemoteWorkerController;
 use uuid::Uuid;
 
 use crate::db::validations;
@@ -86,6 +108,1536 @@ mod tests {
         assert_eq!(
             model_key("p", "m"),
             "app/projects/p/models/m/m_m.zip"
+        );
+    }
+}
+
+/// A reserved worker slot remains tracked until terminal data is saved.
+pub struct WorkloadTaskState {
+    pub remote: bool,
+    pub stop: watch::Sender<bool>,
+    pub user_stopped: Arc<AtomicBool>,
+    pub finished: watch::Receiver<bool>,
+    pub handle: Option<JoinHandle<()>>,
+}
+
+/// Reserve capacity before creating a workload or spawning its task.
+pub(crate) fn validate_capacity(
+    jobs: &HashMap<String, WorkloadTaskState>,
+    remote: bool,
+) -> ApiResult<()> {
+    if jobs.values().any(|task| task.remote == remote) {
+        Err(Status::Conflict)
+    } else {
+        Ok(())
+    }
+}
+
+/// Create the aggregate and retain its task through persistence.
+pub(crate) async fn launch_workload(
+    state: Arc<ApiState>,
+    workload: Workload,
+    models: Vec<SimulationModelRef>,
+    checkpoints: Vec<CheckpointRef>,
+) -> ApiResult<()> {
+    let _catalog = state.catalog.lock().await;
+    let remote = is_remote(&workload.workload_graph);
+    let (stop, stop_rx) = watch::channel(false);
+    let (finished_tx, finished) = watch::channel(false);
+    let user_stopped = Arc::new(AtomicBool::new(false));
+    let id = workload.workload_id.clone();
+    {
+        let mut jobs = state.jobs.lock().await;
+        if !state.accepting_workloads() {
+            return Err(Status::ServiceUnavailable);
+        }
+        validate_capacity(&jobs, remote)?;
+        jobs.insert(
+            id.clone(),
+            WorkloadTaskState {
+                remote,
+                stop,
+                user_stopped: user_stopped.clone(),
+                finished,
+                handle: None,
+            },
+        );
+    }
+    let saved = async {
+        validations::validate_workload(
+            &state.postgres,
+            &workload,
+        )
+        .await
+        .map_err(|_| Status::BadRequest)?;
+        db::create_workload(
+            &state.postgres,
+            &state.mongo,
+            &workload,
+        )
+        .await
+        .map_err(internal)
+    }
+    .await;
+    if let Err(error) = saved {
+        state.jobs.lock().await.remove(&id);
+        let _ = finished_tx.send(true);
+        return Err(error);
+    }
+    let task_state = state.clone();
+    let mut jobs = state.jobs.lock().await;
+    let handle = tokio::spawn(async move {
+        run_workload(
+            task_state,
+            workload,
+            models,
+            checkpoints,
+            stop_rx,
+            user_stopped,
+        )
+        .await;
+        let _ = finished_tx.send(true);
+    });
+    if let Some(task) = jobs.get_mut(&id) {
+        task.handle = Some(handle);
+    }
+    Ok(())
+}
+
+async fn execute_worker(
+    start: RemoteWorkerServerMessage,
+    remote: bool,
+    stop: watch::Receiver<bool>,
+    updates: mpsc::Sender<RemoteWorkerClientMessage>,
+    launched: oneshot::Sender<()>,
+) -> Result<StopWorkloadWorker> {
+    if remote {
+        let mut slot = crate::remote_worker_slot().lock().await;
+        if slot.is_none() {
+            let config = crate::build_remote_worker_config()?;
+            *slot = Some(
+                RemoteWorkerController::initialize(config)
+                    .await?,
+            );
+        }
+        let worker =
+            slot.as_mut().ok_or("Missing remote worker")?;
+        let result =
+            worker.run_job(start, stop, updates, launched).await;
+        if result.is_err() {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(10),
+                worker.terminate_instance(),
+            )
+            .await;
+            *slot = None;
+        }
+        result
+    } else {
+        LocalWorkerController::from_env()?
+            .run_job(start, stop, updates, launched)
+            .await
+    }
+}
+
+async fn run_workload(
+    state: Arc<ApiState>,
+    mut workload: Workload,
+    models: Vec<SimulationModelRef>,
+    checkpoints: Vec<CheckpointRef>,
+    stop: watch::Receiver<bool>,
+    user_stopped: Arc<AtomicBool>,
+) {
+    let start = match &workload.workload_graph {
+        WorkloadGraph::TrainingGraph(graph) => {
+            RemoteWorkerServerMessage::StartTrainingMessage(
+                StartTrainingWorkerMessage {
+                    project_id: workload.project_id.clone(),
+                    workload_id: workload.workload_id.clone(),
+                    training_graph: graph.clone(),
+                    checkpoints,
+                    simulation_models: models,
+                },
+            )
+        }
+        WorkloadGraph::TestGraph(graph) => {
+            RemoteWorkerServerMessage::StartTestingMessage(
+                StartTestWorkerMessage {
+                    project_id: workload.project_id.clone(),
+                    workload_id: workload.workload_id.clone(),
+                    test_graph: graph.clone(),
+                    checkpoints,
+                    simulation_models: models,
+                },
+            )
+        }
+    };
+    let (tx, mut rx) = mpsc::channel(8);
+    let (launched_tx, mut launched_rx) = oneshot::channel();
+    // Dropping the runner also aborts its worker child.
+    let mut workers = JoinSet::new();
+    workers.spawn(execute_worker(
+        start,
+        is_remote(&workload.workload_graph),
+        stop,
+        tx,
+        launched_tx,
+    ));
+    let mut launch_received = false;
+    let mut failure = None;
+    loop {
+        tokio::select! {
+            launch = &mut launched_rx, if !launch_received => {
+                launch_received = true;
+                if launch.is_ok() {
+                    workload.launched_at = Some(Utc::now());
+                    workload.status = WorkloadStatus::Ongoing;
+                    if let Err(error) = set_status(&state, &workload, None).await {
+                        failure = Some(error.to_string());
+                        request_stop(&state, &workload.workload_id).await;
+                    }
+                }
+            }
+            message = rx.recv() => {
+                let Some(message) = message else { break; };
+                let update = match message {
+                    RemoteWorkerClientMessage::TrainingUpdatesMessage(u)
+                    | RemoteWorkerClientMessage::TestUpdatesMessage(u) => u,
+                    _ => continue,
+                };
+                if failure.is_none()
+                    && let Err(error) = ingest_update(
+                        &state, &workload, update,
+                    ).await
+                {
+                    failure = Some(error.to_string());
+                    request_stop(
+                        &state, &workload.workload_id,
+                    ).await;
+                }
+            }
+        }
+    }
+    if !launch_received && launched_rx.try_recv().is_ok() {
+        workload.launched_at = Some(Utc::now());
+    }
+    let result = workers.join_next().await;
+    let reason = if let Some(error) = failure {
+        WorkloadStopReasonWorker::WorkerFailure(error)
+    } else {
+        match result {
+            Some(Ok(Ok(stopped))) => stopped.reason,
+            Some(Ok(Err(error))) => {
+                WorkloadStopReasonWorker::WorkerFailure(
+                    error.to_string(),
+                )
+            }
+            Some(Err(error)) => {
+                WorkloadStopReasonWorker::WorkerFailure(
+                    error.to_string(),
+                )
+            }
+            None => WorkloadStopReasonWorker::WorkerFailure(
+                "Worker task ended unexpectedly".into(),
+            ),
+        }
+    };
+    let reason = match reason {
+        WorkloadStopReasonWorker::RequestedByAppServer
+            if !user_stopped.load(Ordering::SeqCst) =>
+        {
+            WorkloadStopReasonWorker::WorkerFailure(
+                "App server stopped this workload".into(),
+            )
+        }
+        reason => reason,
+    };
+    workload.status = match &reason {
+        WorkloadStopReasonWorker::CompletedSuccess => {
+            WorkloadStatus::Completed
+        }
+        WorkloadStopReasonWorker::RequestedByAppServer => {
+            WorkloadStatus::UserStopped
+        }
+        WorkloadStopReasonWorker::WorkerFailure(_)
+            if workload.launched_at.is_none() =>
+        {
+            WorkloadStatus::LaunchFailed
+        }
+        _ => WorkloadStatus::ExecutionFailed,
+    };
+    if let WorkloadStopReasonWorker::WorkerFailure(error) =
+        &reason
+    {
+        eprintln!(
+            "Workload {} failed: {error}",
+            workload.workload_id
+        );
+        let now = Utc::now();
+        let mut update = WorkloadUpdates {
+            workload_id: workload.workload_id.clone(),
+            logs: Vec::new(),
+            metrics: Vec::new(),
+            checkpoints: Vec::new(),
+            camera_frames: Vec::new(),
+            simulation_models: Vec::new(),
+            model_states: Vec::new(),
+        };
+        update.logs.push(WorkloadLogs {
+            workload_id: workload.workload_id.clone(),
+            created_at: now,
+            log_timestamp: now,
+            log_id: Uuid::new_v4().to_string(),
+            log_line_text: error.clone(),
+            user_facing: false,
+            log_type: LogType::Error,
+            stream: LogStream::AppServer,
+        });
+        let mut public = update.logs[0].clone();
+        public.log_id = Uuid::new_v4().to_string();
+        public.user_facing = true;
+        public.log_line_text = "Workload failed. Check the app-server logs for details.".into();
+        update.logs.push(public);
+        if let Err(error) =
+            ingest_update(&state, &workload, update).await
+        {
+            eprintln!("Could not persist failure logs: {error}");
+        }
+    }
+    finish_workload(&state, &workload, reason).await;
+}
+
+async fn finish_workload(
+    state: &ApiState,
+    workload: &Workload,
+    reason: WorkloadStopReasonWorker,
+) {
+    let completed_at = Utc::now();
+    let mut delay = Duration::from_millis(100);
+    loop {
+        let guard =
+            state.lock_workload(&workload.workload_id).await;
+        match set_status(state, workload, Some(completed_at))
+            .await
+        {
+            Ok(()) => {
+                let stopped = StopWorkloadWorker {
+                    workload_id: workload.workload_id.clone(),
+                    reason,
+                };
+                let event = match workload.workload_type {
+                    WorkloadType::Training => RemoteWorkerClientMessage::StopTrainingMessage(stopped),
+                    WorkloadType::Testing => RemoteWorkerClientMessage::StopTestingMessage(stopped),
+                };
+                state.publish(event).await;
+                state
+                    .jobs
+                    .lock()
+                    .await
+                    .remove(&workload.workload_id);
+                drop(guard);
+                queue_workload_cleanup(state, workload).await;
+                return;
+            }
+            Err(error) => {
+                eprintln!(
+                    "Terminal workload write failed; retaining task for retry: {error}"
+                );
+            }
+        }
+        drop(guard);
+        tokio::time::sleep(delay).await;
+        delay = (delay * 2).min(Duration::from_secs(2));
+    }
+}
+
+async fn request_stop(state: &ApiState, id: &str) {
+    if let Some(task) = state.jobs.lock().await.get(id) {
+        let _ = task.stop.send(true);
+    }
+}
+
+async fn set_status(
+    state: &ApiState,
+    workload: &Workload,
+    completed_at: Option<chrono::DateTime<Utc>>,
+) -> Result<()> {
+    state
+        .postgres
+        .update_workload_status(
+            &workload.workload_id,
+            &workload.status,
+            Utc::now(),
+            workload.launched_at,
+            completed_at,
+        )
+        .await?;
+    Ok(())
+}
+
+pub(crate) async fn ingest_update(
+    state: &ApiState,
+    workload: &Workload,
+    update: WorkloadUpdates,
+) -> Result<()> {
+    let result =
+        ingest_update_inner(state, workload, update).await;
+    if result.is_err() {
+        queue_workload_cleanup(state, workload).await;
+    }
+    result
+}
+
+async fn ingest_update_inner(
+    state: &ApiState,
+    workload: &Workload,
+    mut update: WorkloadUpdates,
+) -> Result<()> {
+    validations::validate_update_scope(&update, workload)?;
+    let wid = &workload.workload_id;
+    let sources: Vec<_> = update
+        .simulation_models
+        .iter()
+        .map(|m| m.uri_path.clone())
+        .chain(
+            update.checkpoints.iter().map(|c| c.uri_path.clone()),
+        )
+        .chain(
+            update
+                .camera_frames
+                .iter()
+                .map(|f| f.uri_path.clone()),
+        )
+        .collect();
+    let mut leases = Vec::new();
+    for model in &mut update.simulation_models {
+        let temporary = model.simulation_model_id.clone();
+        validations::validate_asset_identifier(&temporary)?;
+        let id = final_record_id(wid, "models", &temporary);
+        let destination = model_key(&workload.project_id, &id);
+        leases.push(
+            state
+                .lease_asset(&format!(
+                    "s3://{}/{}",
+                    state.bucket, destination,
+                ))
+                .await,
+        );
+        validations::validate_worker_asset_uri(
+            &model.uri_path,
+            &state.bucket,
+            &format!(
+                "worker/{wid}/models/{temporary}/m_{temporary}.zip"
+            ),
+        )?;
+        model.uri_path = if let Some(existing) =
+            state.postgres.get_simulation_model_ref(&id).await?
+        {
+            existing.uri_path
+        } else {
+            promote_asset(
+            &state.s3, &state.bucket, &model.uri_path,
+            &format!("worker/{wid}/models/{temporary}/m_{temporary}.zip"),
+            &destination,
+        ).await?
+        };
+        model.simulation_model_id = id;
+    }
+    for record in &mut update.checkpoints {
+        let temporary = record.checkpoint_id.clone();
+        validations::validate_asset_identifier(&temporary)?;
+        let id = final_record_id(wid, "checkpoints", &temporary);
+        let destination = format!(
+            "app/workloads/{wid}/checkpoints/{id}/cp_{id}.zip",
+        );
+        leases.push(
+            state
+                .lease_asset(&format!(
+                    "s3://{}/{}",
+                    state.bucket, destination,
+                ))
+                .await,
+        );
+        validations::validate_worker_asset_uri(
+            &record.uri_path,
+            &state.bucket,
+            &format!(
+                "worker/workloads/{wid}/checkpoints/{temporary}/cp_{temporary}.zip"
+            ),
+        )?;
+        record.uri_path = if let Some(existing) =
+            state.postgres.get_checkpoint_ref(&id).await?
+        {
+            existing.uri_path
+        } else {
+            promote_asset(
+                &state.s3,
+                &state.bucket,
+                &record.uri_path,
+                &format!(
+                    "worker/workloads/{wid}/checkpoints/\
+                 {temporary}/cp_{temporary}.zip",
+                ),
+                &destination,
+            )
+            .await?
+        };
+        record.checkpoint_id = id;
+    }
+    for record in &mut update.camera_frames {
+        let temporary = record.camera_frame_id.clone();
+        validations::validate_asset_identifier(&temporary)?;
+        let id = final_record_id(wid, "frames", &temporary);
+        let destination =
+            format!("app/workloads/{wid}/cameras/cf_{id}.png");
+        leases.push(
+            state
+                .lease_asset(&format!(
+                    "s3://{}/{}",
+                    state.bucket, destination,
+                ))
+                .await,
+        );
+        validations::validate_worker_asset_uri(
+            &record.uri_path,
+            &state.bucket,
+            &format!(
+                "worker/workloads/{wid}/cameras/cf_{temporary}.png"
+            ),
+        )?;
+        record.uri_path = if let Some(existing) = state
+            .postgres
+            .get_trajectory_camera_frame_ref(&id)
+            .await?
+        {
+            existing.uri_path
+        } else {
+            promote_asset(
+                &state.s3,
+                &state.bucket,
+                &record.uri_path,
+                &format!(
+                    "worker/workloads/{wid}/cameras/\
+                 cf_{temporary}.png",
+                ),
+                &destination,
+            )
+            .await?
+        };
+        record.camera_frame_id = id;
+        record.simulation_model_id = canonical_model_id(
+            workload,
+            &record.simulation_model_id,
+        );
+    }
+    for record in &mut update.model_states {
+        record.sim_model_state_entry_id = final_record_id(
+            wid,
+            "states",
+            &record.sim_model_state_entry_id,
+        );
+        record.simulation_model_id = canonical_model_id(
+            workload,
+            &record.simulation_model_id,
+        );
+    }
+    for record in &mut update.logs {
+        record.log_id =
+            final_record_id(wid, "logs", &record.log_id);
+    }
+    for record in &mut update.metrics {
+        record.metrics_entry_id = final_record_id(
+            wid,
+            "metrics",
+            &record.metrics_entry_id,
+        );
+    }
+    let _delivery =
+        state.lock_workload(&workload.workload_id).await;
+    // Stores do not share a transaction. Stable IDs and existence
+    // checks let a retry complete a previously written prefix.
+    let mut attempt = 0;
+    loop {
+        match persist_update(state, &update).await {
+            Ok(()) => break,
+            Err(error) if attempt < 2 => {
+                eprintln!(
+                    "Retrying workload persistence: {error}"
+                );
+                attempt += 1;
+                tokio::time::sleep(Duration::from_millis(200))
+                    .await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    let event = match workload.workload_type {
+        WorkloadType::Training => {
+            RemoteWorkerClientMessage::TrainingUpdatesMessage(
+                update,
+            )
+        }
+        WorkloadType::Testing => {
+            RemoteWorkerClientMessage::TestUpdatesMessage(update)
+        }
+    };
+    state.publish(event).await;
+    drop(_delivery);
+    drop(leases);
+    if let Err(error) = delete_asset_uris(state, &sources).await {
+        eprintln!("Worker staging cleanup will retry: {error}");
+        queue_workload_cleanup(state, workload).await;
+    }
+    Ok(())
+}
+
+fn canonical_model_id(workload: &Workload, id: &str) -> String {
+    if workload.simulation_model_ids.iter().any(|r| r == id) {
+        id.to_owned()
+    } else {
+        final_record_id(&workload.workload_id, "models", id)
+    }
+}
+
+async fn persist_update(
+    state: &ApiState,
+    update: &WorkloadUpdates,
+) -> Result<()> {
+    let pg = &state.postgres;
+    let mongo = &state.mongo;
+    let catalog = if update.simulation_models.is_empty() {
+        None
+    } else {
+        Some(state.catalog.lock().await)
+    };
+    for record in &update.simulation_models {
+        if pg
+            .get_simulation_model_ref(&record.simulation_model_id)
+            .await?
+            .is_none()
+        {
+            pg.create_simulation_model_ref(record).await?;
+        }
+    }
+    let ids: Vec<_> = update
+        .simulation_models
+        .iter()
+        .map(|m| m.simulation_model_id.clone())
+        .collect();
+    if !ids.is_empty() {
+        pg.attach_workload_models(&update.workload_id, &ids)
+            .await?;
+    }
+    drop(catalog);
+    for record in &update.checkpoints {
+        if pg
+            .get_checkpoint_ref(&record.checkpoint_id)
+            .await?
+            .is_none()
+        {
+            pg.create_checkpoint_ref(mongo, record).await?;
+        }
+    }
+    for record in &update.camera_frames {
+        if pg
+            .get_trajectory_camera_frame_ref(
+                &record.camera_frame_id,
+            )
+            .await?
+            .is_none()
+        {
+            pg.create_trajectory_camera_frame_ref(mongo, record)
+                .await?;
+        }
+    }
+    let mut logs = Vec::new();
+    for record in &update.logs {
+        if mongo.get_workload_log(&record.log_id).await?.is_none()
+        {
+            logs.push(record.clone());
+        }
+    }
+    mongo.create_workload_logs(pg, &logs).await?;
+    let mut metrics = Vec::new();
+    for record in &update.metrics {
+        if mongo
+            .get_workload_user_metrics(&record.metrics_entry_id)
+            .await?
+            .is_none()
+        {
+            metrics.push(record.clone());
+        }
+    }
+    mongo
+        .create_workload_user_metrics_batch(pg, &metrics)
+        .await?;
+    let mut states = Vec::new();
+    for record in &update.model_states {
+        if mongo
+            .get_simulation_model_trajectory_state(
+                &record.sim_model_state_entry_id,
+            )
+            .await?
+            .is_none()
+        {
+            states.push(record.clone());
+        }
+    }
+    mongo
+        .create_simulation_model_trajectory_states(pg, &states)
+        .await?;
+    Ok(())
+}
+
+/// Opaque HTTP history position; revision changes invalidate it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryCursor {
+    pub workload_id: String,
+    pub instance_id: String,
+    pub revision: u64,
+    pub stream: u8,
+    pub offset: i64,
+}
+
+impl HistoryCursor {
+    pub async fn new(state: &ApiState, id: &str) -> Self {
+        Self {
+            workload_id: id.to_owned(),
+            instance_id: state.instance_id.clone(),
+            revision: state.revision(id).await,
+            stream: 0,
+            offset: 0,
+        }
+    }
+
+    pub fn encode(&self) -> Result<String> {
+        Ok(URL_SAFE_NO_PAD.encode(serde_json::to_vec(self)?))
+    }
+
+    pub fn decode(value: &str) -> Result<Self> {
+        if value.len() > 2048 {
+            return Err("History cursor is too long".into());
+        }
+        Ok(serde_json::from_slice(
+            &URL_SAFE_NO_PAD.decode(value)?,
+        )?)
+    }
+
+    pub async fn validate(
+        &self,
+        state: &ApiState,
+        id: &str,
+    ) -> ApiResult<()> {
+        if self.workload_id != id
+            || self.stream > 6
+            || self.offset < 0
+        {
+            return Err(Status::BadRequest);
+        }
+        if self.instance_id != state.instance_id
+            || self.revision != state.revision(id).await
+        {
+            return Err(Status::Conflict);
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn empty_workload_update(id: &str) -> WorkloadUpdates {
+    WorkloadUpdates {
+        workload_id: id.to_owned(),
+        logs: Vec::new(),
+        metrics: Vec::new(),
+        checkpoints: Vec::new(),
+        camera_frames: Vec::new(),
+        simulation_models: Vec::new(),
+        model_states: Vec::new(),
+    }
+}
+
+/// Streams are independently ordered; a page holds at most limit
+/// records. Callers hold the workload lock during a snapshot.
+pub(crate) async fn history_chunk(
+    state: &ApiState,
+    workload: &Workload,
+    cursor: &mut HistoryCursor,
+    limit: usize,
+) -> Result<WorkloadUpdates> {
+    let mut update = empty_workload_update(&workload.workload_id);
+    let id = &workload.workload_id;
+    while cursor.stream < 6 {
+        let pagination = (limit as i64, cursor.offset);
+        let count = match cursor.stream {
+            0 => {
+                let mut ids =
+                    workload.simulation_model_ids.clone();
+                ids.sort();
+                for id in ids
+                    .iter()
+                    .skip(cursor.offset as usize)
+                    .take(limit)
+                {
+                    update.simulation_models.push(
+                        state
+                            .postgres
+                            .get_simulation_model_ref(id)
+                            .await?
+                            .ok_or(
+                                "Associated model is missing",
+                            )?,
+                    );
+                }
+                update.simulation_models.len()
+            }
+            1 => {
+                update.checkpoints = state
+                    .postgres
+                    .list_checkpoint_refs(
+                        Some(id),
+                        None,
+                        pagination,
+                    )
+                    .await?;
+                update.checkpoints.len()
+            }
+            2 => {
+                update.logs = state
+                    .mongo
+                    .list_workload_logs(id, pagination)
+                    .await?;
+                update.logs.len()
+            }
+            3 | 4 => {
+                let dimensions = state
+                    .postgres
+                    .list_workload_structure_lut(None)
+                    .await?
+                    .iter()
+                    .map(|s| s.number_of_state_indices)
+                    .max()
+                    .unwrap_or(0);
+                if cursor.stream == 3 {
+                    update.metrics = state
+                        .mongo
+                        .list_history_metrics(
+                            id, dimensions, pagination,
+                        )
+                        .await?;
+                    update.metrics.len()
+                } else {
+                    update.model_states = state
+                        .mongo
+                        .list_history_states(
+                            id, dimensions, pagination,
+                        )
+                        .await?;
+                    update.model_states.len()
+                }
+            }
+            5 => {
+                update.camera_frames = state
+                    .postgres
+                    .list_trajectory_camera_frame_refs(
+                        id, None, None, None, pagination,
+                    )
+                    .await?;
+                update.camera_frames.len()
+            }
+            _ => return Err("Invalid history stream".into()),
+        };
+        if count < limit {
+            cursor.stream += 1;
+            cursor.offset = 0;
+        } else {
+            cursor.offset += count as i64;
+        }
+        if count != 0 {
+            break;
+        }
+    }
+    Ok(update)
+}
+
+/// Live updates use the same bounded message size as history pages.
+pub(crate) fn take_update_chunk(
+    update: &mut WorkloadUpdates,
+    limit: usize,
+) -> WorkloadUpdates {
+    let mut chunk = empty_workload_update(&update.workload_id);
+    let mut remaining = limit;
+    macro_rules! take {
+        ($field:ident) => {{
+            let count = remaining.min(update.$field.len());
+            chunk.$field.extend(update.$field.drain(..count));
+            remaining -= count;
+        }};
+    }
+    take!(simulation_models);
+    take!(checkpoints);
+    take!(logs);
+    take!(metrics);
+    take!(model_states);
+    take!(camera_frames);
+    let _ = remaining;
+    chunk
+}
+
+/// Delete exact, app-validated objects in batches. S3 can report
+/// individual failures inside an otherwise successful response.
+pub(crate) async fn delete_asset_uris(
+    state: &ApiState,
+    uris: &[String],
+) -> Result<()> {
+    use aws_sdk_s3::types::{Delete, ObjectIdentifier};
+    for batch in uris.chunks(1000) {
+        if batch.is_empty() {
+            continue;
+        }
+        let objects = batch
+            .iter()
+            .map(|uri| {
+                let key = state.object_key(uri).map_err(
+                    |_| "Cleanup URI has an unexpected bucket",
+                )?;
+                ObjectIdentifier::builder()
+                    .key(key)
+                    .build()
+                    .map_err(|error| error.to_string().into())
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let result = state
+            .s3
+            .delete_objects()
+            .bucket(&state.bucket)
+            .delete(
+                Delete::builder()
+                    .set_objects(Some(objects))
+                    .quiet(true)
+                    .build()?,
+            )
+            .send()
+            .await?;
+        if !result.errors().is_empty() {
+            return Err(format!(
+                "S3 could not delete {} objects",
+                result.errors().len()
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn queue_project_cleanup(
+    state: &ApiState,
+    id: &str,
+) {
+    state
+        .cleanup_scopes
+        .lock()
+        .await
+        .insert(format!("app/projects/{id}/models/"));
+}
+
+async fn queue_workload_cleanup(
+    state: &ApiState,
+    workload: &Workload,
+) {
+    let id = &workload.workload_id;
+    let mut scopes = state.cleanup_scopes.lock().await;
+    scopes.extend([
+        format!("worker/workloads/{id}/"),
+        format!("worker/{id}/models/"),
+        format!("app/workloads/{id}/"),
+        format!("app/projects/{}/models/", workload.project_id),
+    ]);
+}
+
+/// An object whose final reference exists is never an orphan.
+/// In-flight leases also protect uploads before their DB write.
+async fn cleanup_allowed(
+    state: &ApiState,
+    key: &str,
+) -> Result<bool> {
+    let uri = format!("s3://{}/{key}", state.bucket);
+    if state
+        .assets_inflight
+        .lock()
+        .await
+        .get(&uri)
+        .is_some_and(|lease| lease.strong_count() != 0)
+    {
+        return Ok(false);
+    }
+    let parts: Vec<_> = key.split('/').collect();
+    match parts.as_slice() {
+        ["app", "projects", project, "models", id, filename]
+            if key == model_key(project, id)
+                && *filename == format!("m_{id}.zip") =>
+        {
+            Ok(state
+                .postgres
+                .get_simulation_model_ref(id)
+                .await?
+                .is_none())
+        }
+        ["app", "workloads", _, "checkpoints", id, filename]
+            if *filename == format!("cp_{id}.zip") =>
+        {
+            Ok(state
+                .postgres
+                .get_checkpoint_ref(id)
+                .await?
+                .is_none())
+        }
+        ["app", "workloads", _, "cameras", filename] => {
+            let Some(id) = filename
+                .strip_prefix("cf_")
+                .and_then(|name| name.strip_suffix(".png"))
+            else {
+                return Ok(false);
+            };
+            Ok(state
+                .postgres
+                .get_trajectory_camera_frame_ref(id)
+                .await?
+                .is_none())
+        }
+        [
+            "worker",
+            "workloads",
+            id,
+            "checkpoints",
+            temporary,
+            filename,
+        ] if *filename == format!("cp_{temporary}.zip") => {
+            let final_id =
+                final_record_id(id, "checkpoints", temporary);
+            if state
+                .postgres
+                .get_checkpoint_ref(&final_id)
+                .await?
+                .is_some()
+            {
+                return Ok(true);
+            }
+            terminal_workload(state, id).await
+        }
+        ["worker", "workloads", id, "cameras", filename] => {
+            let Some(temporary) = filename
+                .strip_prefix("cf_")
+                .and_then(|name| name.strip_suffix(".png"))
+            else {
+                return Ok(false);
+            };
+            let final_id =
+                final_record_id(id, "frames", temporary);
+            if state
+                .postgres
+                .get_trajectory_camera_frame_ref(&final_id)
+                .await?
+                .is_some()
+            {
+                return Ok(true);
+            }
+            terminal_workload(state, id).await
+        }
+        ["worker", id, "models", temporary, filename]
+            if *filename == format!("m_{temporary}.zip") =>
+        {
+            let final_id =
+                final_record_id(id, "models", temporary);
+            if state
+                .postgres
+                .get_simulation_model_ref(&final_id)
+                .await?
+                .is_some()
+            {
+                return Ok(true);
+            }
+            terminal_workload(state, id).await
+        }
+        _ => Ok(false),
+    }
+}
+
+async fn terminal_workload(
+    state: &ApiState,
+    id: &str,
+) -> Result<bool> {
+    if state.jobs.lock().await.contains_key(id) {
+        return Ok(false);
+    }
+    let status: Option<WorkloadStatus> = sqlx::query_scalar(
+        "SELECT status FROM workloads.workload WHERE workload_id = $1",
+    ).bind(id).fetch_optional(state.postgres.pool()).await?;
+    Ok(status.is_some_and(|status| {
+        !matches!(
+            status,
+            WorkloadStatus::Scheduled | WorkloadStatus::Ongoing
+        )
+    }))
+}
+
+/// Background scans are bounded to queued, app-owned prefixes.
+/// Fresh objects get a grace period to cover interrupted writes.
+pub(crate) async fn cleanup_pending_assets(state: &ApiState) {
+    let scopes =
+        std::mem::take(&mut *state.cleanup_scopes.lock().await);
+    for scope in scopes {
+        match cleanup_scope(state, &scope).await {
+            Ok(true) => {}
+            Ok(false) => {
+                state.cleanup_scopes.lock().await.insert(scope);
+            }
+            Err(error) => {
+                eprintln!(
+                    "Asset cleanup will retry {scope}: {error}"
+                );
+                state.cleanup_scopes.lock().await.insert(scope);
+            }
+        }
+    }
+}
+
+async fn cleanup_scope(
+    state: &ApiState,
+    scope: &str,
+) -> Result<bool> {
+    let mut continuation = None;
+    let mut deferred = false;
+    loop {
+        let page = state
+            .s3
+            .list_objects_v2()
+            .bucket(&state.bucket)
+            .prefix(scope)
+            .set_continuation_token(continuation)
+            .max_keys(500)
+            .send()
+            .await?;
+        let mut uris = Vec::new();
+        for object in page.contents() {
+            let Some(key) = object.key() else {
+                continue;
+            };
+            let old_enough =
+                object.last_modified().is_some_and(|time| {
+                    Utc::now().timestamp() - time.secs() >= 300
+                });
+            if !old_enough && !key.starts_with("worker/") {
+                deferred = true;
+                continue;
+            }
+            if cleanup_allowed(state, key).await? {
+                uris.push(format!("s3://{}/{key}", state.bucket));
+            } else if key.starts_with("worker/") {
+                deferred = true;
+            }
+        }
+        delete_asset_uris(state, &uris).await?;
+        continuation =
+            page.next_continuation_token().map(str::to_owned);
+        if continuation.is_none() {
+            break;
+        }
+    }
+    Ok(!deferred)
+}
+
+/// Startup fails interrupted runs and queues cleanup before the
+/// server accepts requests. No attempt is made to resume a worker.
+pub async fn initialize(state: &Arc<ApiState>) -> Result<()> {
+    loop {
+        let interrupted =
+            state.postgres.interrupted_workloads().await?;
+        if interrupted.is_empty() {
+            break;
+        }
+        for (id, launched_at) in interrupted {
+            let status = if launched_at.is_some() {
+                WorkloadStatus::ExecutionFailed
+            } else {
+                WorkloadStatus::LaunchFailed
+            };
+            state
+                .postgres
+                .update_workload_status(
+                    &id,
+                    &status,
+                    Utc::now(),
+                    launched_at,
+                    Some(Utc::now()),
+                )
+                .await?;
+            let log_id = final_record_id(&id, "app", "restart");
+            if state
+                .mongo
+                .get_workload_log(&log_id)
+                .await?
+                .is_none()
+            {
+                let now = Utc::now();
+                if let Err(error) = state.mongo.create_workload_log(
+                    &state.postgres, &WorkloadLogs {
+                        workload_id: id.clone(), created_at: now,
+                        log_timestamp: now, log_id,
+                        log_line_text: "App server restarted before this workload completed".into(),
+                        user_facing: true, log_type: LogType::Error,
+                        stream: LogStream::AppServer,
+                    },
+                ).await {
+                    eprintln!("Could not write restart log for {id}: {error}");
+                }
+            }
+            let mut scopes = state.cleanup_scopes.lock().await;
+            scopes.extend([
+                format!("worker/workloads/{id}/"),
+                format!("worker/{id}/models/"),
+                format!("app/workloads/{id}/"),
+            ]);
+        }
+    }
+    for id in state.postgres.cleanup_workload_ids().await? {
+        state.cleanup_scopes.lock().await.extend([
+            format!("worker/workloads/{id}/"),
+            format!("worker/{id}/models/"),
+            format!("app/workloads/{id}/"),
+        ]);
+    }
+    for id in state.postgres.cleanup_project_ids().await? {
+        queue_project_cleanup(state, &id).await;
+    }
+    let weak = Arc::downgrade(state);
+    let handle = tokio::spawn(async move {
+        let mut interval =
+            tokio::time::interval(Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            let Some(state) = weak.upgrade() else {
+                break;
+            };
+            state.sweep_ephemeral().await;
+            cleanup_pending_assets(&state).await;
+        }
+    });
+    *state.maintenance.lock().await = Some(handle);
+    Ok(())
+}
+
+/// Graceful shutdown awaits final persistence before terminating
+/// the managed remote instance. A bounded fallback aborts tasks;
+/// startup reconciliation handles any interrupted DB status.
+pub async fn shutdown(state: &Arc<ApiState>) {
+    let timeout =
+        std::env::var("WORKLOAD_SHUTDOWN_TIMEOUT_SECONDS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(180);
+    shutdown_with_timeout(state, Duration::from_secs(timeout))
+        .await;
+}
+
+async fn shutdown_with_timeout(
+    state: &Arc<ApiState>,
+    timeout: Duration,
+) {
+    state.shutting_down.store(true, Ordering::SeqCst);
+    let deadline = tokio::time::Instant::now() + timeout;
+    let tasks: Vec<_> = {
+        let jobs = state.jobs.lock().await;
+        jobs.iter()
+            .map(|(id, task)| {
+                let _ = task.stop.send(true);
+                (id.clone(), task.finished.clone())
+            })
+            .collect()
+    };
+    for (id, mut finished) in tasks {
+        let wait = async {
+            while !*finished.borrow_and_update() {
+                if finished.changed().await.is_err() {
+                    break;
+                }
+            }
+        };
+        if tokio::time::timeout_at(deadline, wait).await.is_err()
+        {
+            let handle = state
+                .jobs
+                .lock()
+                .await
+                .get_mut(&id)
+                .and_then(|task| task.handle.take());
+            if let Some(handle) = handle {
+                handle.abort();
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    handle,
+                )
+                .await;
+            }
+            eprintln!(
+                "Shutdown deadline reached for {id}; status will be reconciled on restart"
+            );
+        }
+    }
+
+    if let Some(handle) = state.maintenance.lock().await.take() {
+        handle.abort();
+        let _ = handle.await;
+    }
+    let cleanup = async {
+        let mut slot = crate::remote_worker_slot().lock().await;
+        if let Some(worker) = slot.as_mut() {
+            worker.terminate_instance().await?;
+        }
+        *slot = None;
+        Ok::<_, common_worker_controller::DynError>(())
+    };
+    match tokio::time::timeout(Duration::from_secs(15), cleanup)
+        .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            eprintln!("Remote worker shutdown failed: {error}")
+        }
+        Err(error) => {
+            eprintln!("Remote worker shutdown timed out: {error}")
+        }
+    }
+}
+
+/// Verify the failed upload has no committed reference before
+/// deleting it. Ambiguous DB outcomes are deferred for retry.
+pub(crate) async fn cleanup_failed_model_upload(
+    state: &ApiState,
+    project_id: &str,
+    model_id: &str,
+    uri: &str,
+) {
+    queue_project_cleanup(state, project_id).await;
+    match state.postgres.get_simulation_model_ref(model_id).await
+    {
+        Ok(None) => {
+            if let Err(error) =
+                delete_asset_uris(state, &[uri.to_owned()]).await
+            {
+                eprintln!(
+                    "Failed upload cleanup will retry: {error}"
+                );
+            }
+        }
+        Ok(Some(_)) => {}
+        Err(error) => eprintln!(
+            "Deferring upload cleanup until DB outcome is known: {error}"
+        ),
+    }
+}
+
+pub(crate) fn is_remote(graph: &WorkloadGraph) -> bool {
+    let mode = match graph {
+        WorkloadGraph::TrainingGraph(g) => {
+            &g.training_job_controller.acceleration_mode
+        }
+        WorkloadGraph::TestGraph(g) => {
+            &g.test_job_controller.acceleration_mode
+        }
+    };
+    matches!(
+        mode,
+        TrainingAccelerationMode::MLGPUSimulationCPU
+            | TrainingAccelerationMode::MLGPUSimulationGPU
+    )
+}
+
+#[cfg(test)]
+mod runtime_tests {
+    use super::*;
+    use crate::api::workloads::tests::fixture;
+
+    fn tracked_task(
+        remote: bool,
+        stop: watch::Sender<bool>,
+        finished: watch::Receiver<bool>,
+    ) -> WorkloadTaskState {
+        WorkloadTaskState {
+            remote,
+            stop,
+            finished,
+            user_stopped: Arc::new(AtomicBool::new(false)),
+            handle: None,
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable DBs and local S3 stub"]
+    async fn terminal_write_failure_retains_task_until_retry_succeeds()
+     {
+        let (state, _, mut workload) = fixture().await;
+        let id = workload.workload_id.clone();
+        let trigger = format!(
+            "CREATE OR REPLACE FUNCTION workloads.reject_terminal_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.workload_id = '{id}' AND NEW.status = 'completed' THEN RAISE EXCEPTION 'Injected terminal write failure'; END IF; RETURN NEW; END $$; DROP TRIGGER IF EXISTS reject_terminal_test ON workloads.workload; CREATE TRIGGER reject_terminal_test BEFORE UPDATE ON workloads.workload FOR EACH ROW EXECUTE FUNCTION workloads.reject_terminal_test();"
+        );
+        sqlx::raw_sql(&trigger)
+            .execute(state.postgres.pool())
+            .await
+            .unwrap();
+        let (stop, _) = watch::channel(false);
+        let (finished_tx, finished) = watch::channel(false);
+        state.jobs.lock().await.insert(
+            id.clone(),
+            tracked_task(false, stop, finished),
+        );
+        let mut events = state.events.subscribe();
+        workload.status = WorkloadStatus::Completed;
+        let runner_state = state.clone();
+        let runner = tokio::spawn(async move {
+            finish_workload(
+                &runner_state,
+                &workload,
+                WorkloadStopReasonWorker::CompletedSuccess,
+            )
+            .await;
+            let _ = finished_tx.send(true);
+        });
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(state.jobs.lock().await.contains_key(&id));
+        assert!(events.try_recv().is_err());
+        let status: WorkloadStatus = sqlx::query_scalar(
+            "SELECT status FROM workloads.workload WHERE workload_id = $1",
+        ).bind(&id).fetch_one(state.postgres.pool()).await.unwrap();
+        assert_eq!(status, WorkloadStatus::Ongoing);
+        sqlx::query("DROP TRIGGER reject_terminal_test ON workloads.workload")
+            .execute(state.postgres.pool()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), runner)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!state.jobs.lock().await.contains_key(&id));
+        assert!(matches!(
+            events.try_recv().unwrap().1,
+            RemoteWorkerClientMessage::StopTestingMessage(_)
+        ));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable DBs and local S3 stub"]
+    async fn workload_locks_do_not_block_other_workloads() {
+        let (state, _, workload) = fixture().await;
+        let guard =
+            state.lock_workload(&workload.workload_id).await;
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(30),
+                state.lock_workload("another-workload")
+            )
+            .await
+            .is_ok()
+        );
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(30),
+                state.lock_workload(&workload.workload_id)
+            )
+            .await
+            .is_err()
+        );
+        drop(guard);
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(30),
+                state.lock_workload(&workload.workload_id)
+            )
+            .await
+            .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable DBs and local S3 stub"]
+    async fn startup_reconciles_and_shutdown_waits_for_final_writes()
+     {
+        let (state, _, workload) = fixture().await;
+        let id = workload.workload_id.clone();
+        initialize(&state).await.unwrap();
+        let status: WorkloadStatus = sqlx::query_scalar(
+            "SELECT status FROM workloads.workload WHERE workload_id = $1",
+        ).bind(&id).fetch_one(state.postgres.pool()).await.unwrap();
+        assert_eq!(status, WorkloadStatus::ExecutionFailed);
+        let log_id = final_record_id(&id, "app", "restart");
+        assert!(
+            state
+                .mongo
+                .get_workload_log(&log_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        let (stop, mut stop_rx) = watch::channel(false);
+        let (finished_tx, finished) = watch::channel(false);
+        let done = Arc::new(AtomicBool::new(false));
+        let done_task = done.clone();
+        let mut task = tracked_task(false, stop, finished);
+        task.handle = Some(tokio::spawn(async move {
+            stop_rx.changed().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            done_task.store(true, Ordering::SeqCst);
+            let _ = finished_tx.send(true);
+        }));
+        state.jobs.lock().await.insert(id, task);
+        shutdown_with_timeout(&state, Duration::from_secs(2))
+            .await;
+        assert!(done.load(Ordering::SeqCst));
+        assert!(state.shutting_down.load(Ordering::SeqCst));
+        assert!(state.maintenance.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable DBs and local S3 stub"]
+    async fn cleanup_retries_and_protects_inflight_uploads() {
+        let (state, _, workload) = fixture().await;
+        let project = &workload.project_id;
+        let id = Uuid::new_v4().to_string();
+        let key = model_key(project, &id);
+        let uri = format!("s3://{}/{key}", state.bucket);
+        state
+            .s3
+            .put_object()
+            .bucket(&state.bucket)
+            .key(&key)
+            .metadata("test-age", "600")
+            .metadata("test-delete-failures", "1")
+            .body(ByteStream::from_static(b"orphan"))
+            .send()
+            .await
+            .unwrap();
+        let lease = state.lease_asset(&uri).await;
+        queue_project_cleanup(&state, project).await;
+        cleanup_pending_assets(&state).await;
+        assert!(
+            state
+                .s3
+                .get_object()
+                .bucket(&state.bucket)
+                .key(&key)
+                .send()
+                .await
+                .is_ok()
+        );
+        drop(lease);
+        assert!(delete_asset_uris(&state, &[uri]).await.is_err());
+        queue_project_cleanup(&state, project).await;
+        cleanup_pending_assets(&state).await;
+        assert!(
+            state
+                .s3
+                .get_object()
+                .bucket(&state.bucket)
+                .key(&key)
+                .send()
+                .await
+                .is_err()
         );
     }
 }

@@ -447,6 +447,60 @@ impl MongoOrm {
         Ok(count != 0)
     }
 
+    /// Order metric batches by metric and their first coordinate.
+    pub async fn list_history_metrics(
+        &self,
+        workload_id: &str,
+        dimensions: u32,
+        pagination: (i64, i64),
+    ) -> Result<Vec<WorkloadUserMetrics>> {
+        let mut sort = doc! { "metric_id": 1 };
+        for index in 0..dimensions {
+            sort.insert(
+                format!(
+                    "workload_structure_state_values.0.{index}"
+                ),
+                1,
+            );
+        }
+        sort.insert("metrics_entry_id", 1);
+        self.find_records(
+            METRICS,
+            doc! { "workload_id": workload_id },
+            sort,
+            pagination,
+            &["created_at"],
+        )
+        .await
+    }
+
+    /// Array elements are separate sort keys; Mongo's default
+    /// array sort would otherwise use the minimum array element.
+    pub async fn list_history_states(
+        &self,
+        workload_id: &str,
+        dimensions: u32,
+        pagination: (i64, i64),
+    ) -> Result<Vec<WorkloadSimulationModelTrajectoryState>> {
+        let mut sort = doc! { "workload_structure_id": 1 };
+        for index in 0..dimensions {
+            sort.insert(
+                format!("workload_structure_state.{index}"),
+                1,
+            );
+        }
+        sort.insert("simulation_model_id", 1);
+        sort.insert("sim_model_state_entry_id", 1);
+        self.find_records(
+            STATES,
+            doc! { "workload_id": workload_id },
+            sort,
+            pagination,
+            &["created_at"],
+        )
+        .await
+    }
+
     async fn insert_records<T: Serialize>(
         &self,
         collection: &str,
@@ -484,6 +538,7 @@ impl MongoOrm {
             .db
             .collection::<Document>(collection)
             .find(filter)
+            .allow_disk_use(true)
             .sort(sort)
             .limit(limit)
             .skip(offset as u64)

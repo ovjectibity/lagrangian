@@ -21,6 +21,7 @@ pub struct LocalWorkerControllerConfig {
     pub ws_path: String,
     pub shared_secret: String,
     pub websocket_connect_timeout: Duration,
+    pub stop_ack_timeout: Duration,
 }
 
 impl Default for LocalWorkerControllerConfig {
@@ -31,6 +32,7 @@ impl Default for LocalWorkerControllerConfig {
             ws_path: "/".to_string(),
             shared_secret: String::new(),
             websocket_connect_timeout: Duration::from_secs(30),
+            stop_ack_timeout: Duration::from_secs(120),
         }
     }
 }
@@ -49,6 +51,7 @@ impl LocalWorkerController {
                 shared_secret: config.shared_secret,
                 websocket_connect_timeout: config
                     .websocket_connect_timeout,
+                stop_ack_timeout: config.stop_ack_timeout,
             },
         );
         Self { common }
@@ -74,6 +77,11 @@ impl LocalWorkerController {
             if !v.is_empty() {
                 cfg.ws_path = v;
             }
+        }
+        if let Ok(value) = env::var("WORKER_STOP_TIMEOUT_SECONDS")
+        {
+            cfg.stop_ack_timeout =
+                Duration::from_secs(value.parse()?);
         }
         cfg.shared_secret = env::var(
             "REMOTE_WORKER_SHARED_SECRET",

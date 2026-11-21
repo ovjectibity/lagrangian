@@ -61,6 +61,7 @@ pub struct RemoteWorkerControllerConfig {
     pub worker_shared_secret: String,
     pub instance_boot_timeout: Duration,
     pub websocket_connect_timeout: Duration,
+    pub stop_ack_timeout: Duration,
 }
 
 impl Default for RemoteWorkerControllerConfig {
@@ -82,6 +83,7 @@ impl Default for RemoteWorkerControllerConfig {
             worker_ws_path: "/".to_string(),
             worker_shared_secret: String::new(),
             instance_boot_timeout: Duration::from_secs(8 * 60),
+            stop_ack_timeout: Duration::from_secs(120),
             websocket_connect_timeout: Duration::from_secs(
                 2 * 60,
             ),
@@ -100,6 +102,7 @@ impl RemoteWorkerControllerConfig {
             shared_secret: self.worker_shared_secret.clone(),
             websocket_connect_timeout: self
                 .websocket_connect_timeout,
+            stop_ack_timeout: self.stop_ack_timeout,
         }
     }
 }
@@ -221,12 +224,13 @@ impl RemoteWorkerController {
             return Ok(());
         }
 
-        if let Some(instance_id) = self.instance_id.take() {
+        if let Some(instance_id) = self.instance_id.as_ref() {
             self.ec2
                 .terminate_instances()
                 .instance_ids(instance_id)
                 .send()
                 .await?;
+            self.instance_id = None;
         }
         self.instance_public_dns = None;
         Ok(())
@@ -556,14 +560,27 @@ mod tests {
 
 impl Drop for RemoteWorkerController {
     fn drop(&mut self) {
-        // Best-effort fail-safe notice; explicit `terminate_instance` should be preferred.
-        if self.instance_id.is_some()
-            && !self.skip_instance_lifecycle
-        {
-            eprintln!(
-                "RemoteWorkerController dropped with live instance. \
-                 Call `terminate_instance()` explicitly to avoid leaks."
-            );
+        if self.skip_instance_lifecycle {
+            return;
         }
+        let Some(id) = self.instance_id.take() else {
+            return;
+        };
+        let Ok(runtime) = tokio::runtime::Handle::try_current()
+        else {
+            eprintln!(
+                "Remote instance {id} requires manual termination"
+            );
+            return;
+        };
+        let ec2 = self.ec2.clone();
+        runtime.spawn(async move {
+            match tokio::time::timeout(Duration::from_secs(10),
+                ec2.terminate_instances().instance_ids(&id).send(),
+            ).await {
+                Ok(Ok(_)) => {}
+                result => eprintln!("Could not terminate remote instance {id}: {result:?}"),
+            }
+        });
     }
 }

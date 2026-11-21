@@ -5,7 +5,7 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time::{Instant, sleep, timeout};
+use tokio::time::{Instant, sleep, sleep_until, timeout};
 use tokio_tungstenite::tungstenite::{
     Message, client::IntoClientRequest, http::HeaderValue,
 };
@@ -30,6 +30,7 @@ pub struct CommonWorkerControllerConfig {
     pub ws_path: String,
     pub shared_secret: String,
     pub websocket_connect_timeout: Duration,
+    pub stop_ack_timeout: Duration,
 }
 
 /// Owns one worker connection for the duration of a workload.
@@ -92,7 +93,11 @@ impl CommonWorkerController {
     /// Close the connection without terminating its instance.
     pub async fn close(&mut self) {
         if let Some(socket) = self.worker_ws.as_mut() {
-            let _ = socket.close(None).await;
+            let _ = timeout(
+                Duration::from_secs(2),
+                socket.close(None),
+            )
+            .await;
         }
         self.worker_ws = None;
     }
@@ -100,6 +105,20 @@ impl CommonWorkerController {
     /// Run a typed start message until the worker acknowledges
     /// completion. Backpressure never prevents a stop write.
     pub async fn run_job(
+        &mut self,
+        start: RemoteWorkerServerMessage,
+        stop: watch::Receiver<bool>,
+        updates: mpsc::Sender<RemoteWorkerClientMessage>,
+        launched: oneshot::Sender<()>,
+    ) -> Result<StopWorkloadWorker> {
+        let result = self
+            .run_connected_job(start, stop, updates, launched)
+            .await;
+        self.close().await;
+        result
+    }
+
+    async fn run_connected_job(
         &mut self,
         start: RemoteWorkerServerMessage,
         mut stop: watch::Receiver<bool>,
@@ -126,13 +145,17 @@ impl CommonWorkerController {
             .worker_ws
             .as_mut()
             .ok_or("Worker socket unavailable")?;
-        socket
-            .send(Message::Text(
+        timeout(
+            self.config.websocket_connect_timeout,
+            socket.send(Message::Text(
                 serde_json::to_string(&start)?.into(),
-            ))
-            .await?;
+            )),
+        )
+        .await
+        .map_err(|_| "Worker start write timed out")??;
         let _ = launched.send(());
         let mut stop_sent = false;
+        let mut stop_deadline = Instant::now();
         let mut pending = None;
         loop {
             tokio::select! {
@@ -146,10 +169,17 @@ impl CommonWorkerController {
                     } else {
                         RemoteWorkerServerMessage::StopTrainingMessage(message)
                     };
-                    socket.send(Message::Text(
-                        serde_json::to_string(&message)?.into(),
-                    )).await?;
+                    stop_deadline = Instant::now()
+                        + self.config.stop_ack_timeout;
+                    timeout(self.config.stop_ack_timeout,
+                        socket.send(Message::Text(
+                            serde_json::to_string(&message)?.into(),
+                        )),
+                    ).await.map_err(|_| "Worker stop write timed out")??;
                     stop_sent = true;
+                }
+                _ = sleep_until(stop_deadline), if stop_sent => {
+                    return Err("Worker stop acknowledgement timed out".into());
                 }
                 permit = updates.reserve(), if pending.is_some() => {
                     permit.map_err(|_| "Update processor closed")?
@@ -348,6 +378,7 @@ mod tests {
                 ws_path: "/".into(),
                 shared_secret: "test-secret".into(),
                 websocket_connect_timeout: Duration::from_secs(2),
+                stop_ack_timeout: Duration::from_secs(2),
             },
         );
         let WorkloadGraph::TestGraph(graph) = test_graph() else {
@@ -390,5 +421,73 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+    #[tokio::test]
+    async fn stop_deadline_closes_an_unresponsive_worker() {
+        let listener =
+            tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket =
+                tokio_tungstenite::accept_async(stream)
+                    .await
+                    .unwrap();
+            while let Some(message) = socket.next().await {
+                if matches!(
+                    message,
+                    Ok(Message::Close(_)) | Err(_)
+                ) {
+                    break;
+                }
+            }
+        });
+        let mut controller = CommonWorkerController::new(
+            CommonWorkerControllerConfig {
+                host: "127.0.0.1".into(),
+                port,
+                ws_path: "/".into(),
+                shared_secret: "test-secret".into(),
+                websocket_connect_timeout: Duration::from_secs(2),
+                stop_ack_timeout: Duration::from_millis(30),
+            },
+        );
+        let WorkloadGraph::TestGraph(graph) = test_graph() else {
+            unreachable!();
+        };
+        let start =
+            RemoteWorkerServerMessage::StartTestingMessage(
+                StartTestWorkerMessage {
+                    workload_id: "w".into(),
+                    project_id: "p".into(),
+                    test_graph: graph,
+                    checkpoints: vec![],
+                    simulation_models: vec![],
+                },
+            );
+        let (tx, _rx) = mpsc::channel(1);
+        let (stop_tx, stop_rx) = watch::channel(false);
+        let (launched_tx, launched_rx) = oneshot::channel();
+        let signal = tokio::spawn(async move {
+            launched_rx.await.unwrap();
+            stop_tx.send(true).unwrap();
+        });
+        let result = timeout(
+            Duration::from_secs(5),
+            controller.run_job(start, stop_rx, tx, launched_tx),
+        )
+        .await
+        .unwrap();
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("acknowledgement timed out")
+        );
+        assert!(controller.worker_ws.is_none());
+        signal.await.unwrap();
+        server.await.unwrap();
     }
 }

@@ -95,31 +95,77 @@ pub async fn save_model(
     .await
     .map_err(internal)??;
     let id = Uuid::new_v4().to_string();
-    let uri = workflows::upload_model(
+    let expected_uri = format!(
+        "s3://{}/{}",
+        state.bucket,
+        workflows::model_key(&body.project_id, &id)
+    );
+    let lease = state.lease_asset(&expected_uri).await;
+    let uploaded = workflows::upload_model(
         &state.s3,
         &state.bucket,
         &body.project_id,
         &id,
         body.file_contents,
     )
-    .await
-    .map_err(internal)?;
+    .await;
+    let uri = match uploaded {
+        Ok(uri) => uri,
+        Err(error) => {
+            drop(lease);
+            workflows::cleanup_failed_model_upload(
+                state,
+                &body.project_id,
+                &id,
+                &expected_uri,
+            )
+            .await;
+            return Err(internal(error));
+        }
+    };
+    let catalog = state.catalog.lock().await;
+    if let Err(status) =
+        state.authorize_project(&auth, &body.project_id).await
+    {
+        drop(catalog);
+        drop(lease);
+        workflows::cleanup_failed_model_upload(
+            state,
+            &body.project_id,
+            &id,
+            &uri,
+        )
+        .await;
+        return Err(status);
+    }
+    let project_id = body.project_id.clone();
     let now = chrono::Utc::now();
-    state
+    let stored = state
         .postgres
         .create_simulation_model_ref(&SimulationModelRef {
             project_id: body.project_id,
             simulation_model_id: id.clone(),
             created_at: now,
             updated_at: now,
-            uri_path: uri,
+            uri_path: uri.clone(),
             name: body.name,
             base_file_name: body.base_file_name,
             model_type: body.model_type,
             file_type: body.file_type,
         })
-        .await
-        .map_err(sql_error)?;
+        .await;
+    drop(catalog);
+    drop(lease);
+    if let Err(error) = stored {
+        workflows::cleanup_failed_model_upload(
+            state,
+            &project_id,
+            &id,
+            &uri,
+        )
+        .await;
+        return Err(sql_error(error));
+    }
     Ok(Json(SaveModelResponseBody { model_id: id }))
 }
 
@@ -133,9 +179,10 @@ pub async fn delete_model(
     state: &State<Arc<ApiState>>,
     body: Json<DeleteModelsRequestBody>,
 ) -> ApiResult<Status> {
-    let _delivery = state.delivery.lock().await;
+    let catalog = state.catalog.lock().await;
+    let mut models = Vec::new();
     for id in &body.model_ids {
-        state.authorize_model(&auth, id).await?;
+        models.push(state.authorize_model(&auth, id).await?);
         crate::db::validations::validate_model_unreferenced(
             &state.postgres,
             &state.mongo,
@@ -152,6 +199,21 @@ pub async fn delete_model(
             .await.map_err(sql_error)?;
     }
     transaction.commit().await.map_err(sql_error)?;
+    drop(catalog);
+    let uris: Vec<_> =
+        models.iter().map(|m| m.uri_path.clone()).collect();
+    if let Err(error) =
+        workflows::delete_asset_uris(state, &uris).await
+    {
+        eprintln!("Model deletion cleanup will retry: {error}");
+        for model in models {
+            workflows::queue_project_cleanup(
+                state,
+                &model.project_id,
+            )
+            .await;
+        }
+    }
     Ok(Status::NoContent)
 }
 
@@ -170,8 +232,15 @@ pub async fn download_asset(
     let (_, key_id, key) = {
         let mut links = state.downloads.lock().await;
         let now = std::time::Instant::now();
-        links.retain(|_, (expiry, _, _)| *expiry > now);
-        links.get(&token).cloned().ok_or(Status::Unauthorized)?
+        let link = links
+            .get(&token)
+            .cloned()
+            .ok_or(Status::Unauthorized)?;
+        if link.0 <= now {
+            links.remove(&token);
+            return Err(Status::Unauthorized);
+        }
+        link
     };
     state.authenticate_ticket(&key_id).await?;
     let response = state

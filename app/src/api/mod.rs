@@ -7,8 +7,9 @@ pub mod testing;
 pub mod training;
 pub mod workloads;
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use aws_sdk_s3::Client as S3Client;
@@ -16,7 +17,8 @@ use rocket::Request;
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome};
 use rocket::serde::json::Json;
-use tokio::sync::{Mutex, broadcast, watch};
+use tokio::sync::{Mutex, OwnedMutexGuard, broadcast};
+use tokio::task::JoinHandle;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
@@ -75,10 +77,20 @@ pub struct ApiState {
     pub mongo: Arc<MongoOrm>,
     pub s3: S3Client,
     pub bucket: String,
-    pub jobs: Mutex<HashMap<String, (bool, watch::Sender<bool>)>>,
-    pub events: broadcast::Sender<RemoteWorkerClientMessage>,
-    /// Serializes persistence/publication with history snapshots.
-    pub delivery: Mutex<()>,
+    pub jobs: Mutex<
+        HashMap<String, crate::workflows::WorkloadTaskState>,
+    >,
+    pub events:
+        broadcast::Sender<(u64, RemoteWorkerClientMessage)>,
+    /// Catalog mutations are short; workload data has separate locks.
+    pub catalog: Mutex<()>,
+    workload_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
+    revisions: Mutex<HashMap<String, u64>>,
+    pub instance_id: String,
+    pub shutting_down: AtomicBool,
+    pub cleanup_scopes: Mutex<HashSet<String>>,
+    pub assets_inflight: Mutex<HashMap<String, Weak<()>>>,
+    pub maintenance: Mutex<Option<JoinHandle<()>>>,
     tickets: Mutex<HashMap<String, (Instant, String, String)>>,
     downloads: Mutex<HashMap<String, (Instant, String, String)>>,
 }
@@ -99,10 +111,81 @@ impl ApiState {
             bucket,
             events,
             jobs: Mutex::new(HashMap::new()),
-            delivery: Mutex::new(()),
+            catalog: Mutex::new(()),
+            workload_locks: Mutex::new(HashMap::new()),
+            revisions: Mutex::new(HashMap::new()),
+            instance_id: Uuid::new_v4().to_string(),
+            shutting_down: AtomicBool::new(false),
+            cleanup_scopes: Mutex::new(HashSet::new()),
+            assets_inflight: Mutex::new(HashMap::new()),
+            maintenance: Mutex::new(None),
             tickets: Mutex::new(HashMap::new()),
             downloads: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Only writers and snapshots of the same workload serialize.
+    pub async fn lock_workload(
+        &self,
+        id: &str,
+    ) -> OwnedMutexGuard<()> {
+        let lock = {
+            let mut locks = self.workload_locks.lock().await;
+            locks.retain(|_, lock| lock.strong_count() != 0);
+            if let Some(lock) =
+                locks.get(id).and_then(Weak::upgrade)
+            {
+                lock
+            } else {
+                let lock = Arc::new(Mutex::new(()));
+                locks
+                    .insert(id.to_owned(), Arc::downgrade(&lock));
+                lock
+            }
+        };
+        lock.lock_owned().await
+    }
+
+    /// Revision checks reject HTTP cursors invalidated by new data.
+    pub async fn revision(&self, id: &str) -> u64 {
+        self.revisions.lock().await.get(id).copied().unwrap_or(0)
+    }
+
+    /// Called while holding the workload lock, after durable writes.
+    pub async fn publish(
+        &self,
+        message: RemoteWorkerClientMessage,
+    ) {
+        use RemoteWorkerClientMessage::*;
+        let id =
+            match &message {
+                TrainingUpdatesMessage(m)
+                | TestUpdatesMessage(m) => &m.workload_id,
+                StopTrainingMessage(m)
+                | StopTestingMessage(m) => &m.workload_id,
+            };
+        let revision = {
+            let mut revisions = self.revisions.lock().await;
+            let revision =
+                revisions.entry(id.clone()).or_default();
+            *revision += 1;
+            *revision
+        };
+        let _ = self.events.send((revision, message));
+    }
+
+    /// Leases disappear on cancellation as well as ordinary returns.
+    pub async fn lease_asset(&self, uri: &str) -> Arc<()> {
+        let lease = Arc::new(());
+        self.assets_inflight
+            .lock()
+            .await
+            .insert(uri.to_owned(), Arc::downgrade(&lease));
+        lease
+    }
+
+    pub fn accepting_workloads(&self) -> bool {
+        !self.shutting_down.load(Ordering::SeqCst)
     }
 
     async fn authenticate(
@@ -219,7 +302,6 @@ impl ApiState {
         let token = Uuid::new_v4().to_string();
         let now = Instant::now();
         let mut links = self.downloads.lock().await;
-        links.retain(|_, (expiry, _, _)| *expiry > now);
         links.insert(
             token.clone(),
             (
@@ -231,7 +313,23 @@ impl ApiState {
         Ok(format!("/api/assets/download/{token}"))
     }
 
-    pub(super) fn object_key<'a>(
+    pub async fn sweep_ephemeral(&self) {
+        let now = Instant::now();
+        self.downloads
+            .lock()
+            .await
+            .retain(|_, (expiry, _, _)| *expiry > now);
+        self.tickets
+            .lock()
+            .await
+            .retain(|_, (expiry, _, _)| *expiry > now);
+        self.assets_inflight
+            .lock()
+            .await
+            .retain(|_, lease| lease.strong_count() != 0);
+    }
+
+    pub(crate) fn object_key<'a>(
         &self,
         uri: &'a str,
     ) -> ApiResult<&'a str> {

@@ -2,208 +2,164 @@
   "asyncapi": "3.0.0",
   "info": {
     "title": "Lagrangian Realtime Updates",
-    "version": "0.1.0",
-    "description": "WebSocket update streams for testing and training jobs. Testing frames are binary protobuf (`lagrangian.testing.TestingStreamMessage`, see testing_updates.proto); their logical update shape corresponds to `TestUpdateMessage` in app/src/commondef/testing.rs. Training frames are JSON `ClientMessage` as defined in app/src/commondef/clientmessages.rs."
+    "version": "0.2.0",
+    "description": "Training and testing use JSON workload updates. Rust commondef/api/apimessages.rs defines the shared client contract."
   },
   "servers": {
     "appServer": {
       "host": "localhost:8000",
       "pathname": "/api",
       "protocol": "ws",
-      "description": "Lagrangian app server (use wss in production)."
+      "description": "Use wss when the app is served over TLS."
     }
   },
   "channels": {
-    "testingUpdates": {
-      "address": "/testing/{testId}/updates",
-      "title": "Testing updates",
-      "description": "Per-test-run stream of task-indexed simulation state and camera frames (binary protobuf).",
-      "parameters": {
-        "testId": {
-          "description": "Test run UUID returned by POST /testing/start."
+    "workloadUpdates": {
+      "address": "/get_workload_live_updates",
+      "description": "Obtain a single-use ticket through POST /get_workload_live_ticket using Bearer authentication. Connect with workload_id and ticket query parameters. History is sent before live updates.",
+      "bindings": {
+        "ws": {
+          "query": {
+            "type": "object",
+            "required": [
+              "workload_id",
+              "ticket"
+            ],
+            "properties": {
+              "workload_id": {
+                "type": "string"
+              },
+              "ticket": {
+                "type": "string"
+              }
+            }
+          }
         }
       },
       "messages": {
-        "testingStreamMessage": {
-          "$ref": "#/components/messages/TestingStreamMessage"
-        }
-      }
-    },
-    "trainingUpdates": {
-      "address": "/training/experiments/{experimentId}/runs/{runId}/updates",
-      "title": "Training updates",
-      "description": "Per-run stream of training updates and the terminal stop event (JSON text).",
-      "parameters": {
-        "experimentId": {
-          "description": "Training experiment ID."
+        "server": {
+          "$ref": "#/components/messages/ServerMessage"
         },
-        "runId": {
-          "description": "Training run ID."
-        }
-      },
-      "messages": {
-        "clientMessage": {
-          "$ref": "#/components/messages/TrainingClientMessage"
+        "client": {
+          "$ref": "#/components/messages/ClientMessage"
         }
       }
     }
   },
   "operations": {
-    "receiveTestingUpdates": {
+    "receiveUpdates": {
       "action": "receive",
-      "summary": "Receive testing update frames over the WebSocket.",
-      "channel": { "$ref": "#/channels/testingUpdates" },
+      "channel": {
+        "$ref": "#/channels/workloadUpdates"
+      },
       "messages": [
-        { "$ref": "#/channels/testingUpdates/messages/testingStreamMessage" }
+        {
+          "$ref": "#/channels/workloadUpdates/messages/server"
+        }
       ]
     },
-    "receiveTrainingUpdates": {
-      "action": "receive",
-      "summary": "Receive training updates and the stop event over the WebSocket.",
-      "channel": { "$ref": "#/channels/trainingUpdates" },
+    "requestHistory": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/workloadUpdates"
+      },
       "messages": [
-        { "$ref": "#/channels/trainingUpdates/messages/clientMessage" }
+        {
+          "$ref": "#/channels/workloadUpdates/messages/client"
+        }
       ]
     }
   },
   "components": {
     "messages": {
-      "TestingStreamMessage": {
-        "name": "TestingStreamMessage",
-        "title": "Testing stream message",
-        "summary": "One testing update: simulation state keyed by task index, with [env][t] body-pose forwards per task, plus camera frames keyed by task index. This matches the logical TestUpdateMessage fields.",
-        "contentType": "application/vnd.google.protobuf",
-        "payload": {
-          "schemaFormat": "application/vnd.google.protobuf;version=3",
-          "schema": {
-            "$ref": "./testing_updates.proto#/lagrangian.testing.TestingStreamMessage"
-          }
-        }
-      },
-      "TrainingClientMessage": {
-        "name": "ClientMessage",
-        "title": "Training client message",
-        "summary": "A training update or the terminal stop event (the training-relevant arms of ClientMessage).",
+      "ServerMessage": {
+        "name": "WorkloadUpdatesServer",
         "contentType": "application/json",
         "payload": {
           "schemaFormat": "application/schema+json;version=draft-07",
-          "schema": { "$ref": "#/components/schemas/TrainingClientMessage" }
+          "schema": {
+            "$ref": "#/components/schemas/WorkloadUpdatesServer"
+          }
+        }
+      },
+      "ClientMessage": {
+        "name": "WorkloadUpdatesClient",
+        "contentType": "application/json",
+        "payload": {
+          "schemaFormat": "application/schema+json;version=draft-07",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "RequestAllUpdatesMessage"
+            ]
+          }
         }
       }
     },
     "schemas": {
-      "TrainingClientMessage": {
-        "type": "object",
-        "description": "Tagged union (serde tag=type, content=content).",
+      "WorkloadUpdatesServer": {
         "oneOf": [
           {
             "type": "object",
-            "required": ["type", "content"],
+            "required": [
+              "WorkloadUpdatesMessage"
+            ],
+            "additionalProperties": false,
             "properties": {
-              "type": { "const": "TrainingUpdatesMessage" },
-              "content": { "$ref": "#/components/schemas/TrainingUpdatesMessage" }
+              "WorkloadUpdatesMessage": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "A WorkloadUpdateUser record, defined in commondef/api/apimessages.rs."
+                }
+              }
             }
           },
           {
             "type": "object",
-            "required": ["type", "content"],
+            "required": [
+              "WorkloadStoppedMessage"
+            ],
+            "additionalProperties": false,
             "properties": {
-              "type": { "const": "StopTrainingMessage" },
-              "content": { "$ref": "#/components/schemas/StopTrainingMessage" }
+              "WorkloadStoppedMessage": {
+                "type": "object",
+                "required": [
+                  "workload_id",
+                  "reason"
+                ],
+                "properties": {
+                  "workload_id": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "CompletedSuccess",
+                          "RequestedByUser"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "WorkerFailure"
+                        ],
+                        "properties": {
+                          "WorkerFailure": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                }
+              }
             }
           }
         ]
-      },
-      "TrainingUpdatesMessage": {
-        "type": "object",
-        "required": ["id", "updates"],
-        "properties": {
-          "id": { "type": "string" },
-          "updates": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/TrainingUpdate" }
-          }
-        }
-      },
-      "StopTrainingMessage": {
-        "type": "object",
-        "required": ["id"],
-        "properties": { "id": { "type": "string" } }
-      },
-      "TrainingUpdate": {
-        "type": "object",
-        "required": ["training_run_state", "logs", "metrics", "checkpoints"],
-        "properties": {
-          "training_run_state": { "$ref": "#/components/schemas/TrainingRunState" },
-          "logs": { "type": "array", "items": { "type": "string" } },
-          "metrics": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/TrainingMetrics" }
-          },
-          "checkpoints": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/CheckpointReference" }
-          }
-        }
-      },
-      "TrainingRunState": {
-        "type": "object",
-        "required": ["type", "content"],
-        "properties": {
-          "type": { "const": "PPOTrainingRunState" },
-          "content": {
-            "type": "object",
-            "required": ["epoch_index", "update_index"],
-            "properties": {
-              "epoch_index": { "type": "integer" },
-              "update_index": { "type": "integer" }
-            }
-          }
-        }
-      },
-      "TrainingMetrics": {
-        "type": "object",
-        "description": "Tagged union of named metric series.",
-        "required": ["type", "content"],
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "MeanReward",
-              "MeanPolicyLoss",
-              "ValueLoss",
-              "MeanEntropy",
-              "PolicyGradientNorm",
-              "ValueGradientNorm"
-            ]
-          },
-          "content": { "$ref": "#/components/schemas/MetricsData" }
-        }
-      },
-      "MetricsData": {
-        "type": "object",
-        "required": ["x_axis", "y_axis"],
-        "properties": {
-          "x_axis": { "type": "array", "items": { "type": "number" } },
-          "y_axis": { "type": "array", "items": { "type": "number" } }
-        }
-      },
-      "CheckpointReference": {
-        "type": "object",
-        "required": [
-          "created_at", "id", "path", "training_experiment_id",
-          "training_run_id", "checkpoint_type"
-        ],
-        "properties": {
-          "created_at": { "type": "string", "format": "date-time" },
-          "id": { "type": "string" },
-          "path": { "type": "string" },
-          "training_experiment_id": { "type": "string" },
-          "training_run_id": { "type": "string" },
-          "checkpoint_type": { "type": "string" },
-          "control_model_params": { "type": "object" },
-          "value_model_params": { "type": "object" }
-        }
       }
     }
   }

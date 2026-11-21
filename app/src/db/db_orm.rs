@@ -764,8 +764,8 @@ impl PostgresOrm {
              na_indices, model_type, model_spec FROM
              assets.checkpoint_ref WHERE ($1::text IS NULL OR
              workload_id = $1) AND ($2::text IS NULL OR
-             model_type = $2) ORDER BY created_at,
-             checkpoint_id LIMIT $3 OFFSET $4",
+             model_type = $2) ORDER BY workload_structure_state,
+             model_type, checkpoint_id LIMIT $3 OFFSET $4",
         )
         .bind(workload_id)
         .bind(model_type)
@@ -1073,6 +1073,41 @@ impl PostgresOrm {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Startup reconciliation reads metadata without requiring a
+    /// valid graph document from an interrupted aggregate write.
+    pub async fn interrupted_workloads(
+        &self,
+    ) -> sqlx::Result<Vec<(String, Option<DateTime<Utc>>)>> {
+        sqlx::query_as(
+            "SELECT workload_id, launched_at FROM workloads.workload
+             WHERE status IN ('scheduled', 'ongoing')
+             ORDER BY workload_id LIMIT 500",
+        ).fetch_all(&self.pool).await
+    }
+
+    /// Retry cleanup after a crash even when terminal status was saved.
+    pub async fn cleanup_workload_ids(
+        &self,
+    ) -> sqlx::Result<Vec<String>> {
+        sqlx::query_scalar(
+            "SELECT workload_id FROM workloads.workload
+             WHERE status NOT IN ('scheduled', 'ongoing')",
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Only app-owned prefixes are considered for orphan cleanup.
+    pub async fn cleanup_project_ids(
+        &self,
+    ) -> sqlx::Result<Vec<String>> {
+        sqlx::query_scalar(
+            "SELECT project_id FROM product.project",
+        )
+        .fetch_all(&self.pool)
+        .await
     }
 
     /// Set lifecycle values without inferring stop reasons.

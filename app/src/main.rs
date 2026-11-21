@@ -5,7 +5,6 @@ use std::sync::{Arc, OnceLock};
 extern crate rocket;
 use rocket::fairing::AdHoc;
 use rocket::fs::FileServer;
-use rocket::tokio;
 use rocket::tokio::sync::Mutex as AsyncMutex;
 
 use crate::db::db_orm::PostgresOrm;
@@ -30,8 +29,6 @@ pub type RemoteWorkerSlot = Arc<
 
 static REMOTE_WORKER_SLOT: OnceLock<RemoteWorkerSlot> =
     OnceLock::new();
-static REMOTE_WORKER_SHUTDOWN_TASK_STARTED: OnceLock<()> =
-    OnceLock::new();
 
 // ── Global accessors ────────────────────────
 
@@ -41,23 +38,6 @@ pub fn remote_worker_slot() -> &'static RemoteWorkerSlot {
 }
 
 // ── Remote worker helpers ────────────────────
-
-pub fn ensure_remote_worker_shutdown_hook() {
-    if REMOTE_WORKER_SHUTDOWN_TASK_STARTED.set(()).is_err() {
-        return;
-    }
-
-    let slot = remote_worker_slot().clone();
-    tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            let mut guard = slot.lock().await;
-            if let Some(worker) = guard.as_mut() {
-                let _ = worker.terminate_instance().await;
-            }
-            *guard = None;
-        }
-    });
-}
 
 pub fn build_remote_worker_config()
 -> Result<
@@ -150,6 +130,13 @@ pub fn build_remote_worker_config()
         }
     }
 
+    if let Ok(value) = env::var("WORKER_STOP_TIMEOUT_SECONDS") {
+        cfg.stop_ack_timeout = std::time::Duration::from_secs(
+            value
+                .parse()
+                .map_err(|_| "Invalid worker stop timeout")?,
+        );
+    }
     Ok(cfg)
 }
 
@@ -184,15 +171,15 @@ fn rocket() -> _ {
                     let config = aws_config::defaults(
                         aws_config::BehaviorVersion::latest(),
                     ).load().await;
-                    Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
-                        api::ApiState::new(
-                            Arc::new(postgres), Arc::new(mongo),
-                            aws_sdk_s3::Client::new(&config), bucket,
-                        ),
-                    )
+                    let state = Arc::new(api::ApiState::new(
+                        Arc::new(postgres), Arc::new(mongo),
+                        aws_sdk_s3::Client::new(&config), bucket,
+                    ));
+                    workflows::initialize(&state).await?;
+                    Ok::<_, Box<dyn std::error::Error + Send + Sync>>(state)
                 }.await;
                 match dependencies {
-                    Ok(state) => Ok(rocket.manage(Arc::new(state))),
+                    Ok(state) => Ok(rocket.manage(state)),
                     Err(error) => {
                         eprintln!("API initialization failed: {error}");
                         Err(rocket)
@@ -203,9 +190,7 @@ fn rocket() -> _ {
         .attach(AdHoc::on_shutdown("Stop workloads", |rocket| {
             Box::pin(async move {
                 if let Some(state) = rocket.state::<Arc<api::ApiState>>() {
-                    for (_, stop) in state.jobs.lock().await.values() {
-                        let _ = stop.send(true);
-                    }
+                    workflows::shutdown(state).await;
                 }
             })
         }))

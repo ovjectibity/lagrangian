@@ -241,6 +241,8 @@ pub struct StopWorkloadRequestBody {
 pub struct WorkloadUpdatesResponseBody {
     pub workload_id: String,
     pub updates: Vec<WorkloadUpdateUser>,
+    /// Opaque position for the next bounded history page.
+    pub next_cursor: Option<String>,
 }
 
 // WSS workload updates ----------------------------------
