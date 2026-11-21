@@ -312,8 +312,10 @@ pub enum ControlOutputMode {
 pub struct PPOTrainingMethod {
     pub num_trajs: i32,
     pub num_steps_per_traj: i32,
+    /// Independent trajectory collections performed during training.
+    pub num_rollouts: i32,
+    /// Full-batch optimization epochs per rollout (one update each).
     pub num_epochs: i32,
-    pub num_updates: i32,
     pub epsilon: f64,
     pub gamma: f64,
     pub lambda: f64,
@@ -373,7 +375,10 @@ pub struct TrainingGraph {
 #[serde(tag = "type", content = "content")]
 #[typeshare]
 pub enum CheckpointFrequency {
+    PostRollout(i32),
+    /// Every N optimization epochs across all rollouts.
     PostEpoch(i32),
+    /// Every N updates; currently one full-batch update per epoch.
     PostUpdate(i32),
     LastOnly
 }

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import logging
-import time
 from typing import Any, Callable, Sequence
 
 logger = logging.getLogger(__name__)
@@ -26,8 +25,6 @@ from models.model import PPOTrainedModel
 Array = jax.Array
 Params = Any
 
-# jax.config.update("jax_log_compiles", True)
-
 
 def _tree_stack(items: Sequence[Any]) -> Any:
     """Stack a list of pytrees (e.g. structured input states) into one pytree with a
@@ -42,10 +39,11 @@ class Trajectory:
     control_wstates: PolicyInputState
     value_wstates: PolicyInputState
     policy_outputs: dict[str,Array]
-    policy_output_samples: list[Array]
-    policy_output_sample_log_probs: list[float]
-    rewards: list[float]
-    rtgs: list[float]
+    # Frozen rollout predictions, including the bootstrap state: [T+1].
+    value_outputs: Array
+    policy_output_sample_log_probs: Array
+    rewards: Array
+    rtgs: Array
 
 
 class PPOTrainerRuntimeInfo:
@@ -80,7 +78,7 @@ class PPOTrainer:
         model: PPOTrainedModel,
         num_trajs: int,
         traj_depth: int,
-        num_updates: int,
+        num_epochs: int,
         epsilon: float,
         learning_rate: float = 1e-3,
         gamma_lambda: tuple[float, float] = (0.99, 0.95),
@@ -89,7 +87,7 @@ class PPOTrainer:
     ) -> None:
         self.num_trajs = num_trajs
         self.traj_depth = traj_depth
-        self.num_updates = num_updates
+        self.num_epochs = num_epochs
         self.epsilon = epsilon
         self.gamma_lambda = gamma_lambda
         self.model = model
@@ -112,7 +110,7 @@ class PPOTrainer:
         )
         self.value_opt = self._init_adam_state(self.model.get_value_store())
         self._jit_gen_trajs: Any = None
-        self._jit_train_epoch: Any = None
+        self._jit_learning_step: Any = None
 
     @staticmethod
     def _camera_state_indices(input_spec: PolicyInputSpec) -> tuple[int, ...]:
@@ -142,60 +140,20 @@ class PPOTrainer:
         zeros = jax.tree_util.tree_map(jnp.zeros_like, params)
         return {"m": zeros, "v": zeros, "t": 0}
 
-    def _adam_step(
-        self,
-        params: Params,
-        grads: Params,
-        opt_state: dict[str, Any],
-    ) -> tuple[Params, dict[str, Any]]:
-        if "t" not in opt_state:
-            results = {
-                name: self._adam_step(params[name], grads[name], state)
-                for name, state in opt_state.items()
-            }
-            return (
-                {name: result[0] for name, result in results.items()},
-                {name: result[1] for name, result in results.items()},
-            )
-        beta1 = 0.9
-        beta2 = 0.999
-        eps = 1e-8
-        t = opt_state["t"] + 1
-        m = jax.tree_util.tree_map(
-            lambda m_old, g: beta1 * m_old + (1.0 - beta1) * g,
-            opt_state["m"],
-            grads,
-        )
-        v = jax.tree_util.tree_map(
-            lambda v_old, g: beta2 * v_old + (1.0 - beta2) * (g * g),
-            opt_state["v"],
-            grads,
-        )
-        m_hat = jax.tree_util.tree_map(lambda x: x / (1.0 - beta1**t), m)
-        v_hat = jax.tree_util.tree_map(lambda x: x / (1.0 - beta2**t), v)
-        new_params = jax.tree_util.tree_map(
-            lambda p, mh, vh: p - self.learning_rate * mh / (jnp.sqrt(vh) + eps),
-            params,
-            m_hat,
-            v_hat,
-        )
-        new_state = {"m": m, "v": v, "t": t}
-        return new_params, new_state
-
     def gen_trajectory_step(
         self,
         data: Any,
         rng_key: Array,
         simulator_state: SimulatorState,
+        record_cameras: bool = False,
     ) -> tuple[
         Any,
         Array,
         PolicyInputState,
         PolicyInputState,
         dict[str, Array],
-        Array,
-        Array,
         float,
+        np.ndarray | None,
     ]:
         """Generate one CPU trajectory step and return its updated state."""
         simulator_class = simulator_state.simulator_class
@@ -256,7 +214,6 @@ class PPOTrainer:
         rng_key, step_key = jax.random.split(rng_key)
         pol_output = policy_fn(policy_store, control_parts, step_key)
         sampled_action = pol_output["sampled_action"]
-        sampled_action_log_prob = pol_output["sampled_action_log_prob"]
         # Chunked policies such as Pi0 return [action_steps, action_dim];
         # this workload currently executes only the first action per step.
         action = sampled_action[0] if sampled_action.ndim == 2 else sampled_action
@@ -269,7 +226,7 @@ class PPOTrainer:
         )
         if not bool(valid):
             raise ValueError("Invalid actuator control mapping in CPU trajectory step")
-        data = simulator_class.forward_dyn_pure(data, model, controls)
+        data = simulator_class.forward_dyn_pure(data, model, controls, refresh_state=True)
         reward_parts_post = simulator_class.get_model_state_pure(
             reward_input_spec,
             data,
@@ -277,27 +234,31 @@ class PPOTrainer:
             contact_sensor_addresses,
             contact_body_pairs,
         )
-        if self._reward_camera_indices:
+        cameras = None
+        if self._reward_camera_indices or record_cameras:
             cameras, data = simulator_class.get_model_render(data, model, render_ctx)
             reward_parts_post = self._with_camera_frames(
                 reward_parts_post, cameras, self._reward_camera_indices
             )
         reward = float(self.model.get_reward(reward_parts_pre, reward_parts_post))
+        if not np.isfinite(reward):
+            raise ValueError("Training reward must be finite")
         return (
             data,
             rng_key,
             control_parts,
             value_parts,
             pol_output,
-            action,
-            sampled_action_log_prob,
             reward,
+            cameras,
         )
 
     def gen_trajectories(
         self,
         num_trajs: int,
         simulator_state: SimulatorState,
+        record_batch: Callable[[int, np.ndarray, np.ndarray, np.ndarray | None], None] | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> list[Trajectory]:
         simulator_class = simulator_state.simulator_class
         if simulator_class is not MujocoSimulator:
@@ -314,7 +275,6 @@ class PPOTrainer:
         control_wstates: list[list[PolicyInputState]] = [[] for _ in range(num_trajs)]
         value_wstates: list[list[PolicyInputState]] = [[] for _ in range(num_trajs)]
         policy_outputs: list[list[dict[str, Array]]] = [[] for _ in range(num_trajs)]
-        action_samples: list[list[Array]] = [[] for _ in range(num_trajs)]
         action_log_probs: list[list[float]] = [[] for _ in range(num_trajs)]
         rewards: list[list[float]] = [[] for _ in range(num_trajs)]
 
@@ -325,28 +285,42 @@ class PPOTrainer:
             self.traj_depth,
         )
         for step in range(self.traj_depth):
-            logger.info("gen_trajectories: step %s/%s", step, self.traj_depth)
+            if should_stop is not None and should_stop():
+                return []
+            positions, quaternions, frames = [], [], []
             for traj_index in range(num_trajs):
+                if should_stop is not None and should_stop():
+                    return []
                 (
                     data_states[traj_index],
                     rng_states[traj_index],
                     control_parts,
                     value_parts,
                     pol_output,
-                    action,
-                    sampled_action_log_prob,
                     reward,
+                    cameras,
                 ) = self.gen_trajectory_step(
                     data_states[traj_index],
                     rng_states[traj_index],
                     simulator_state,
+                    record_cameras=record_batch is not None and int(model.ncam) > 0,
                 )
                 control_wstates[traj_index].append(control_parts)
                 value_wstates[traj_index].append(value_parts)
                 policy_outputs[traj_index].append(pol_output)
-                action_samples[traj_index].append(action)
-                action_log_probs[traj_index].append(float(sampled_action_log_prob))
+                action_log_probs[traj_index].append(float(pol_output["sampled_action_log_prob"]))
                 rewards[traj_index].append(reward)
+                if record_batch is not None:
+                    data = data_states[traj_index]
+                    positions.append(np.asarray(data.xpos).copy())
+                    quaternions.append(np.asarray(data.xquat).copy())
+                    if cameras is not None:
+                        frames.append(np.asarray(cameras))
+            if record_batch is not None:
+                record_batch(
+                    step, np.stack(positions)[None], np.stack(quaternions)[None],
+                    np.stack(frames)[None] if frames else None,
+                )
 
         value_input_spec = self.model.get_value_input_spec()
         contact_sensor_addresses = simulator_state.contact_sensor_addresses
@@ -368,159 +342,84 @@ class PPOTrainer:
                     terminal_value_parts, cameras, self._value_camera_indices
                 )
             value_wstates[traj_index].append(terminal_value_parts)
-            v_terminal = float(self.model.get_value_output(terminal_value_parts))
+            states = _tree_stack(value_wstates[traj_index])
+            values = jax.lax.stop_gradient(jnp.asarray(
+                self.model.get_value_fn()(self.model.get_value_store(), states)
+            ).reshape(self.traj_depth + 1))
+            trajectory_rewards = jnp.asarray(rewards[traj_index], dtype=jnp.float32)
             trajectories.append(
                 Trajectory(
                     control_wstates=_tree_stack(control_wstates[traj_index]),
-                    value_wstates=_tree_stack(value_wstates[traj_index]),
+                    value_wstates=states,
+                    value_outputs=values,
                     policy_outputs=_tree_stack(policy_outputs[traj_index]),
-                    policy_output_samples=action_samples[traj_index],
-                    policy_output_sample_log_probs=action_log_probs[traj_index],
-                    rewards=rewards[traj_index],
-                    rtgs=self.compute_rtg(rewards[traj_index], v_terminal),
+                    policy_output_sample_log_probs=jnp.asarray(action_log_probs[traj_index]),
+                    rewards=trajectory_rewards,
+                    rtgs=pure_compute_rtg(trajectory_rewards, self.gamma_lambda[0], values[-1]),
                 )
             )
         logger.info("gen_trajectories: done")
         return trajectories
 
-    def compute_gae(self, traj: Trajectory) -> Array:
-        # Single batched value call over the [T+1, ...] structured value state (no
-        # per-step loop); shares the pure GAE implementation with the GPU path.
-        rewards = jnp.asarray(traj.rewards, dtype=jnp.float32)
-        return pure_compute_gae(
-            traj.value_wstates,
-            rewards,
-            self.model.get_value_fn(),
-            self.model.get_value_store(),
-            self.gamma_lambda[0],
-            self.gamma_lambda[1],
-        )
-
-    def compute_rtg(self, rewards: list[float], v_terminal: float) -> list[float]:
-        rtgs = [0.0 for _ in range(self.traj_depth)]
-        running_rtg = v_terminal
-        for i in reversed(range(self.traj_depth)):
-            running_rtg = rewards[i] + (self.gamma_lambda[0] * running_rtg)
-            rtgs[i] = float(running_rtg)
-        return rtgs
-
-    def get_ppo_clip_objective(
+    def train_rollout(
         self,
         trajs: Sequence[Trajectory],
-        gaes: Array,
-        policy_store: Params | None = None,
-    ) -> Array:
-        start_log_probs = jnp.stack(
-            [jnp.asarray(traj.policy_output_sample_log_probs) for traj in trajs]
-        )
-        # Each state leaf is [T, ...]; stacking adds [num_trajs, T, ...].
-        wstates = _tree_stack([traj.control_wstates for traj in trajs])
-        policy_outputs = _tree_stack([traj.policy_outputs for traj in trajs])
-
-        if policy_store is None:
-            policy_store = self.model.get_policy_store()
-        logger.debug("wstates shape in get_ppo_clip_objective {wstates.shape}")
-        ## Use the PURE log-prob fn with the passed policy_store so value_and_grad
-        ## differentiates w.r.t. it (the bound get_policy_output_log_prob uses the
-        ## model's stored params → zero gradient). Batch-friendly across mlp & vla.
-        log_prob_fn = self.model.get_policy_output_log_prob_fn()
-        action_log_probs = log_prob_fn(policy_store, wstates, policy_outputs)
-        ratio = jnp.exp(action_log_probs - start_log_probs)
-        clipped = jnp.clip(ratio, 1.0 - self.epsilon, 1.0 + self.epsilon) * gaes
-        return jnp.mean(jnp.minimum(ratio * gaes, clipped))
-
-    def get_value_function_objective(
-        self,
-        trajs: Sequence[Trajectory],
-        value_store: Params | None = None,
-    ) -> Array:
-        rtgs = jnp.stack([jnp.asarray(traj.rtgs) for traj in trajs])
-        # Strip each value leaf's terminal state, then stack over trajectories.
-        wstates = _tree_stack(
-            [jax.tree_util.tree_map(lambda x: x[: self.traj_depth], traj.value_wstates) for traj in trajs]
-        )
-        if value_store is None:
-            value_store = self.model.get_value_store()
-        values = self.model.get_value_fn()(value_store, wstates)
-        values = jnp.asarray(values)
-        if values.ndim > 0 and values.shape[-1] == 1:
-            values = jnp.squeeze(values, axis=-1)
-        return jnp.mean((values - rtgs) ** 2)
-
-    def get_mean_policy_loss(
-        self,
-        trajs: Sequence[Trajectory],
-        gaes: Array,
-        policy_store: Params | None = None,
-    ) -> Array:
-        return -self.get_ppo_clip_objective(trajs, gaes, policy_store)
-
-    def get_mean_value_loss(
-        self,
-        trajs: Sequence[Trajectory],
-        value_store: Params | None = None,
-    ) -> Array:
-        return self.get_value_function_objective(trajs, value_store)
-
-    def train_an_epoch(
-        self,
-        trajs: Sequence[Trajectory],
-        post_update_callback: Callable[[int], None] | None = None,
+        post_epoch_callback: Callable[[int, tuple[float, ...]], None] | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> PPOTrainerRuntimeInfo:
-        logger.info("train_an_epoch: computing GAEs for %s trajs", len(trajs))
-        gae_v = [self.compute_gae(traj) for traj in trajs]
-        gaes = jnp.stack(gae_v)
-        gae_mean = jnp.mean(gaes)
-        gae_std = jnp.std(gaes)
-        gaes = (gaes - gae_mean) / (gae_std + 1e-8)
-        logger.info("train_an_epoch: GAE mean=%.4f std=%.4f", float(gae_mean), float(gae_std))
-        mean_policy_loss: list[float] = []
-        mean_value_loss: list[float] = []
-        policy_gradient_norm: list[float] = []
-        value_gradient_norm: list[float] = []
-        for update_idx in range(self.num_updates):
-            logger.info("train_an_epoch: update %s/%s — computing policy loss", update_idx + 1, self.num_updates)
-            policy_store = self.model.get_policy_store()
-            policy_loss_fn = lambda p: self.get_mean_policy_loss(trajs, gaes, p)
-            policy_loss, policy_grads = jax.value_and_grad(policy_loss_fn)(policy_store)
-            mean_policy_loss.append(float(policy_loss))
-            p_grad_norm = self.get_gradient_norm(policy_grads)
-            policy_gradient_norm.append(p_grad_norm)
-            logger.info("train_an_epoch: update %s/%s — policy_loss=%.6f grad_norm=%.6f", update_idx + 1, self.num_updates, float(policy_loss), p_grad_norm)
-            policy_store, self.policy_opt = self._adam_step(
-                policy_store, policy_grads, self.policy_opt
-            )
-            self.model.get_policy_store_mut().update(policy_store)
+        """One full-batch policy/value update per epoch, reusing frozen rollout data."""
+        if len(trajs) != self.num_trajs:
+            raise ValueError("Training requires a complete rollout")
+        control_states = _tree_stack([traj.control_wstates for traj in trajs])
+        value_states = _tree_stack([
+            jax.tree_util.tree_map(lambda x: x[:-1], traj.value_wstates)
+            for traj in trajs
+        ])
+        policy_outputs = _tree_stack([traj.policy_outputs for traj in trajs])
+        log_probs = jax.lax.stop_gradient(jnp.stack([
+            traj.policy_output_sample_log_probs for traj in trajs
+        ]))
+        rtgs = jax.lax.stop_gradient(jnp.stack([traj.rtgs for traj in trajs]))
+        gaes = jnp.stack([
+            pure_compute_gae(traj.value_outputs, traj.rewards, *self.gamma_lambda)
+            for traj in trajs
+        ])
+        gaes = jax.lax.stop_gradient((gaes - jnp.mean(gaes)) / (jnp.std(gaes) + 1e-8))
+        if self._jit_learning_step is None:
+            policy_log_prob_fn = self.model.get_policy_output_log_prob_fn()
+            value_fn = self.model.get_value_fn()
 
-            logger.info("train_an_epoch: update %s/%s — computing value loss", update_idx + 1, self.num_updates)
-            value_store = self.model.get_value_store()
-            value_loss_fn = lambda v: self.get_mean_value_loss(trajs, v)
-            value_loss, value_grads = jax.value_and_grad(value_loss_fn)(value_store)
-            mean_value_loss.append(float(value_loss))
-            v_grad_norm = self.get_gradient_norm(value_grads)
-            value_gradient_norm.append(v_grad_norm)
-            logger.info("train_an_epoch: update %s/%s — value_loss=%.6f grad_norm=%.6f", update_idx + 1, self.num_updates, float(value_loss), v_grad_norm)
-            value_store, self.value_opt = self._adam_step(
-                value_store, value_grads, self.value_opt
-            )
-            self.model.get_value_store_mut().update(value_store)
-            if post_update_callback is not None:
-                post_update_callback(update_idx)
-        logger.info("train_an_epoch: done")
-        return PPOTrainerRuntimeInfo(
-            mean_policy_loss,
-            mean_value_loss,
-            policy_gradient_norm,
-            value_gradient_norm,
-        )
+            def update(policy, value, policy_opt, value_opt, controls, values, outputs, old_log_probs, advantages, targets):
+                return learning_step(
+                    policy, value, policy_opt, value_opt, policy_log_prob_fn, value_fn,
+                    controls, values, outputs, old_log_probs, advantages, targets,
+                    self.epsilon, self.learning_rate,
+                )
+            self._jit_learning_step = jax.jit(update)
 
-    @staticmethod
-    def get_gradient_norm(variables: Params) -> float:
-        # Note: pure version available as module-level pure_gradient_norm()
-        total_norm_sq = 0.0
-        for grad in jax.tree_util.tree_leaves(variables):
-            total_norm_sq += float(jnp.sum(grad**2))
-        return total_norm_sq**0.5
+        statistics: list[list[float]] = [[], [], [], []]
+        for epoch in range(self.num_epochs):
+            if should_stop is not None and should_stop():
+                break
+            result = self._jit_learning_step(
+                self.model.get_policy_store(), self.model.get_value_store(),
+                self.policy_opt, self.value_opt, control_states, value_states,
+                policy_outputs, log_probs, gaes, rtgs,
+            )
+            jax.block_until_ready(result)
+            policy, value, policy_opt, value_opt, *raw_stats = result
+            stats = tuple(float(x) for x in raw_stats)
+            # Do not publish/save an update whose numerical result is invalid.
+            if not np.isfinite(stats).all():
+                raise ValueError(f"Non-finite PPO diagnostics at epoch {epoch}")
+            self.model.get_policy_store_mut().update(policy)
+            self.model.get_value_store_mut().update(value)
+            self.policy_opt, self.value_opt = policy_opt, value_opt
+            for history, scalar in zip(statistics, stats):
+                history.append(scalar)
+            if post_epoch_callback is not None:
+                post_epoch_callback(epoch, stats)
+        return PPOTrainerRuntimeInfo(*statistics)
 
     def get_rollout_mean_entropy(self, trajs: Sequence[Trajectory]) -> float | None:
         # VLA denoising-path entropy is deliberately not reported as action entropy.
@@ -532,8 +431,7 @@ class PPOTrainer:
     def get_rollout_mean_reward(self, trajs: Sequence[Trajectory]) -> float:
         if not trajs:
             return 0.0
-        # Metric 1: sum timesteps within each trajectory, then mean trajectories.
-        return sum(sum(traj.rewards) for traj in trajs) / len(trajs)
+        return float(jnp.mean(jnp.stack([jnp.sum(traj.rewards) for traj in trajs])))
 
     def gen_trajectory_step_gpu(
         self,
@@ -607,6 +505,7 @@ class PPOTrainer:
             mjx_data,
             mjx_model,
             controls,
+            refresh_state=True,
         )
         return (mjx_data, rng_key), (
             control_parts,
@@ -622,475 +521,127 @@ class PPOTrainer:
         num_trajs: int,
         simulator_state: SimulatorState,
         rng_key: Array,
-    ) -> tuple[
-        PolicyInputState,
-        PolicyInputState,
-        dict[str, Array],
-        Array,
-        Array,
-    ]:
-        """Generate trajectories with a scan over vmapped GPU steps.
-
-        Args:
-            num_trajs: number of parallel trajectories
-            simulator_state: caller-owned simulator structures and render context
-            rng_key:   base RNG key; split into num_trajs sub-keys
-
-        Returns:
-            (control_wstates, value_wstates, policy_outputs, action_samples, rewards)
-            control_wstates: structured state, leaves [num_trajs, traj_depth, ...]
-            value_wstates: structured state, leaves [num_trajs, traj_depth+1, ...]
-            policy_outputs: model output dictionary, leaves [num_trajs, traj_depth, ...]
-            action_samples: [num_trajs, traj_depth, action_dim]
-            rewards:         [num_trajs, traj_depth]
-        """
-        logger.info(
-            "gen_trajectories_gpu: start (num_trajs=%s traj_depth=%s)",
-            num_trajs,
-            self.traj_depth,
-        )
-        keys = jax.random.split(rng_key, num_trajs)
-        policy_store = self.model.get_policy_store()
-        logger.info(
-            "gen_trajectories_gpu: split %s RNG keys, launching jit(scan(vmap))",
-            num_trajs,
-        )
-
+        record_batch: Callable[[int, np.ndarray, np.ndarray, np.ndarray | None], None] | None = None,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> list[Trajectory]:
+        """Collect MJX rollouts in bounded chunks; publish recordings on the host."""
         simulator_class = simulator_state.simulator_class
         if simulator_class is not MjxSimulator:
             raise ValueError("gen_trajectories_gpu requires MjxSimulator state")
-        mjx_data = simulator_state.mjx_data
-        mjx_model = simulator_state.mjx_model
-        if mjx_data is None or mjx_model is None:
+        data, model = simulator_state.mjx_data, simulator_state.mjx_model
+        if data is None or model is None:
             raise ValueError("MJX data and model are required for GPU trajectories")
-        batched_data = mjx_data
-
         render_ctx = simulator_state.render_ctx_pytree
-        contact_sensor_addresses = simulator_state.contact_sensor_addresses
-        contact_body_pairs = simulator_state.contact_body_pairs
-        control_input_spec = self.model.get_control_input_spec()
-        value_input_spec = self.model.get_value_input_spec()
-        reward_input_spec = self.model.get_reward_input_spec()
-        reward_fn = self.model.get_pure_reward_fn()
+        record_cameras = record_batch is not None and int(simulator_state.mujoco_model.ncam) > 0
         control_has_cameras = bool(self._control_camera_indices)
         value_has_cameras = bool(self._value_camera_indices)
         reward_has_cameras = bool(self._reward_camera_indices)
-        needs_step_render = (
-            control_has_cameras or value_has_cameras or reward_has_cameras
-        )
-        if needs_step_render and render_ctx is None:
-            raise ValueError("Camera input specs require a render context")
+        needs_input_render = control_has_cameras or value_has_cameras or reward_has_cameras
+        if (needs_input_render or record_cameras) and render_ctx is None:
+            raise ValueError("Camera capture requires a render context")
 
-        def control_state_fn(
-            data: Any,
-            model: Any,
-        ) -> PolicyInputState:
+        def state_fn(spec, state):
             return simulator_class.get_model_state_pure(
-                control_input_spec,
-                data,
-                model,
-                contact_sensor_addresses,
-                contact_body_pairs,
+                spec, state, model, simulator_state.contact_sensor_addresses,
+                simulator_state.contact_body_pairs,
             )
 
-        def value_state_fn(
-            data: Any,
-            model: Any,
-        ) -> PolicyInputState:
-            return simulator_class.get_model_state_pure(
-                value_input_spec,
-                data,
-                model,
-                contact_sensor_addresses,
-                contact_body_pairs,
-            )
+        control_spec = self.model.get_control_input_spec()
+        value_spec = self.model.get_value_input_spec()
+        reward_spec = self.model.get_reward_input_spec()
+        control_state_fn = lambda state, _: state_fn(control_spec, state)
+        value_state_fn = lambda state, _: state_fn(value_spec, state)
+        reward_state_fn = lambda state, _: state_fn(reward_spec, state)
+        reward_fn = self.model.get_pure_reward_fn()
 
-        def reward_state_fn(
-            data: Any,
-            model: Any,
-        ) -> PolicyInputState:
-            return simulator_class.get_model_state_pure(
-                reward_input_spec,
-                data,
-                model,
-                contact_sensor_addresses,
-                contact_body_pairs,
-            )
-
-        def all_trajectories(
-            ps: Params,
-            data: Any,
-            trajectory_keys: Array,
-            ctx: Any,
-        ) -> tuple[
-            PolicyInputState,
-            PolicyInputState,
-            dict[str, Array],
-            Array,
-            Array,
-            Array,
-        ]:
-            # Model topology and the IO specs are fixed for this trainer.
-            # Capturing the model keeps topology available to NumPy/name
-            # lookups during tracing; state and policy parameters remain inputs.
-            model = mjx_model
-
-            def trajectory_step(
-                step_data: Any,
-                step_key: Array,
-                camera_frames: Array | None,
-            ) -> tuple[
-                tuple[Any, Array],
-                tuple[
-                    PolicyInputState,
-                    PolicyInputState,
-                    dict[str, Array],
-                    Array,
-                    PolicyInputState,
-                    Array,
-                ],
-            ]:
-                return self.gen_trajectory_step_gpu(
-                    step_data,
-                    model,
-                    step_key,
-                    simulator_class,
-                    control_state_fn,
-                    value_state_fn,
-                    reward_state_fn,
-                    control_has_cameras,
-                    value_has_cameras,
-                    reward_has_cameras,
-                    camera_frames,
-                    ps,
-                )
-
-            def scan_body(
-                carry: tuple[Any, Array],
-                _: None,
-            ) -> tuple[
-                tuple[Any, Array],
-                tuple[
-                    PolicyInputState,
-                    PolicyInputState,
-                    dict[str, Array],
-                    Array,
-                    Array,
-                    Array,
-                ],
-            ]:
+        def collect_chunk(policy, states, keys, ctx, length):
+            def step(carry, _):
                 step_data, step_keys = carry
-                camera_frames = None
-                if needs_step_render:
-                    camera_frames, step_data = simulator_class.get_model_render(
-                        step_data, model, ctx
-                    )
+                input_frames = None
+                if needs_input_render:
+                    input_frames, step_data = simulator_class.get_model_render(step_data, model, ctx)
                 (next_data, next_keys), (
-                    control_parts,
-                    value_parts,
-                    policy_output,
-                    action,
-                    reward_parts_pre,
-                    controls_valid,
+                    controls, values, outputs, _, reward_pre, valid,
                 ) = jax.vmap(
-                    trajectory_step,
-                    in_axes=(0, 0, 0 if needs_step_render else None),
-                )(step_data, step_keys, camera_frames)
-                reward_parts_post = jax.vmap(
-                    reward_state_fn, in_axes=(0, None)
-                )(next_data, model)
-                if reward_has_cameras:
-                    post_frames, next_data = simulator_class.get_model_render(
-                        next_data, model, ctx
+                    lambda d, key, frames: self.gen_trajectory_step_gpu(
+                        d, model, key, simulator_class, control_state_fn,
+                        value_state_fn, reward_state_fn, control_has_cameras,
+                        value_has_cameras, reward_has_cameras, frames, policy,
+                    ), in_axes=(0, 0, 0 if needs_input_render else None),
+                )(step_data, step_keys, input_frames)
+                reward_post = jax.vmap(reward_state_fn, in_axes=(0, None))(next_data, model)
+                frames = None
+                if reward_has_cameras or record_cameras:
+                    frames, next_data = simulator_class.get_model_render(next_data, model, ctx)
+                    reward_post = self._with_camera_frames(
+                        reward_post, frames, self._reward_camera_indices
                     )
-                    reward_parts_post = self._with_camera_frames(
-                        reward_parts_post, post_frames, self._reward_camera_indices
-                    )
-                rewards = jax.vmap(reward_fn)(reward_parts_pre, reward_parts_post)
+                rewards = jax.vmap(reward_fn)(reward_pre, reward_post)
                 return (next_data, next_keys), (
-                    control_parts,
-                    value_parts,
-                    policy_output,
-                    action,
-                    rewards,
-                    controls_valid,
+                    controls, values, outputs, rewards, valid,
+                    next_data.xpos, next_data.xquat, frames if record_cameras else None,
                 )
-
-            (data_final, _), step_outputs = jax.lax.scan(
-                scan_body,
-                (data, trajectory_keys),
-                None,
-                length=self.traj_depth,
-            )
-            (
-                control_states_t,
-                value_states_t,
-                policy_outputs_t,
-                action_samples_t,
-                rewards_t,
-                controls_valid_t,
-            ) = step_outputs
-
-            terminal_value_parts = jax.vmap(
-                value_state_fn,
-                in_axes=(0, None),
-            )(data_final, model)
-            if value_has_cameras:
-                terminal_frames, data_final = simulator_class.get_model_render(
-                    data_final, model, ctx
-                )
-                terminal_value_parts = self._with_camera_frames(
-                    terminal_value_parts, terminal_frames, self._value_camera_indices
-                )
-            value_states_t = jax.tree_util.tree_map(
-                lambda seq, term: jnp.concatenate([seq, term[None]], axis=0),
-                value_states_t,
-                terminal_value_parts,
-            )
-
-            # lax.scan stacks time first. The training API remains environment
-            # first: [num_trajs, traj_depth, ...].
-            to_environment_major = lambda tree: jax.tree_util.tree_map(
-                lambda value: jnp.swapaxes(value, 0, 1),
-                tree,
-            )
-            return (
-                to_environment_major(control_states_t),
-                to_environment_major(value_states_t),
-                to_environment_major(policy_outputs_t),
-                jnp.swapaxes(action_samples_t, 0, 1),
-                jnp.swapaxes(rewards_t, 0, 1),
-                jnp.swapaxes(controls_valid_t, 0, 1),
-            )
+            return jax.lax.scan(step, (states, keys), None, length=length)
 
         if self._jit_gen_trajs is None:
-            ##DEBUG TRACING & COMPILE:
-            # See what JAX will actually compile before running it
-            # jaxpr = jax.make_jaxpr(all_trajectories)(
-            #     policy_store, batched_data, keys, render_ctx
-            # )
-            # print(jaxpr)  # full trace as a Jaxpr (JAX's IR before HLO lowering)
-
-            # Go one step further: lower to StableHLO
-            t0 = time.time()
-            lowered = jax.jit(all_trajectories).lower(
-                policy_store,
-                batched_data,
-                keys,
-                render_ctx,
+            self._jit_gen_trajs = jax.jit(collect_chunk, static_argnums=(4,))
+        keys = jax.random.split(rng_key, num_trajs)
+        chunks = []
+        for start in range(0, self.traj_depth, 10):
+            if should_stop is not None and should_stop():
+                return []
+            length = min(10, self.traj_depth - start)
+            (data, keys), outputs = self._jit_gen_trajs(
+                self.model.get_policy_store(), data, keys, render_ctx, length,
             )
-            t1 = time.time()
-            logger.info("gen_trajectories_gpu: tracing+lowering took %.2fs", t1 - t0)
-            # print(lowered.as_text())  # StableHLO text representation
-
-            # Then compile and inspect the compiled artifact
-            compiled = lowered.compile()
-            t2 = time.time()
-            logger.info("gen_trajectories_gpu: XLA compilation took %.2fs", t2 - t1)
-            print(compiled.cost_analysis())  # FLOPs, memory estimates per op
-            ##DEBUG TRACING & COMPILE complete:
-
-            self._jit_gen_trajs = compiled
-
-        t_exec = time.time()
-        result = self._jit_gen_trajs(
-            policy_store,
-            batched_data,
-            keys,
-            render_ctx,
-        )
-        jax.block_until_ready(result)
-        t_exec_done = time.time()
-        logger.info("gen_trajectories_gpu: execution took %.2fs", t_exec_done - t_exec)
-        controls_valid = np.asarray(result[5])
-        if not controls_valid.all():
-            trajectory_index, timestep = np.argwhere(~controls_valid)[0]
-            raise ValueError(
-                "Invalid actuator control mapping: "
-                f"trajectory_index={int(trajectory_index)} timestep={int(timestep)}"
-            )
-        # Validity is a rollout diagnostic; preserve the public five-item result.
-        return result[:5]
-
-    def train_an_epoch_gpu(
-        self,
-        control_wstates: PolicyInputState,
-        value_wstates: PolicyInputState,
-        policy_outputs: dict[str,Array],
-        action_samples: Array,
-        rewards: Array
-    ) -> PPOTrainerRuntimeInfo:
-        """GPU training epoch using pure learning_step.
-
-        Args:
-            control_wstates: structured state, leaves [num_trajs, traj_depth, ...]
-            value_wstates: structured state, leaves [num_trajs, traj_depth+1, ...]
-            policy_outputs: model-produced dictionary whose array leaves have
-                leading dimensions [num_trajs, traj_depth, ...]
-            action_samples:  [num_trajs, traj_depth, action_dim]
-            rewards:         [num_trajs, traj_depth]
-
-        Returns:
-            PPOTrainerRuntimeInfo with per-update losses and gradient norms
-        """
-        num_trajs_in = rewards.shape[0]
-        logger.info(
-            "train_an_epoch_gpu: start (num_trajs=%s traj_depth=%s action_size=%s)",
-            num_trajs_in,
-            self.traj_depth,
-            action_samples.shape[-1],
-        )
-        policy_log_prob_fn = self.model.get_policy_output_log_prob_fn()
-        value_fn = self.model.get_value_fn()
-        gamma, lam = self.gamma_lambda
-
-        logger.info("train_an_epoch_gpu: computing RTGs for %s trajs", num_trajs_in)
-
-        def compute_rtg_for_traj(
-            traj_rewards: Array, traj_value_wstates: PolicyInputState
-        ) -> Array:
-            terminal = jax.tree_util.tree_map(lambda x: x[-1], traj_value_wstates)
-            v_terminal = jnp.asarray(
-                value_fn(self.model.get_value_store(), terminal)
-            ).reshape(())
-            return pure_compute_rtg(traj_rewards, gamma, v_terminal)
-
-        rtgs = jax.vmap(compute_rtg_for_traj)(rewards, value_wstates)   # [num_trajs, traj_depth]
-        logger.info("train_an_epoch_gpu: RTGs computed (shape=%s)", rtgs.shape)
-
-        logger.info("train_an_epoch_gpu: computing GAEs for %s trajs", num_trajs_in)
-
-        def compute_gae_for_traj(
-            traj_value_wstates: PolicyInputState, traj_rewards: Array
-        ) -> Array:
-            return pure_compute_gae(traj_value_wstates, traj_rewards, value_fn, self.model.get_value_store(), gamma, lam)
-
-        gaes_raw = jax.vmap(compute_gae_for_traj)(value_wstates, rewards)  # [num_trajs, traj_depth]
-
-        gae_mean = jnp.mean(gaes_raw)
-        gae_std = jnp.std(gaes_raw)
-        gaes = (gaes_raw - gae_mean) / (gae_std + 1e-8)
-        logger.info("train_an_epoch_gpu: GAE mean=%.4f std=%.4f (shape=%s)", float(gae_mean), float(gae_std), gaes.shape)
-
-        logger.info("train_an_epoch_gpu: computing start log probs")
-        start_log_probs = policy_outputs["sampled_action_log_prob"]
-        logger.info("train_an_epoch_gpu: start log probs computed (shape=%s)", start_log_probs.shape)
-
-        # Control leaves already have [num_trajs, traj_depth, ...] axes.
-        # value_wstates_t strips the terminal (axis 1) from each leaf for per-step value loss
-        value_wstates_t = jax.tree_util.tree_map(lambda x: x[:, :self.traj_depth], value_wstates)
-
-        epsilon = self.epsilon
-        learning_rate = self.learning_rate
-        num_updates = self.num_updates
-
-        def update_all_steps_fn(
-            carry: tuple[Params, Params, dict, dict],
-            control_wstates_a: PolicyInputState,
-            value_wstates_a: PolicyInputState,
-            policy_output: dict[str,Array],
-            start_log_probs_a: Array,
-            gaes_a: Array,
-            rtgs_a: Array,
-        ) -> tuple[tuple[Params, Params, dict, dict], tuple[Array, Array, Array, Array]]:
-            def update_step(
-                carry: tuple[Params, Params, dict, dict],
-                _: None,
-            ) -> tuple[tuple[Params, Params, dict, dict], tuple[Array, Array, Array, Array]]:
-                policy_store_c, value_store_c, policy_opt_c, value_opt_c = carry
-                (
-                    policy_store_next,
-                    value_store_next,
-                    policy_opt_next,
-                    value_opt_next,
-                    p_loss,
-                    v_loss,
-                    p_grad_norm,
-                    v_grad_norm,
-                ) = learning_step(
-                    policy_store_c,
-                    value_store_c,
-                    policy_opt_c,
-                    value_opt_c,
-                    policy_log_prob_fn,
-                    value_fn,
-                    control_wstates_a,
-                    value_wstates_a,
-                    policy_output,
-                    start_log_probs_a,
-                    gaes_a,
-                    rtgs_a,
-                    epsilon,
-                    learning_rate,
+            jax.block_until_ready(outputs)
+            controls, values, policy_outputs, rewards, valid, positions, quaternions, frames = outputs
+            if not np.isfinite(np.asarray(rewards)).all():
+                raise ValueError("Training rewards must be finite")
+            invalid = np.argwhere(~np.asarray(valid))
+            if len(invalid):
+                timestep, trajectory = invalid[0]
+                raise ValueError(
+                    f"Invalid actuator control mapping: trajectory_index={trajectory} "
+                    f"timestep={start + timestep}"
                 )
-                return (policy_store_next, value_store_next, policy_opt_next, value_opt_next), (
-                    p_loss, v_loss, p_grad_norm, v_grad_norm,
+            # PNG encoding, S3 writes and outgoing records happen only after the GPU chunk.
+            if record_batch is not None:
+                record_batch(
+                    start, np.asarray(positions), np.asarray(quaternions),
+                    np.asarray(frames) if frames is not None else None,
                 )
-            return jax.lax.scan(update_step, carry, None, length=num_updates)
+            chunks.append((controls, values, policy_outputs, rewards))
 
-        logger.info(
-            "train_an_epoch_gpu: launching jit(lax.scan) over %s update steps", self.num_updates
+        controls, values, policy_outputs, rewards = jax.tree_util.tree_map(
+            lambda *parts: jnp.concatenate(parts, axis=0), *chunks,
         )
-        init_carry = (
-            self.model.get_policy_store(),
-            self.model.get_value_store(),
-            self.policy_opt,
-            self.value_opt,
+        terminal = jax.vmap(value_state_fn, in_axes=(0, None))(data, model)
+        if value_has_cameras:
+            frames, data = simulator_class.get_model_render(data, model, render_ctx)
+            terminal = self._with_camera_frames(terminal, frames, self._value_camera_indices)
+        values = jax.tree_util.tree_map(
+            lambda sequence, last: jnp.concatenate([sequence, last[None]], axis=0),
+            values, terminal,
         )
-
-        if self._jit_train_epoch is None:
-            ##DEBUG TRACING & COMPILE:
-            lowered = jax.jit(update_all_steps_fn).lower(
-                init_carry, control_wstates, value_wstates_t, policy_outputs, start_log_probs, gaes, rtgs
-            )
-            compiled = lowered.compile()
-            print(compiled.cost_analysis())  # FLOPs, memory estimates per op
-            ##DEBUG TRACING & COMPILE complete:
-            self._jit_train_epoch = compiled
-
-        (policy_store_final, value_store_final, policy_opt_final, value_opt_final), (
-            p_losses, v_losses, p_grad_norms, v_grad_norms,
-        ) = self._jit_train_epoch(init_carry, control_wstates, value_wstates_t, policy_outputs, start_log_probs, gaes, rtgs)
-
-        self.policy_opt = policy_opt_final
-        self.value_opt = value_opt_final
-        self.model.get_policy_store_mut().update(policy_store_final)
-        self.model.get_value_store_mut().update(value_store_final)
-
-        # Extract per-update scalars for logging and return value (done outside jit)
-        mean_policy_loss = [float(p_losses[i]) for i in range(self.num_updates)]
-        mean_value_loss = [float(v_losses[i]) for i in range(self.num_updates)]
-        policy_gradient_norm = [float(p_grad_norms[i]) for i in range(self.num_updates)]
-        value_gradient_norm = [float(v_grad_norms[i]) for i in range(self.num_updates)]
-
-        for update_idx in range(self.num_updates):
-            logger.info(
-                "train_an_epoch_gpu: update %s/%s — policy_loss=%.6f value_loss=%.6f grad_norm_p=%.6f grad_norm_v=%.6f",
-                update_idx + 1, self.num_updates,
-                mean_policy_loss[update_idx], mean_value_loss[update_idx],
-                policy_gradient_norm[update_idx], value_gradient_norm[update_idx],
-            )
-
-        logger.info("train_an_epoch_gpu: done")
-        return PPOTrainerRuntimeInfo(
-            mean_policy_loss,
-            mean_value_loss,
-            policy_gradient_norm,
-            value_gradient_norm,
+        controls, values, policy_outputs, rewards = jax.tree_util.tree_map(
+            lambda x: jnp.swapaxes(x, 0, 1), (controls, values, policy_outputs, rewards),
         )
-
-
-# ---------------------------------------------------------------------------
-# Pure standalone functions for GPU-accelerated learning
-#
-# Trajectory arrays convention (all [num_trajs, traj_depth, ...]):
-#   wstates:        structured PyTree, leaves [num_trajs, traj_depth(+1), ...]
-#   action_samples: [num_trajs, traj_depth, action_dim]
-#   policy_outputs: model output dictionary, leaves [num_trajs, traj_depth, ...]
-#   log_probs:      [num_trajs, traj_depth]
-#   rewards:        [num_trajs, traj_depth]
-#   rtgs:           [num_trajs, traj_depth]
-# ---------------------------------------------------------------------------
+        # Evaluate every rollout state once, before any optimizer update.
+        value_outputs = jax.lax.stop_gradient(jnp.asarray(
+            self.model.get_value_fn()(self.model.get_value_store(), values)
+        ).reshape(num_trajs, self.traj_depth + 1))
+        rtgs = jax.vmap(lambda r, v: pure_compute_rtg(r, self.gamma_lambda[0], v[-1]))(
+            rewards, value_outputs,
+        )
+        return [Trajectory(
+            control_wstates=jax.tree_util.tree_map(lambda x: x[i], controls),
+            value_wstates=jax.tree_util.tree_map(lambda x: x[i], values),
+            value_outputs=value_outputs[i],
+            policy_outputs=jax.tree_util.tree_map(lambda x: x[i], policy_outputs),
+            policy_output_sample_log_probs=policy_outputs["sampled_action_log_prob"][i],
+            rewards=rewards[i], rtgs=rtgs[i],
+        ) for i in range(num_trajs)]
 
 
 def pure_gradient_norm(variables: Params) -> Array:
@@ -1125,30 +676,12 @@ def pure_compute_rtg(rewards: Array, gamma: float, v_terminal: Array) -> Array:
 
 
 def pure_compute_gae(
-    wstates: PolicyInputState,
+    all_values: Array,
     rewards: Array,
-    value_fn: Callable[[Params, PolicyInputState], Array],
-    value_store: Params,
     gamma: float,
     lam: float,
 ) -> Array:
-    """Compute generalised advantage estimates for a single trajectory without a Python loop.
-
-    Args:
-        wstates:     structured value state, leaves [T+1, ...] (incl. terminal)
-        rewards:     [T] float array
-        value_fn:    callable (params, state) -> [1] or scalar
-        value_store: value network parameters
-        gamma:       discount factor
-        lam:         GAE lambda
-
-    Returns:
-        gaes: [T] float array
-    """
-    # Batch value computation over all T+1 states in one call
-    all_values = jnp.asarray(value_fn(value_store, wstates))    # [T+1, 1] or [T+1]
-    if all_values.ndim > 1 and all_values.shape[-1] == 1:
-        all_values = jnp.squeeze(all_values, axis=-1)
+    """GAE from frozen rollout values [T+1] and rewards [T]."""
     values = all_values[:-1]       # [T]
     values_next = all_values[1:]   # [T]
 
@@ -1214,9 +747,45 @@ def pure_value_loss(
     """
     values = value_fn(value_store, wstates)
     values = jnp.asarray(values)
-    if values.ndim > 0 and values.shape[-1] == 1:
+    if values.ndim == rtgs.ndim + 1 and values.shape[-1] == 1:
         values = jnp.squeeze(values, axis=-1)
+    if values.shape != rtgs.shape:
+        raise ValueError("Value predictions must provide one scalar per rollout timestep")
     return jnp.mean((values - rtgs) ** 2)
+
+
+def pure_adam_step(
+    params: Params,
+    grads: Params,
+    opt_state: dict,
+    learning_rate: float,
+) -> tuple[Params, dict]:
+    beta1, beta2, eps_adam = 0.9, 0.999, 1e-8
+    if "t" not in opt_state:
+        results = {
+            name: pure_adam_step(params[name], grads[name], state, learning_rate)
+            for name, state in opt_state.items()
+        }
+        return (
+            {name: result[0] for name, result in results.items()},
+            {name: result[1] for name, result in results.items()},
+        )
+    t = opt_state["t"] + 1
+    m = jax.tree_util.tree_map(
+        lambda m_old, g: beta1 * m_old + (1.0 - beta1) * g,
+        opt_state["m"], grads,
+    )
+    v = jax.tree_util.tree_map(
+        lambda v_old, g: beta2 * v_old + (1.0 - beta2) * (g * g),
+        opt_state["v"], grads,
+    )
+    m_hat = jax.tree_util.tree_map(lambda x: x / (1.0 - beta1 ** t), m)
+    v_hat = jax.tree_util.tree_map(lambda x: x / (1.0 - beta2 ** t), v)
+    new_params = jax.tree_util.tree_map(
+        lambda p, mh, vh: p - learning_rate * mh / (jnp.sqrt(vh) + eps_adam),
+        params, m_hat, v_hat,
+    )
+    return new_params, {"m": m, "v": v, "t": t}
 
 
 def learning_step(
@@ -1261,52 +830,17 @@ def learning_step(
         (policy_store_next, value_store_next, policy_opt_next, value_opt_next,
          policy_loss, value_loss, policy_grad_norm, value_grad_norm)
     """
-    beta1 = 0.9
-    beta2 = 0.999
-    eps_adam = 1e-8
-
-    def adam_step(
-        params: Params,
-        grads: Params,
-        opt_state: dict,
-    ) -> tuple[Params, dict]:
-        if "t" not in opt_state:
-            results = {
-                name: adam_step(params[name], grads[name], state)
-                for name, state in opt_state.items()
-            }
-            return (
-                {name: result[0] for name, result in results.items()},
-                {name: result[1] for name, result in results.items()},
-            )
-        t = opt_state["t"] + 1
-        m = jax.tree_util.tree_map(
-            lambda m_old, g: beta1 * m_old + (1.0 - beta1) * g,
-            opt_state["m"], grads,
-        )
-        v = jax.tree_util.tree_map(
-            lambda v_old, g: beta2 * v_old + (1.0 - beta2) * (g * g),
-            opt_state["v"], grads,
-        )
-        m_hat = jax.tree_util.tree_map(lambda x: x / (1.0 - beta1 ** t), m)
-        v_hat = jax.tree_util.tree_map(lambda x: x / (1.0 - beta2 ** t), v)
-        new_params = jax.tree_util.tree_map(
-            lambda p, mh, vh: p - learning_rate * mh / (jnp.sqrt(vh) + eps_adam),
-            params, m_hat, v_hat,
-        )
-        return new_params, {"m": m, "v": v, "t": t}
-
     policy_loss_fn = lambda p: pure_ppo_clip_loss(
         p, policy_fn_log_prob, control_wstates, policy_output, start_log_probs, gaes, epsilon
     )
     policy_loss, policy_grads = jax.value_and_grad(policy_loss_fn)(policy_store)
     policy_grad_norm = pure_gradient_norm(policy_grads)
-    policy_store_next, policy_opt_next = adam_step(policy_store, policy_grads, policy_opt)
+    policy_store_next, policy_opt_next = pure_adam_step(policy_store, policy_grads, policy_opt, learning_rate)
 
     value_loss_fn = lambda v: pure_value_loss(v, value_fn, value_wstates, rtgs)
     value_loss, value_grads = jax.value_and_grad(value_loss_fn)(value_store)
     value_grad_norm = pure_gradient_norm(value_grads)
-    value_store_next, value_opt_next = adam_step(value_store, value_grads, value_opt)
+    value_store_next, value_opt_next = pure_adam_step(value_store, value_grads, value_opt, learning_rate)
 
     return (
         policy_store_next,

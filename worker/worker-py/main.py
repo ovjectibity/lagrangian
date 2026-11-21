@@ -275,6 +275,7 @@ async def handle_connection(
                         training_id=workload_id, training_controller=controller,
                         model_path=model_path, checkpoints=checkpoints,
                         rng_key=jax.random.PRNGKey(0),
+                        s3_bucket=os.environ.get("S3_BUCKET"),
                     )
                     if not stop_event.is_set():
                         workflow.run_training_blocking(

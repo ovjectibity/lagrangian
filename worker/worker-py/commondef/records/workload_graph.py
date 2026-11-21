@@ -189,8 +189,10 @@ class PPOTrainingMethod(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
     num_trajs: int
     num_steps_per_traj: int
+    num_rollouts: int
+    '\n    Independent trajectory collections performed during training.\n    '
     num_epochs: int
-    num_updates: int
+    '\n    Full-batch optimization epochs per rollout (one update each).\n    '
     epsilon: float
     gamma: float
     lambda_: float = Field(alias='lambda')
@@ -260,21 +262,32 @@ class TrainingMethodPPO(BaseModel):
 TrainingMethod = TrainingMethodPPO
 
 class CheckpointFrequencyTypes(str, Enum):
+    POST_ROLLOUT = 'PostRollout'
     POST_EPOCH = 'PostEpoch'
     POST_UPDATE = 'PostUpdate'
     LAST_ONLY = 'LastOnly'
 
+class CheckpointFrequencyPostRollout(BaseModel):
+    type: Literal[CheckpointFrequencyTypes.POST_ROLLOUT] = CheckpointFrequencyTypes.POST_ROLLOUT
+    content: int
+
 class CheckpointFrequencyPostEpoch(BaseModel):
+    """
+    Every N optimization epochs across all rollouts.
+    """
     type: Literal[CheckpointFrequencyTypes.POST_EPOCH] = CheckpointFrequencyTypes.POST_EPOCH
     content: int
 
 class CheckpointFrequencyPostUpdate(BaseModel):
+    """
+    Every N updates; currently one full-batch update per epoch.
+    """
     type: Literal[CheckpointFrequencyTypes.POST_UPDATE] = CheckpointFrequencyTypes.POST_UPDATE
     content: int
 
 class CheckpointFrequencyLastOnly(BaseModel):
     type: Literal[CheckpointFrequencyTypes.LAST_ONLY] = CheckpointFrequencyTypes.LAST_ONLY
-CheckpointFrequency = Union[CheckpointFrequencyPostEpoch, CheckpointFrequencyPostUpdate, CheckpointFrequencyLastOnly]
+CheckpointFrequency = Union[CheckpointFrequencyPostRollout, CheckpointFrequencyPostEpoch, CheckpointFrequencyPostUpdate, CheckpointFrequencyLastOnly]
 
 class TrainingJobController(BaseModel):
     training_method: TrainingMethod
@@ -372,6 +385,7 @@ TestMethodDataset.model_rebuild()
 TestJobController.model_rebuild()
 TestGraph.model_rebuild()
 TrainingMethodPPO.model_rebuild()
+CheckpointFrequencyPostRollout.model_rebuild()
 CheckpointFrequencyPostEpoch.model_rebuild()
 CheckpointFrequencyPostUpdate.model_rebuild()
 CheckpointFrequencyLastOnly.model_rebuild()

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-import base64
-import io
 import logging
 import os
 import zipfile
+from datetime import datetime, timezone
+from uuid import uuid4
 from typing import Any, Callable
 from pathlib import Path
 
@@ -13,9 +13,18 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import orbax.checkpoint as ocp
+from PIL import Image
 
 from commondef.ioadapter import PolicyInputState
-from commondef.records.assets import CheckpointModelType, CheckpointRef
+from commondef.luts import USER_METRICS_LUT, WORKLOAD_STRUCTURE_LUT
+from commondef.records.assets import CheckpointModelType, CheckpointRef, TrajectoryCameraFrameRef
+from commondef.records.workload import (
+    WorkloadLogs, WorkloadUserMetrics, WorkloadSimulationModelTrajectoryState,
+    LogType, LogStream,
+)
+from commondef.remoteworker.remoteworkermessages import (
+    WorkloadUpdates, RemoteWorkerClientMessageTrainingUpdatesMessage,
+)
 from commondef.records.workload_graph import (
     CheckpointFrequencyTypes, ControlOutputModeFlowMatchingAction,
     InputStateItemSensors, InputStateTypes, MLModelMLP, MLModelVLA,
@@ -25,7 +34,8 @@ from workflows.ppo_trainer import PPOTrainer
 from models.mlp import MLPModel
 from models.model import PPOTrainedModel, load_checkpoint, load_reward_function
 from models.pi0.pi0 import Pi0Model
-from simulator.simulator import MjxSimulator, MujocoSimulator
+from simulator.simulator import Simulator, MjxSimulator, MujocoSimulator
+from utils.asset_storage import upload_file
 from simulator.state import SimulatorState
 
 logger = logging.getLogger(__name__)
@@ -33,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 class TrainingTaskSink(ABC):
     @abstractmethod
-    def send_training_updates(self, message: dict[str, Any]) -> None:
+    def send_training_updates(self, message: WorkloadUpdates) -> None:
         pass
 
 class CallbackTrainingTaskSink(TrainingTaskSink):
@@ -45,9 +55,9 @@ class CallbackTrainingTaskSink(TrainingTaskSink):
     def __init__(self, send_message: Callable[[dict[str, Any]], None]) -> None:
         self._send_message = send_message
 
-    def send_training_updates(self, message: dict[str, Any]) -> None:
-        # Outgoing workflow updates retain their existing wire format for now.
-        self._send_message({"type": "TrainingUpdatesMessage", "content": message})
+    def send_training_updates(self, message: WorkloadUpdates) -> None:
+        payload = RemoteWorkerClientMessageTrainingUpdatesMessage(content=message)
+        self._send_message(payload.model_dump(mode="json"))
 
 
 class TrainingWorkflow:
@@ -58,13 +68,43 @@ class TrainingWorkflow:
         model_path: str,
         checkpoints: dict[str, tuple[CheckpointRef, Path]] | None = None,
         rng_key: jax.Array | None = None,
+        s3_bucket: str | None = None,
     ) -> None:
+        if not training_id or training_id in {".", ".."} or any(c in training_id for c in ("/", "\\", "\x00")):
+            raise ValueError("Workload ID must be a single path component")
         self.id = training_id
+        self._asset_root = Path("/tmp/workload_assets") / training_id
+        self._s3_bucket = s3_bucket or os.environ.get("S3_BUCKET")
+        self._last_saved_coordinate: list[int] | None = None
         self.training_controller = training_controller
         self.params: PPOTrainingMethod = training_controller.training_method.content
         self.simulator_state: SimulatorState | None = None
 
         try:
+            if not self._s3_bucket or self._s3_bucket.strip() != self._s3_bucket or any(
+                c in self._s3_bucket for c in ("/", "\\", "?", "#", "\x00")
+            ):
+                raise ValueError("S3_BUCKET must be a bucket name")
+            if min(self.params.num_trajs, self.params.num_steps_per_traj, self.params.num_rollouts, self.params.num_epochs) <= 0:
+                raise ValueError("Training rollout, epoch and trajectory counts must be positive")
+            if not np.isfinite([self.params.epsilon, self.params.gamma, self.params.lambda_]).all():
+                raise ValueError("PPO coefficients must be finite")
+            if self.params.epsilon <= 0 or not 0 <= self.params.gamma <= 1 or not 0 <= self.params.lambda_ <= 1:
+                raise ValueError("Invalid PPO clipping, discount or GAE coefficient")
+            frequency = training_controller.checkpoint_frequency
+            if frequency.type != CheckpointFrequencyTypes.LAST_ONLY and frequency.content <= 0:
+                raise ValueError("Checkpoint frequency must be positive")
+            structures = {
+                tuple(row["workload_state_index_names"]): row["workload_structure_id"]
+                for row in WORKLOAD_STRUCTURE_LUT.values()
+                if row["workload_type"] == "training" and row["method_applicability"] == "ppo"
+            }
+            self._rollout_structure_id = structures[("rollout", "rollout_trajectory", "rollout_trajectory_timestep")]
+            self._update_structure_id = structures[("rollout", "epoch", "minibatch", "trajectory", "trajectory_timestep")]
+            self._metric_definitions = {
+                row["name"]: row for row in USER_METRICS_LUT.values()
+                if row["workload_structure_id"] in (self._rollout_structure_id, self._update_structure_id)
+            }
             root_rng = rng_key if rng_key is not None else jax.random.PRNGKey(0)
             model_rng, workflow_rng = jax.random.split(root_rng)
             self._rng_key, trainer_key = jax.random.split(workflow_rng)
@@ -153,11 +193,9 @@ class TrainingWorkflow:
                     f"Unsupported local training acceleration mode: {mode}"
                 )
 
-            if needs_render_context:
-                if mujoco_model.ncam == 0:
-                    raise ValueError(
-                        "Training input specs request Cameras, but the model has no cameras"
-                    )
+            if needs_render_context and mujoco_model.ncam == 0:
+                raise ValueError("Training input specs request Cameras, but the model has no cameras")
+            if mujoco_model.ncam > 0:
                 simulator_class = self.simulator_state.simulator_class
                 render_ctx = simulator_class.get_render_context(
                     mujoco_model,
@@ -175,7 +213,7 @@ class TrainingWorkflow:
                 model=self.model,
                 num_trajs=self.params.num_trajs,
                 traj_depth=self.params.num_steps_per_traj,
-                num_updates=self.params.num_updates,
+                num_epochs=self.params.num_epochs,
                 epsilon=self.params.epsilon,
                 gamma_lambda=(self.params.gamma, self.params.lambda_),
                 rng_key=trainer_key,
@@ -189,15 +227,9 @@ class TrainingWorkflow:
                 self.trainer.policy_opt["noise"] = noise_optimizer
             if value_optimizer is not None:
                 self.trainer.value_opt = value_optimizer
-            self._ckpt_dir = f"/tmp/checkpoints/{training_id}"
-            os.makedirs(self._ckpt_dir, exist_ok=True)
-            self._checkpointer = ocp.PyTreeCheckpointer()
             logger.info(
-                "TrainingWorkflow initialized: id=%s epochs=%s epsilon=%s "
-                "acceleration=%s",
-                self.id,
-                self.params.num_epochs,
-                self.params.epsilon,
+                "TrainingWorkflow initialized: id=%s rollouts=%s epochs=%s acceleration=%s",
+                self.id, self.params.num_rollouts, self.params.num_epochs,
                 self.training_controller.acceleration_mode,
             )
         except Exception:
@@ -236,6 +268,8 @@ class TrainingWorkflow:
         if not isinstance(params.value_model.model, MLModelMLP):
             raise ValueError("Only MLP value models are supported for training")
         value_mlp = params.value_model.model.content
+        if value_mlp.output_dim != 1:
+            raise ValueError("The value model must output one scalar per state")
 
         if isinstance(control_model.model, MLModelVLA):
             if not isinstance(
@@ -293,213 +327,202 @@ class TrainingWorkflow:
             rng_key=rng_key,
         )
 
-    @staticmethod
-    def log_and_send_blocking(
-        tx: TrainingTaskSink,
-        training_id: str,
-        msg: str,
-    ) -> None:
-        logger.info("training_id=%s %s", training_id, msg)
-        tx.send_training_updates({
-            "id": training_id,
-            "updates": [{
-                "training_run_state": {
-                    "type": "PPOTrainingRunState",
-                    "content": {"epoch_index": 0, "update_index": 0},
-                },
-                "logs": [msg], "metrics": [], "checkpoints": [],
-            }],
-        })
+    def _send_update(self, tx: TrainingTaskSink, **fields: Any) -> None:
+        payload = dict(logs=[], metrics=[], checkpoints=[], camera_frames=[], model_states=[], simulation_models=[])
+        payload.update(fields)
+        tx.send_training_updates(WorkloadUpdates(workload_id=self.id, **payload))
 
-    def _save_and_send_checkpoint(
-        self,
-        tx: TrainingTaskSink,
-        label: str,
-        epoch_index: int,
-        update_index: int,
-    ) -> None:
-        if type(self.model).__name__ == "Pi0Model":
-            logger.info(
-                "Checkpoint skipped for Pi-0 workload: training_id=%s label=%s",
-                self.id,
-                label,
-            )
+    def _log(self, tx: TrainingTaskSink, text: str) -> None:
+        now = datetime.now(timezone.utc)
+        self._send_update(tx, logs=[WorkloadLogs(
+            workload_id=self.id, created_at=now, log_timestamp=now,
+            log_id=str(uuid4()), log_line_text=text, user_facing=True,
+            log_type=LogType.INFO, stream=LogStream.WORKER,
+        )])
+
+    def _metric(self, name: str, coordinate: list[int], value: float) -> WorkloadUserMetrics:
+        definition = self._metric_definitions[name]
+        if not np.isfinite(value):
+            raise ValueError(f"Non-finite training metric: {name}")
+        structure = WORKLOAD_STRUCTURE_LUT[definition["workload_structure_id"]]
+        excluded = set(definition["aggregation_indices"]) | set(definition["na_indices"])
+        dimensions = structure["number_of_state_indices"] - len(excluded)
+        if len(coordinate) != dimensions:
+            raise ValueError(f"Metric coordinates do not match the LUT: {name}")
+        return WorkloadUserMetrics(
+            metrics_entry_id=str(uuid4()), created_at=datetime.now(timezone.utc),
+            workload_id=self.id, metric_id=definition["metric_id"],
+            workload_structure_state_values=[coordinate], metric_values=[value],
+        )
+
+    def _asset_uri(self, key: str) -> str:
+        return f"s3://{self._s3_bucket}/worker/{self.id}/{key}"
+
+    def _save_checkpoints(self, tx: TrainingTaskSink, coordinate: list[int]) -> None:
+        if coordinate == self._last_saved_coordinate:
             return
-        base = os.path.join(self._ckpt_dir, label)
-        self._checkpointer.save(os.path.join(base, "policy"),     self.model.get_policy_store())
-        self._checkpointer.save(os.path.join(base, "value"),      self.model.get_value_store())
-        self._checkpointer.save(os.path.join(base, "policy_opt"), self.trainer.policy_opt)
-        self._checkpointer.save(os.path.join(base, "value_opt"),  self.trainer.value_opt)
-        logger.info("Checkpoint saved: training_id=%s label=%s", self.id, label)
+        policy = self.model.get_policy_store()
+        vla = isinstance(self.params.control_model.model, MLModelVLA)
+        components = [
+            (CheckpointModelType.POLICY, self.params.control_model.model,
+             policy["pi0"] if vla else policy,
+             self.trainer.policy_opt["pi0"] if vla else self.trainer.policy_opt),
+            (CheckpointModelType.VALUE, self.params.value_model.model,
+             self.model.get_value_store(), self.trainer.value_opt),
+        ]
+        if vla:
+            noise = self.params.control_output_mode.content.content.noise_model
+            components.append((CheckpointModelType.FLOWNOISE, MLModelMLP(content=noise),
+                               policy["noise"], self.trainer.policy_opt["noise"]))
+        refs = []
+        with ocp.PyTreeCheckpointer() as checkpointer:
+            for role, spec, weights, optimizer in components:
+                checkpoint_id = str(uuid4())
+                directory = self._asset_root / "checkpoints" / checkpoint_id
+                directory.mkdir(parents=True)
+                checkpointer.save(str(directory / "weights"), weights)
+                checkpointer.save(str(directory / "optimizer"), optimizer)
+                filename = f"cp_{checkpoint_id}.zip"
+                path = directory / filename
+                with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for root in (directory / "weights", directory / "optimizer"):
+                        for file in sorted(root.rglob("*")):
+                            if file.is_file():
+                                archive.write(file, file.relative_to(directory))
+                uri = self._asset_uri(f"checkpoints/{checkpoint_id}/{filename}")
+                upload_file(path, uri)
+                now = datetime.now(timezone.utc)
+                refs.append(CheckpointRef(
+                    checkpoint_id=checkpoint_id, created_at=now, updated_at=now,
+                    name=f"{role.value} rollout {coordinate[0]} epoch {coordinate[1]}",
+                    uri_path=uri, workload_id=self.id,
+                    workload_structure_id=self._update_structure_id,
+                    workload_structure_state=coordinate, model_type=role, model_spec=spec,
+                ))
+        # Publish the set only after every component was saved and uploaded.
+        self._send_update(tx, checkpoints=refs)
+        self._last_saved_coordinate = coordinate.copy()
 
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for dirpath, _, filenames in os.walk(base):
-                for fname in filenames:
-                    fpath = os.path.join(dirpath, fname)
-                    zf.write(fpath, arcname=os.path.relpath(fpath, base))
-        model_zip_base64 = base64.b64encode(buf.getvalue()).decode()
-
-        tx.send_training_updates({
-            "id": self.id,
-            "updates": [{
-                "training_run_state": {
-                    "type": "PPOTrainingRunState",
-                    "content": {"epoch_index": epoch_index, "update_index": update_index},
-                },
-                "logs": [], "metrics": [],
-                "checkpoints": [{"model_zip_base64": model_zip_base64}],
-            }],
-        })
-        logger.info("Checkpoint sent: training_id=%s epoch=%s update=%s", self.id, epoch_index, update_index)
+    def _publish_rollout_batch(
+        self, tx: TrainingTaskSink, rollout: int, start: int,
+        positions: np.ndarray, quaternions: np.ndarray, frames: np.ndarray | None,
+    ) -> None:
+        model = self.simulator_state.mujoco_model
+        if positions.ndim != 4 or positions.shape[1:] != (self.params.num_trajs, int(model.nbody), 3):
+            raise ValueError("Training poses do not match the model or trajectory count")
+        steps, environments = positions.shape[:2]
+        if quaternions.shape != (steps, environments, int(model.nbody), 4):
+            raise ValueError("Training quaternions do not match the pose batch")
+        if frames is not None:
+            if frames.ndim != 6 or frames.shape[:3] != (steps, environments, int(model.ncam)) or frames.shape[-1] != 3:
+                raise ValueError("Training cameras do not match the pose batch")
+            if not np.isfinite(frames).all():
+                raise ValueError("Training camera frames must be finite")
+            if frames.dtype != np.uint8:
+                frames = (np.clip(frames, 0, 1) * 255).round().astype(np.uint8)
+        elif int(model.ncam):
+            raise ValueError("Training camera frames are missing")
+        states, camera_refs = [], []
+        directory = self._asset_root / "cameras"
+        if frames is not None:
+            directory.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc)
+        for timestep in range(steps):
+            for environment in range(environments):
+                coordinate = [rollout, environment, start + timestep]
+                states.append(WorkloadSimulationModelTrajectoryState(
+                    created_at=now, sim_model_state_entry_id=str(uuid4()),
+                    workload_id=self.id, workload_structure_id=self._rollout_structure_id,
+                    workload_structure_state=coordinate,
+                    simulation_model_id=self.params.simulation_model_id,
+                    state=Simulator.get_world_body(model, positions[timestep, environment], quaternions[timestep, environment]),
+                ))
+                if frames is None:
+                    continue
+                for camera, frame in enumerate(frames[timestep, environment]):
+                    frame_id = str(uuid4())
+                    filename = f"cf_{frame_id}.png"
+                    path = directory / filename
+                    Image.fromarray(frame).save(path, format="PNG")
+                    uri = self._asset_uri(f"cameras/{filename}")
+                    upload_file(path, uri)
+                    camera_refs.append(TrajectoryCameraFrameRef(
+                        camera_frame_id=frame_id, workload_id=self.id,
+                        workload_structure_id=self._rollout_structure_id,
+                        workload_structure_state=coordinate, camera_id=str(camera),
+                        model_camera_name=model.camera(camera).name or "", uri_path=uri,
+                        simulation_model_id=self.params.simulation_model_id,
+                    ))
+        self._send_update(tx, camera_frames=camera_refs, model_states=states)
 
     def run_training_blocking(
-        self,
-        tx: TrainingTaskSink,
-        should_stop: Callable[[], bool] | None = None,
+        self, tx: TrainingTaskSink, should_stop: Callable[[], bool] | None = None,
     ) -> None:
         try:
             self._run_training_blocking(tx, should_stop)
         finally:
-            # Cleanup runs in the same worker thread as training, so an
-            # asyncio cancellation cannot close a renderer still in use.
             self.close()
 
     def _run_training_blocking(
-        self,
-        tx: TrainingTaskSink,
-        should_stop: Callable[[], bool] | None = None,
+        self, tx: TrainingTaskSink, should_stop: Callable[[], bool] | None = None,
     ) -> None:
-        simulator_state = self.simulator_state
-        if simulator_state is None:
+        if self.simulator_state is None:
             raise RuntimeError("Training simulator state is not initialized")
-        use_gpu = (
-            self.training_controller.acceleration_mode
-            == TrainingAccelerationMode.MLGPUSIMULATIONGPU
-        )
-        logger.info("Training run started: id=%s use_gpu=%s", self.id, use_gpu)
-
-        last_epoch_run = -1
-        for i in range(self.params.num_epochs):
-            if should_stop is not None and should_stop():
-                logger.info("Training run stop requested: id=%s epoch=%s", self.id, i)
+        stopped = lambda: should_stop is not None and should_stop()
+        frequency = self.training_controller.checkpoint_frequency
+        use_gpu = self.simulator_state.simulator_class is MjxSimulator
+        self._log(tx, "Training started")
+        last_coordinate = None
+        completed = False
+        for rollout in range(self.params.num_rollouts):
+            if stopped():
                 break
-            last_epoch_run = i
-            self.log_and_send_blocking(
-                tx,
-                self.id,
-                f"Running the training epoch {i}",
+            self._log(tx, f"Collecting rollout {rollout}")
+            record = lambda start, positions, quaternions, frames: self._publish_rollout_batch(
+                tx, rollout, start, positions, quaternions, frames,
             )
-
-            freq = self.training_controller.checkpoint_frequency
-
             if use_gpu:
-                logger.info("Getting trajectories for epoch=%s",i)
-                self._rng_key, epoch_rng = jax.random.split(self._rng_key)
-                control_wstates, value_wstates, model_outputs, action_samples, rewards = (
-                    self.trainer.gen_trajectories_gpu(
-                        self.params.num_trajs,
-                        simulator_state,
-                        epoch_rng,
-                    )
+                self._rng_key, rollout_rng = jax.random.split(self._rng_key)
+                trajectories = self.trainer.gen_trajectories_gpu(
+                    self.params.num_trajs, self.simulator_state, rollout_rng, record, should_stop,
                 )
-                logger.info("Got trajectories for epoch=%s. Training the epoch now",i)
-                runtime_info = self.trainer.train_an_epoch_gpu(
-                    control_wstates, value_wstates, model_outputs, action_samples, rewards
-                )
-                logger.info("Trained the epoch=%s. ",i)
-                mean_entropy = (
-                    float(jnp.mean(model_outputs["policy_entropy"]))
-                    if "policy_entropy" in model_outputs else None
-                )
-                mean_reward = float(jnp.mean(jnp.sum(rewards, axis=-1)))
-                # PostUpdate on GPU: save after the scan completes if num_updates is a multiple of n
-                if (
-                    freq.type == CheckpointFrequencyTypes.POST_UPDATE
-                    and self.params.num_updates % freq.content == 0
-                ):
-                    self._save_and_send_checkpoint(
-                        tx,
-                        label=f"epoch_{i}_updates",
-                        epoch_index=i,
-                        update_index=self.params.num_updates - 1,
-                    )
             else:
-                def _post_update_cb(update_idx: int) -> None:
-                    if (update_idx + 1) % freq.content == 0:
-                        self._save_and_send_checkpoint(
-                            tx,
-                            label=f"epoch_{i}_update_{update_idx}",
-                            epoch_index=i,
-                            update_index=update_idx,
-                        )
-
-                post_update_callback = (
-                    _post_update_cb
-                    if freq.type == CheckpointFrequencyTypes.POST_UPDATE
-                    else None
+                trajectories = self.trainer.gen_trajectories(
+                    self.params.num_trajs, self.simulator_state, record, should_stop,
                 )
-                trajs = self.trainer.gen_trajectories(
-                    self.params.num_trajs,
-                    simulator_state,
-                )
-                runtime_info = self.trainer.train_an_epoch(trajs, post_update_callback)
-                mean_entropy = self.trainer.get_rollout_mean_entropy(trajs)
-                mean_reward = self.trainer.get_rollout_mean_reward(trajs)
+            if not trajectories or stopped():
+                break
+            metrics = [self._metric(
+                "Mean rollout reward", [rollout], self.trainer.get_rollout_mean_reward(trajectories),
+            )]
+            entropy = self.trainer.get_rollout_mean_entropy(trajectories)
+            if entropy is not None:
+                metrics.append(self._metric("Mean rollout policy entropy", [rollout], entropy))
+            self._send_update(tx, metrics=metrics)
 
-            if (
-                freq.type == CheckpointFrequencyTypes.POST_EPOCH
-                and (i + 1) % freq.content == 0
-            ):
-                self._save_and_send_checkpoint(
-                    tx,
-                    label=f"epoch_{i}",
-                    epoch_index=i,
-                    update_index=self.params.num_updates - 1,
-                )
-            logger.info(
-                "Epoch completed: id=%s epoch=%s mean_reward=%.6f mean_entropy=%s",
-                self.id,
-                i,
-                mean_reward,
-                mean_entropy,
-            )
+            def post_epoch(epoch: int, stats: tuple[float, ...]) -> None:
+                nonlocal last_coordinate
+                last_coordinate = [rollout, epoch, 0]
+                policy_loss, value_loss, policy_norm, value_norm = stats
+                self._send_update(tx, metrics=[
+                    self._metric("PPO clip objective", last_coordinate, -policy_loss),
+                    self._metric("Mean value loss", last_coordinate, value_loss),
+                    self._metric("Policy gradient norm", last_coordinate, policy_norm),
+                    self._metric("Value gradient norm", last_coordinate, value_norm),
+                ])
+                # One minibatch/update per epoch makes these two cadences identical.
+                ordinal = rollout * self.params.num_epochs + epoch + 1
+                if frequency.type in (
+                    CheckpointFrequencyTypes.POST_EPOCH, CheckpointFrequencyTypes.POST_UPDATE,
+                ) and ordinal % frequency.content == 0:
+                    self._save_checkpoints(tx, last_coordinate)
 
-            # Preserve the legacy outgoing metrics until the output-contract pass.
-            num_updates = len(runtime_info.mean_policy_loss())
-            update_steps = [float(i * num_updates + u) for u in range(num_updates)]
-            metrics = [
-                {"type": name, "content": {"x_axis": xs, "y_axis": ys}}
-                for name, xs, ys in (
-                    ("MeanReward", [float(i)], [mean_reward]),
-                    ("MeanPolicyLoss", update_steps, list(runtime_info.mean_policy_loss())),
-                    ("ValueLoss", update_steps, list(runtime_info.mean_value_loss())),
-                    ("PolicyGradientNorm", update_steps, list(runtime_info.policy_gradient_norm())),
-                    ("ValueGradientNorm", update_steps, list(runtime_info.value_gradient_norm())),
-                )
-            ]
-            if mean_entropy is not None:
-                metrics.insert(0, {
-                    "type": "MeanEntropy",
-                    "content": {"x_axis": [float(i)], "y_axis": [mean_entropy]},
-                })
-            tx.send_training_updates({
-                "id": self.id,
-                "updates": [{
-                    "training_run_state": {
-                        "type": "PPOTrainingRunState",
-                        "content": {"epoch_index": i, "update_index": num_updates - 1},
-                    },
-                    "logs": [], "metrics": metrics, "checkpoints": [],
-                }],
-            })
-
-        if freq.type == CheckpointFrequencyTypes.LAST_ONLY and last_epoch_run >= 0:
-            self._save_and_send_checkpoint(
-                tx,
-                label="last",
-                epoch_index=last_epoch_run,
-                update_index=self.params.num_updates - 1,
-            )
-
-        logger.info("Training run finished: id=%s", self.id)
+            diagnostics = self.trainer.train_rollout(trajectories, post_epoch, should_stop)
+            if len(diagnostics.mean_policy_loss()) != self.params.num_epochs:
+                break
+            if frequency.type == CheckpointFrequencyTypes.POST_ROLLOUT and (rollout + 1) % frequency.content == 0:
+                self._save_checkpoints(tx, last_coordinate)
+            completed = rollout == self.params.num_rollouts - 1
+        if completed and not stopped() and frequency.type == CheckpointFrequencyTypes.LAST_ONLY and last_coordinate is not None:
+            self._save_checkpoints(tx, last_coordinate)
+        self._log(tx, "Training stopped" if stopped() else "Training completed")
